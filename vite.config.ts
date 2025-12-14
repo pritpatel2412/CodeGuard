@@ -7,18 +7,17 @@ const isReplit =
   process.env.REPL_ID !== undefined &&
   process.env.NODE_ENV !== "production";
 
-export default defineConfig({
+export default defineConfig(async () => ({
   root: path.resolve(import.meta.dirname, "client"),
 
   plugins: [
     react(),
     runtimeErrorOverlay(),
 
-    // ✅ Replit-only plugins (disabled on Vercel)
     ...(isReplit
       ? [
-          require("@replit/vite-plugin-cartographer").cartographer(),
-          require("@replit/vite-plugin-dev-banner").devBanner(),
+          (await import("@replit/vite-plugin-cartographer")).cartographer(),
+          (await import("@replit/vite-plugin-dev-banner")).devBanner(),
         ]
       : []),
   ],
@@ -32,7 +31,6 @@ export default defineConfig({
   },
 
   build: {
-    // ✅ IMPORTANT: build directly to dist
     outDir: path.resolve(import.meta.dirname, "dist"),
     emptyOutDir: true,
   },
@@ -43,4 +41,4 @@ export default defineConfig({
       deny: ["**/.*"],
     },
   },
-});
+}));
