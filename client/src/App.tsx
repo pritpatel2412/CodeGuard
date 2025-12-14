@@ -13,16 +13,26 @@ import ReviewDetail from "@/pages/review-detail";
 import Repositories from "@/pages/repositories";
 import Analytics from "@/pages/analytics";
 import Settings from "@/pages/settings";
+import Terms from "@/pages/terms";
+import Privacy from "@/pages/privacy";
+import Developer from "@/pages/developer";
+import AuthPage from "@/pages/auth-page";
+import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { ProtectedRoute } from "@/lib/protected-route";
 
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/reviews" component={Reviews} />
-      <Route path="/reviews/:id" component={ReviewDetail} />
-      <Route path="/repositories" component={Repositories} />
-      <Route path="/analytics" component={Analytics} />
-      <Route path="/settings" component={Settings} />
+      <ProtectedRoute path="/" component={Dashboard} />
+      <ProtectedRoute path="/reviews" component={Reviews} />
+      <ProtectedRoute path="/reviews/:id" component={ReviewDetail} />
+      <ProtectedRoute path="/repositories" component={Repositories} />
+      <ProtectedRoute path="/analytics" component={Analytics} />
+      <ProtectedRoute path="/settings" component={Settings} />
+      <Route path="/terms" component={Terms} />
+      <Route path="/privacy" component={Privacy} />
+      <Route path="/developer" component={Developer} />
+      <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -36,23 +46,25 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <SidebarProvider style={style as React.CSSProperties}>
-          <div className="flex h-screen w-full">
-            <AppSidebar />
-            <div className="flex flex-col flex-1 overflow-hidden">
-              <header className="flex items-center justify-between gap-2 p-3 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                <SidebarTrigger data-testid="button-sidebar-toggle" />
-                <ThemeToggle />
-              </header>
-              <main className="flex-1 overflow-auto">
-                <Router />
-              </main>
+      <AuthProvider>
+        <TooltipProvider>
+          <SidebarProvider style={style as React.CSSProperties}>
+            <div className="flex h-screen w-full">
+              <AppSidebar />
+              <div className="flex flex-col flex-1 overflow-hidden">
+                <header className="flex items-center justify-between gap-2 p-3 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                  <SidebarTrigger data-testid="button-sidebar-toggle" />
+                  <ThemeToggle />
+                </header>
+                <main className="flex-1 overflow-auto">
+                  <Router />
+                </main>
+              </div>
             </div>
-          </div>
-        </SidebarProvider>
-        <Toaster />
-      </TooltipProvider>
+          </SidebarProvider>
+          <Toaster />
+        </TooltipProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

@@ -241,9 +241,7 @@ export default function Settings() {
               <Badge variant="outline" className="text-green-600 dark:text-green-400">
                 Connected
               </Badge>
-              <span className="text-sm text-muted-foreground">
-                via Replit Connector
-              </span>
+              
             </div>
           </div>
         </CardContent>

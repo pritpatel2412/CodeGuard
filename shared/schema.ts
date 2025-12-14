@@ -13,6 +13,7 @@ export const repositories = pgTable("repositories", {
   platform: text("platform").notNull().default("github"),
   webhookSecret: text("webhook_secret"),
   isActive: boolean("is_active").notNull().default(true),
+  userId: varchar("user_id").references(() => users.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -142,12 +143,18 @@ export type AIReviewResponse = z.infer<typeof aiReviewResponseSchema>;
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+  password: text("password"),
+  githubId: text("github_id").unique(),
+  avatarUrl: text("avatar_url"),
+  accessToken: text("access_token"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
+  githubId: true,
+  avatarUrl: true,
+  accessToken: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

@@ -1,5 +1,7 @@
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { setupAuth } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
@@ -9,6 +11,17 @@ const httpServer = createServer(app);
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
+  }
+}
+
+declare global {
+  namespace Express {
+    interface User {
+      id: string;
+      username: string;
+      githubId?: string;
+      avatarUrl?: string;
+    }
   }
 }
 
@@ -60,6 +73,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  setupAuth(app);
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -86,11 +100,8 @@ app.use((req, res, next) => {
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
+    port,
+    "0.0.0.0",
     () => {
       log(`serving on port ${port}`);
     },

@@ -28,11 +28,20 @@ export function RepositoryCard({
   onDelete 
 }: RepositoryCardProps) {
   const [copied, setCopied] = useState(false);
+  const [copiedSecret, setCopiedSecret] = useState(false);
 
   const copyWebhookUrl = async () => {
     await navigator.clipboard.writeText(webhookUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const copyWebhookSecret = async () => {
+    if (repository.webhookSecret) {
+      await navigator.clipboard.writeText(repository.webhookSecret);
+      setCopiedSecret(true);
+      setTimeout(() => setCopiedSecret(false), 2000);
+    }
   };
 
   const PlatformIcon = repository.platform === "gitlab" ? SiGitlab : SiGithub;
@@ -65,27 +74,56 @@ export function RepositoryCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <label className="text-xs font-medium text-muted-foreground">
-            Webhook URL
-          </label>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 p-2 text-xs bg-muted rounded-md font-mono truncate">
-              {webhookUrl}
-            </code>
-            <Button
-              size="icon"
-              variant="outline"
-              onClick={copyWebhookUrl}
-              data-testid={`button-copy-webhook-${repository.id}`}
-            >
-              {copied ? (
-                <Check className="h-4 w-4 text-green-600" />
-              ) : (
-                <Copy className="h-4 w-4" />
-              )}
-            </Button>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground">
+              Webhook URL
+            </label>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 p-2 text-xs bg-muted rounded-md font-mono truncate">
+                {webhookUrl}
+              </code>
+              <Button
+                size="icon"
+                variant="outline"
+                onClick={copyWebhookUrl}
+                data-testid={`button-copy-webhook-${repository.id}`}
+              >
+                {copied ? (
+                  <Check className="h-4 w-4 text-green-600" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
           </div>
+          {repository.webhookSecret && (
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                Webhook Secret
+                <span className="ml-1 text-xs text-muted-foreground">
+                  (Configure this in GitHub webhook settings)
+                </span>
+              </label>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 p-2 text-xs bg-muted rounded-md font-mono truncate">
+                  {repository.webhookSecret}
+                </code>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={copyWebhookSecret}
+                  data-testid={`button-copy-secret-${repository.id}`}
+                >
+                  {copiedSecret ? (
+                    <Check className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
         <div className="flex items-center justify-between pt-2 border-t">
           <span className="text-xs text-muted-foreground">

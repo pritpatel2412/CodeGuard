@@ -24,12 +24,12 @@ function verifyWebhookSignature(payload: string, signature: string | undefined, 
   if (!signature) {
     return false;
   }
-  
+
   const expectedSignature = 'sha256=' + crypto
     .createHmac('sha256', secret)
     .update(payload)
     .digest('hex');
-  
+
   try {
     return crypto.timingSafeEqual(
       Buffer.from(signature),
@@ -44,13 +44,14 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
+
   // ============= REPOSITORIES =============
-  
+
   // Get all repositories
   app.get("/api/repositories", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
-      const repos = await storage.getRepositories();
+      const repos = await storage.getRepositories(req.user!.id);
       res.json(repos);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -72,23 +73,35 @@ export async function registerRoutes(
 
   // Create repository
   app.post("/api/repositories", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
       // Validate request body
       const parsed = createRepositorySchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ 
-          error: "Validation failed", 
-          details: parsed.error.errors 
+        return res.status(400).json({
+          error: "Validation failed",
+          details: parsed.error.errors
         });
       }
-      
+
       const { owner, name, platform } = parsed.data;
       const fullName = `${owner}/${name}`;
-      
+
       // Check if already exists
       const existing = await storage.getRepositoryByFullName(fullName);
       if (existing) {
-        return res.status(400).json({ error: "Repository already connected" });
+        // If the repository exists but has no user assigned (orphaned), claim it for the current user
+        if (!existing.userId) {
+          const updated = await storage.updateRepository(existing.id, { userId: req.user!.id });
+          return res.status(200).json(updated);
+        }
+
+        // If it belongs to the current user, return it (idempotent)
+        if (existing.userId === req.user!.id) {
+          return res.status(200).json(existing);
+        }
+
+        return res.status(400).json({ error: "Repository already connected by another user" });
       }
 
       const repo = await storage.createRepository({
@@ -97,8 +110,9 @@ export async function registerRoutes(
         owner,
         platform,
         isActive: true,
+        userId: req.user!.id,
       });
-      
+
       res.status(201).json(repo);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -111,12 +125,12 @@ export async function registerRoutes(
       // Validate request body
       const parsed = updateRepositorySchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ 
-          error: "Validation failed", 
-          details: parsed.error.errors 
+        return res.status(400).json({
+          error: "Validation failed",
+          details: parsed.error.errors
         });
       }
-      
+
       const repo = await storage.updateRepository(req.params.id, parsed.data);
       if (!repo) {
         return res.status(404).json({ error: "Repository not found" });
@@ -145,8 +159,9 @@ export async function registerRoutes(
 
   // Get all reviews
   app.get("/api/reviews", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
-      const reviews = await storage.getReviews();
+      const reviews = await storage.getReviews(req.user!.id);
       res.json(reviews);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -160,10 +175,10 @@ export async function registerRoutes(
       if (!review) {
         return res.status(404).json({ error: "Review not found" });
       }
-      
+
       const comments = await storage.getReviewComments(review.id);
       const repository = await storage.getRepository(review.repositoryId);
-      
+
       res.json({ review, comments, repository });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -173,8 +188,9 @@ export async function registerRoutes(
   // ============= STATS =============
 
   app.get("/api/stats", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
-      const stats = await storage.getStats();
+      const stats = await storage.getStats(req.user!.id);
       res.json(stats);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -197,14 +213,31 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Repository not found" });
       }
 
+      // Get raw body for signature verification
+      // req.rawBody is set by express.json() middleware verify function
+      // Type assertion needed because rawBody is added via module augmentation in server/index.ts
+      const rawBodyBuffer = (req as any).rawBody as Buffer | undefined;
+      const rawBody = rawBodyBuffer
+        ? rawBodyBuffer.toString('utf8')
+        : JSON.stringify(payload);
+
       // Verify webhook signature if secret is configured
       if (repo.webhookSecret) {
-        const rawBody = JSON.stringify(payload);
         const isValid = verifyWebhookSignature(rawBody, signature, repo.webhookSecret);
         if (!isValid) {
           console.error("Invalid webhook signature for repository:", repositoryId);
+          console.error("Expected signature format: sha256=...");
+          console.error("Received signature:", signature);
           return res.status(401).json({ error: "Invalid webhook signature" });
         }
+      }
+
+      // Handle ping event (GitHub sends this when webhook is first created)
+      if (event === "ping") {
+        return res.status(200).json({
+          message: "Webhook configured successfully",
+          repository: repo.fullName
+        });
       }
 
       // Only handle pull request events
@@ -250,7 +283,7 @@ export async function registerRoutes(
 
       // Check if we already have a review for this PR
       let review = await storage.getReviewByPR(repositoryId, prNumber);
-      
+
       if (review && action === "synchronize") {
         // Update existing review status to pending for re-analysis
         await storage.updateReview(review.id, { status: "pending" });
@@ -278,7 +311,7 @@ export async function registerRoutes(
         diff = await getPullRequestDiff(owner, repoName, prNumber);
       } catch (error: any) {
         console.error("Failed to get PR diff:", error.message);
-        await storage.updateReview(review.id, { 
+        await storage.updateReview(review.id, {
           status: "failed",
           summary: "Failed to fetch PR diff: " + error.message
         });
@@ -291,7 +324,7 @@ export async function registerRoutes(
         analysis = await analyzeCodeDiff(diff, prTitle);
       } catch (error: any) {
         console.error("OpenAI analysis failed:", error.message);
-        await storage.updateReview(review.id, { 
+        await storage.updateReview(review.id, {
           status: "failed",
           summary: "AI analysis failed: " + error.message
         });
@@ -328,9 +361,9 @@ export async function registerRoutes(
             readability: "Readability",
             maintainability: "Maintainability",
           };
-          
+
           const commentBody = `**[${typeEmoji[comment.type] || comment.type}]** ${comment.comment}`;
-          
+
           await postReviewComment(
             owner,
             repoName,
@@ -340,7 +373,7 @@ export async function registerRoutes(
             comment.line,
             commentBody
           );
-          
+
           await storage.updateReviewComment(savedComment.id, { isPosted: true });
         } catch (error: any) {
           console.error("Failed to post comment:", error.message);
@@ -379,7 +412,7 @@ ${Object.entries(commentsByType).map(([type, count]) => `- ${type}: ${count}`).j
         }
       }
 
-      res.status(200).json({ 
+      res.status(200).json({
         message: "Review completed",
         reviewId: review.id,
         riskLevel: analysis.risk_level,
@@ -394,7 +427,7 @@ ${Object.entries(commentsByType).map(([type, count]) => `- ${type}: ${count}`).j
 
   // GitLab webhook endpoint (placeholder for future implementation)
   app.post("/api/webhooks/gitlab/:repositoryId", async (req, res) => {
-    res.status(501).json({ 
+    res.status(501).json({
       error: "GitLab webhook support coming soon",
       message: "This endpoint is reserved for GitLab merge request webhooks"
     });

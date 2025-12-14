@@ -3,16 +3,21 @@ import { Octokit } from '@octokit/rest';
 let connectionSettings: any;
 
 async function getAccessToken() {
+  // Prefer a user-provided GitHub token when running outside Replit.
+  if (process.env.GITHUB_TOKEN) {
+    return process.env.GITHUB_TOKEN;
+  }
+
   if (connectionSettings && connectionSettings.settings.expires_at && new Date(connectionSettings.settings.expires_at).getTime() > Date.now()) {
     return connectionSettings.settings.access_token;
   }
-  
+
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  const xReplitToken = process.env.REPL_IDENTITY 
-    ? 'repl ' + process.env.REPL_IDENTITY 
-    : process.env.WEB_REPL_RENEWAL 
-    ? 'depl ' + process.env.WEB_REPL_RENEWAL 
-    : null;
+  const xReplitToken = process.env.REPL_IDENTITY
+    ? 'repl ' + process.env.REPL_IDENTITY
+    : process.env.WEB_REPL_RENEWAL
+      ? 'depl ' + process.env.WEB_REPL_RENEWAL
+      : null;
 
   if (!xReplitToken) {
     throw new Error('X_REPLIT_TOKEN not found for repl/depl');
@@ -38,15 +43,15 @@ async function getAccessToken() {
 
 // WARNING: Never cache this client.
 // Access tokens expire, so a new client must be created each time.
-export async function getUncachableGitHubClient() {
-  const accessToken = await getAccessToken();
-  return new Octokit({ auth: accessToken });
+export async function getUncachableGitHubClient(accessToken?: string) {
+  const token = accessToken || await getAccessToken();
+  return new Octokit({ auth: token });
 }
 
 // Fetch PR diff from GitHub
 export async function getPullRequestDiff(owner: string, repo: string, prNumber: number): Promise<string> {
   const octokit = await getUncachableGitHubClient();
-  
+
   const response = await octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', {
     owner,
     repo,
@@ -55,20 +60,20 @@ export async function getPullRequestDiff(owner: string, repo: string, prNumber: 
       accept: 'application/vnd.github.v3.diff'
     }
   });
-  
+
   return response.data as unknown as string;
 }
 
 // Get PR details
 export async function getPullRequestDetails(owner: string, repo: string, prNumber: number) {
   const octokit = await getUncachableGitHubClient();
-  
+
   const { data } = await octokit.pulls.get({
     owner,
     repo,
     pull_number: prNumber,
   });
-  
+
   return data;
 }
 
@@ -83,7 +88,7 @@ export async function postReviewComment(
   body: string
 ) {
   const octokit = await getUncachableGitHubClient();
-  
+
   try {
     await octokit.pulls.createReviewComment({
       owner,
@@ -109,7 +114,7 @@ export async function postReview(
   event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES' = 'COMMENT'
 ) {
   const octokit = await getUncachableGitHubClient();
-  
+
   await octokit.pulls.createReview({
     owner,
     repo,
