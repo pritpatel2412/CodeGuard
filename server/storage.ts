@@ -12,8 +12,8 @@ import {
   type User,
   type InsertUser,
   type Stats
-} from "@shared/schema";
-import { db } from "./db";
+} from "../shared/schema.js";
+import { db } from "./db.js";
 import { eq, desc, sql, and, gte } from "drizzle-orm";
 import { randomUUID } from "crypto";
 

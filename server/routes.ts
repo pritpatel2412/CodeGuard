@@ -1,9 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
-import { insertRepositorySchema, insertReviewSchema, insertReviewCommentSchema } from "@shared/schema";
-import { getPullRequestDiff, getPullRequestDetails, postReviewComment, postReview } from "./github";
-import { analyzeCodeDiff } from "./openai";
+import { storage } from "./storage.js";
+import { insertRepositorySchema, insertReviewSchema, insertReviewCommentSchema } from "../shared/schema.js";
+import { getPullRequestDiff, getPullRequestDetails, postReviewComment, postReview } from "./github.js";
+import { analyzeCodeDiff } from "./openai.js";
 import { z } from "zod";
 import crypto from "crypto";
 

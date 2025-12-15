@@ -1,6 +1,6 @@
-import { app } from "../server/app";
-import { registerRoutes } from "../server/routes";
-import { setupAuth } from "../server/auth";
+import { app } from "../server/app.js";
+import { registerRoutes } from "../server/routes.js";
+import { setupAuth } from "../server/auth.js";
 import { createServer } from "http";
 
 // Need to setup auth and routes

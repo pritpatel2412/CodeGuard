@@ -3,8 +3,8 @@ import { Strategy as GitHubStrategy } from "passport-github2";
 import { Express } from "express";
 import session from "express-session";
 import createMemoryStore from "memorystore";
-import { storage } from "./storage";
-import { User } from "@shared/schema";
+import { storage } from "./storage.js";
+import { User } from "../shared/schema.js";
 
 export function setupAuth(app: Express) {
     const MemoryStore = createMemoryStore(session);

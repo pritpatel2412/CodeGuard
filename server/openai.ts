@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { type AIReviewResponse, aiReviewResponseSchema } from "@shared/schema";
+import { type AIReviewResponse, aiReviewResponseSchema } from "../shared/schema.js";
 
 // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -47,18 +47,18 @@ async function withRetry<T>(
   baseDelayMs: number = 1000
 ): Promise<T> {
   let lastError: Error | undefined;
-  
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       return await fn();
     } catch (error: any) {
       lastError = error;
-      
+
       // Don't retry on authentication or validation errors
       if (error.status === 401 || error.status === 400) {
         throw error;
       }
-      
+
       // Wait with exponential backoff before retrying
       if (attempt < maxRetries - 1) {
         const delay = baseDelayMs * Math.pow(2, attempt);
@@ -67,14 +67,14 @@ async function withRetry<T>(
       }
     }
   }
-  
+
   throw lastError;
 }
 
 export async function analyzeCodeDiff(diff: string, prTitle: string): Promise<AIReviewResponse> {
   // Truncate diff if too long (roughly 100k characters)
   const maxDiffLength = 100000;
-  const truncatedDiff = diff.length > maxDiffLength 
+  const truncatedDiff = diff.length > maxDiffLength
     ? diff.substring(0, maxDiffLength) + "\n\n[Diff truncated due to size]"
     : diff;
 
@@ -120,18 +120,18 @@ Analyze the changes and provide your review in JSON format.`;
     const validationResult = aiReviewResponseSchema.safeParse(parsed);
     if (!validationResult.success) {
       console.error("OpenAI response validation failed:", validationResult.error.errors);
-      
+
       // Try to extract what we can from the response
       const partialData = parsed as Record<string, unknown>;
       return {
-        summary: typeof partialData.summary === 'string' 
-          ? partialData.summary 
+        summary: typeof partialData.summary === 'string'
+          ? partialData.summary
           : "Unable to parse AI response",
         risk_level: "low",
         comments: [],
       };
     }
-    
+
     return validationResult.data;
   } catch (error: any) {
     console.error("OpenAI analysis failed after retries:", error.message);
