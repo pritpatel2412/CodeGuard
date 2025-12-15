@@ -28,9 +28,9 @@ export default defineConfig(async () => ({
 
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "client", "src"),
-      "@shared": path.resolve(__dirname, "shared"),
-      "@assets": path.resolve(__dirname, "attached_assets"),
+      "@": fileURLToPath(new URL("./client/src", import.meta.url)),
+      "@shared": fileURLToPath(new URL("./shared", import.meta.url)),
+      "@assets": fileURLToPath(new URL("./attached_assets", import.meta.url)),
     },
   },
 

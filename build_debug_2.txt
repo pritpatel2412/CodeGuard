@@ -1,0 +1,26 @@
+building client...
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 4 modules transformed.
+[31mx[39m Build failed in 604ms
+[31m[vite]: Rollup failed to resolve import "@/components/ui/tooltip" from "C:/Users/Dell/OneDrive/Desktop/CodeGuard/client/src/App.tsx".
+This is most likely unintended because it can break your application at runtime.
+If you do want to externalize this module explicitly add it to
+`build.rollupOptions.external`[39m
+    at viteWarn (C:\Users\Dell\OneDrive\Desktop\CodeGuard\node_modules\vite\dist\node\chunks\dep-BK3b2jBa.js:65855:17)
+    at onRollupWarning (C:\Users\Dell\OneDrive\Desktop\CodeGuard\node_modules\vite\dist\node\chunks\dep-BK3b2jBa.js:65887:5)
+    at onwarn (C:\Users\Dell\OneDrive\Desktop\CodeGuard\node_modules\vite\dist\node\chunks\dep-BK3b2jBa.js:65550:7)
+    at <anonymous> (C:\Users\Dell\OneDrive\Desktop\CodeGuard\node_modules\rollup\dist\es\shared\node-entry.js:19452:13)
+    at Object.logger (C:\Users\Dell\OneDrive\Desktop\CodeGuard\node_modules\rollup\dist\es\shared\node-entry.js:21178:9)
+    at ModuleLoader.handleInvalidResolvedId (C:\Users\Dell\OneDrive\Desktop\CodeGuard\node_modules\rollup\dist\es\shared\node-entry.js:20067:26)
+    at <anonymous> (C:\Users\Dell\OneDrive\Desktop\CodeGuard\node_modules\rollup\dist\es\shared\node-entry.js:20025:26) {
+  watchFiles: [
+    'C:/Users/Dell/OneDrive/Desktop/CodeGuard/client/index.html',
+    'C:/Users/Dell/OneDrive/Desktop/CodeGuard/client/src/main.tsx',
+    'C:\\Users\\Dell\\OneDrive\\Desktop\\CodeGuard\\package.json',
+    'C:/Users/Dell/OneDrive/Desktop/CodeGuard/node_modules/react-dom/client.js',
+    'C:/Users/Dell/OneDrive/Desktop/CodeGuard/client/src/index.css',
+    'C:/Users/Dell/OneDrive/Desktop/CodeGuard/client/src/App.tsx',
+    'C:/Users/Dell/OneDrive/Desktop/CodeGuard/node_modules/react-dom/index.js'
+  ]
+}
