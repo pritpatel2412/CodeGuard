@@ -3,7 +3,7 @@ import { Strategy as GitHubStrategy } from "passport-github2";
 import { Express } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
-import { pool } from "./db";
+import { pool } from "./db.js";
 import { storage } from "./storage.js";
 import { User } from "../shared/schema.js";
 
