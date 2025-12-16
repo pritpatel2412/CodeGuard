@@ -9,6 +9,15 @@ import { User } from "../shared/schema.js";
 
 export function setupAuth(app: Express) {
     const PgSession = connectPgSimple(session);
+    const store = new PgSession({
+        pool,
+        createTableIfMissing: true,
+    });
+    // @ts-ignore
+    store.on('error', (err) => {
+        console.error("Session Store Error:", err);
+    });
+
     const sessionSettings: session.SessionOptions = {
         secret: process.env.SESSION_SECRET || "r8q,+&1LM3)CD*zAGpx1xm{NeQhc;#",
         resave: false,
@@ -16,10 +25,7 @@ export function setupAuth(app: Express) {
         cookie: {
             maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
         },
-        store: new PgSession({
-            pool,
-            createTableIfMissing: true,
-        }),
+        store,
     };
 
     if (app.get("env") === "production") {
