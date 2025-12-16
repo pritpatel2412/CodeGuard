@@ -6,7 +6,6 @@ import path from "path";
 const allowlist = [
   "@google/generative-ai",
   "axios",
-  "connect-pg-simple",
   "cors",
   "date-fns",
   "drizzle-orm",
@@ -22,13 +21,7 @@ const allowlist = [
   "openai",
   "passport",
   "passport-local",
-  "pg",
-  "stripe",
-  "uuid",
-  "ws",
-  "xlsx",
-  "zod",
-  "zod-validation-error",
+  "typeorm", // if using typeorm
 ];
 
 async function buildAll() {
