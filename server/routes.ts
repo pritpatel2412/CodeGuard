@@ -60,6 +60,7 @@ export async function registerRoutes(
 
   // Get single repository
   app.get("/api/repositories/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
       const repo = await storage.getRepository(req.params.id);
       if (!repo) {
@@ -121,6 +122,7 @@ export async function registerRoutes(
 
   // Update repository
   app.patch("/api/repositories/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
       // Validate request body
       const parsed = updateRepositorySchema.safeParse(req.body);
@@ -143,6 +145,7 @@ export async function registerRoutes(
 
   // Delete repository
   app.delete("/api/repositories/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
       const repo = await storage.getRepository(req.params.id);
       if (!repo) {
@@ -170,6 +173,7 @@ export async function registerRoutes(
 
   // Get single review with comments
   app.get("/api/reviews/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
       const review = await storage.getReview(req.params.id);
       if (!review) {

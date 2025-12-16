@@ -2,19 +2,23 @@ import passport from "passport";
 import { Strategy as GitHubStrategy } from "passport-github2";
 import { Express } from "express";
 import session from "express-session";
-import createMemoryStore from "memorystore";
+import connectPgSimple from "connect-pg-simple";
+import { pool } from "./db";
 import { storage } from "./storage.js";
 import { User } from "../shared/schema.js";
 
 export function setupAuth(app: Express) {
-    const MemoryStore = createMemoryStore(session);
+    const PgSession = connectPgSimple(session);
     const sessionSettings: session.SessionOptions = {
         secret: process.env.SESSION_SECRET || "r8q,+&1LM3)CD*zAGpx1xm{NeQhc;#",
         resave: false,
         saveUninitialized: false,
-        cookie: {},
-        store: new MemoryStore({
-            checkPeriod: 86400000, // prune expired entries every 24h
+        cookie: {
+            maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+        },
+        store: new PgSession({
+            pool,
+            createTableIfMissing: true,
         }),
     };
 
