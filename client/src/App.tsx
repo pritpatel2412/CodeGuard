@@ -39,8 +39,6 @@ function Router() {
   );
 }
 
-import { VisitorCounter } from "./components/VisitorCounter";
-
 function App() {
   const style = {
     "--sidebar-width": "16rem",
@@ -65,7 +63,6 @@ function App() {
               </div>
             </div>
           </SidebarProvider>
-          <VisitorCounter />
           <Toaster />
           <VercelAnalytics />
         </TooltipProvider>

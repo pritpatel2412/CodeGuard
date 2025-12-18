@@ -3,12 +3,10 @@ import { registerRoutes } from "./routes";
 import { setupAuth } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { setupSocket } from "./socket";
 import type { Request, Response, NextFunction } from "express";
 
 (async () => {
   const httpServer = createServer(app);
-  setupSocket(httpServer);
 
   setupAuth(app);
   await registerRoutes(httpServer, app);
