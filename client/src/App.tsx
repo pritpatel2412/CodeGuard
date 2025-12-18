@@ -3,6 +3,7 @@ import { Analytics as VercelAnalytics } from "@vercel/analytics/react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "./components/ui/toaster";
+import { VisitorCounter } from "@/components/VisitorCounter";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -64,6 +65,7 @@ function App() {
             </div>
           </SidebarProvider>
           <Toaster />
+          <VisitorCounter />
           <VercelAnalytics />
         </TooltipProvider>
       </AuthProvider>
