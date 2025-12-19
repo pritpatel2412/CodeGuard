@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, jsonb, boolean, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, jsonb, json, boolean, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -35,6 +35,23 @@ export const reviews = pgTable("reviews", {
   deletions: integer("deletions").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
+
+  // AI Analysis fields
+  keyRiskFactors: jsonb("key_risk_factors"),
+  potentialImpact: jsonb("potential_impact"),
+  recommendations: jsonb("recommendations"),
+  blockingReasons: jsonb("blocking_reasons"),
+  requiredActions: jsonb("required_actions"),
+  automationStatus: text("automation_status"),
+  confidence: text("confidence"),
+  mergeDecision: text("merge_decision"),
+});
+
+// Session store
+export const session = pgTable("session", {
+  sid: varchar("sid").primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire").notNull(),
 });
 
 // Review Comments
