@@ -1,52 +1,42 @@
 import { useEffect, useState } from "react";
-import { io } from "socket.io-client";
 import { nanoid } from "nanoid";
 import { Card } from "@/components/ui/card";
 import { Users } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 
 export function VisitorCounter() {
-    const [count, setCount] = useState<number>(1);
     const [isVisible, setIsVisible] = useState(true);
 
-    useEffect(() => {
-        // Get or create a session ID
-        // Use sessionStorage so each tab is a unique "visitor" session
-        let sessionId = sessionStorage.getItem("visitor_session_id");
-        if (!sessionId) {
-            sessionId = nanoid();
-            sessionStorage.setItem("visitor_session_id", sessionId);
+    // Get or create a session ID
+    const [sessionId] = useState(() => {
+        let sid = sessionStorage.getItem("visitor_session_id");
+        if (!sid) {
+            sid = nanoid();
+            sessionStorage.setItem("visitor_session_id", sid);
         }
+        return sid;
+    });
 
-        // Connect to the socket server
-        // For local development, we want to connect to the same host/port 
-        // but in production it might be different. 
-        // Since we are serving client from the same express app in simple setup, 
-        // or proxying in vite, undefined (window.location) often works or explicit URL.
-        // In this repo setup, client and server are on same port in prod, 
-        // but in dev (vite) they are different ports. 
-        // Usually socket.io client auto-detects.
+    // Poll for active visitors every 5 seconds
+    const { data: count = 1 } = useQuery({
+        queryKey: ["visitors", sessionId],
+        queryFn: async () => {
+            try {
+                const res = await apiRequest("POST", "/api/visitors/heartbeat", { sessionId });
+                const data = await res.json();
+                return data.count;
+            } catch (err) {
+                console.error("Failed to sync visitor count:", err);
+                return 1;
+            }
+        },
+        refetchInterval: 5000,
+        refetchOnWindowFocus: true,
+    });
 
-        // Explicitly using the default behavior (window.location.host)
-        const socket = io({
-            query: { sessionId },
-            transports: ["websocket", "polling"],
-        });
-
-        socket.on("visitor-count", (newCount: number) => {
-            setCount(newCount);
-        });
-
-        socket.on("connect_error", (err) => {
-            console.log("Socket connection error (expected on serverless):", err.message);
-            // Fallback: Keep count at 1 (current user) or simulate activity if needed
-        });
-
-        return () => {
-            socket.disconnect();
-        };
-    }, []);
-
+    // Hide if count is 0 (shouldn't happen with default 1)
     if (count === 0) return null;
 
     return (

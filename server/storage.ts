@@ -7,14 +7,15 @@ import {
   type InsertRepository,
   type Review,
   type InsertReview,
-  type ReviewComment,
   type InsertReviewComment,
+  type ReviewComment,
   type User,
   type InsertUser,
-  type Stats
+  type Stats,
+  visitors
 } from "../shared/schema.js";
 import { db } from "./db.js";
-import { eq, desc, sql, and, gte } from "drizzle-orm";
+import { eq, desc, sql, and, gte, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -48,6 +49,9 @@ export interface IStorage {
 
   // Stats
   getStats(userId: string): Promise<Stats>;
+
+  // Visitors
+  recordVisitor(sessionId: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -249,6 +253,30 @@ export class DatabaseStorage implements IStorage {
       commentTypeDistribution,
       recentActivity,
     };
+  }
+
+  // Visitors
+  async recordVisitor(sessionId: string): Promise<number> {
+    // 1. Update or insert current visitor
+    await db
+      .insert(visitors)
+      .values({
+        sessionId,
+        lastSeen: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: visitors.sessionId,
+        set: { lastSeen: new Date() },
+      });
+
+    // 2. Delete old visitors (inactive for > 1 minute)
+    const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
+    await db.delete(visitors).where(lt(visitors.lastSeen, oneMinuteAgo));
+
+    // 3. Count active visitors (seen within last 1 minute)
+    // We count rows that are "fresh". Since we just deleted old ones, count all.
+    const result = await db.select({ count: sql<number>`count(*)` }).from(visitors);
+    return Number(result[0]?.count) || 0;
   }
 }
 

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, jsonb, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, jsonb, boolean, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -138,6 +138,17 @@ export const aiReviewResponseSchema = z.object({
 });
 
 export type AIReviewResponse = z.infer<typeof aiReviewResponseSchema>;
+
+// Visitor Counter
+export const visitors = pgTable("visitors", {
+  id: serial("id").primaryKey(),
+  sessionId: text("session_id").notNull().unique(),
+  lastSeen: timestamp("last_seen").notNull().defaultNow(),
+});
+
+export const insertVisitorSchema = createInsertSchema(visitors);
+export type Visitor = typeof visitors.$inferSelect;
+export type InsertVisitor = z.infer<typeof insertVisitorSchema>;
 
 // Keep users for future auth
 export const users = pgTable("users", {

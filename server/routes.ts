@@ -594,5 +594,21 @@ Original PR: #${review.prNumber}
     }
   });
 
+  // Visitor Counter Heartbeat
+  app.post("/api/visitors/heartbeat", async (req, res) => {
+    try {
+      const { sessionId } = req.body;
+      if (!sessionId || typeof sessionId !== "string") {
+        return res.status(400).json({ message: "Session ID required" });
+      }
+
+      const count = await storage.recordVisitor(sessionId);
+      res.json({ count });
+    } catch (error) {
+      console.error("Visitor heartbeat error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   return httpServer;
 }
