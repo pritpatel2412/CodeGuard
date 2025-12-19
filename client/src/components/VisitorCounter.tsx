@@ -6,7 +6,7 @@ import { Users } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 export function VisitorCounter() {
-    const [count, setCount] = useState<number>(0);
+    const [count, setCount] = useState<number>(1);
     const [isVisible, setIsVisible] = useState(true);
 
     useEffect(() => {
@@ -35,6 +35,11 @@ export function VisitorCounter() {
 
         socket.on("visitor-count", (newCount: number) => {
             setCount(newCount);
+        });
+
+        socket.on("connect_error", (err) => {
+            console.log("Socket connection error (expected on serverless):", err.message);
+            // Fallback: Keep count at 1 (current user) or simulate activity if needed
         });
 
         return () => {

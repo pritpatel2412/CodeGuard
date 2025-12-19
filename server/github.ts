@@ -123,3 +123,100 @@ export async function postReview(
     event,
   });
 }
+
+// Create a new branch
+export async function createBranch(owner: string, repo: string, newBranch: string, baseSha: string, accessToken?: string) {
+  const octokit = await getUncachableGitHubClient(accessToken);
+
+  await octokit.git.createRef({
+    owner,
+    repo,
+    ref: `refs/heads/${newBranch}`,
+    sha: baseSha
+  });
+}
+
+// Get raw file content
+export async function getFileContent(owner: string, repo: string, path: string, ref?: string, accessToken?: string) {
+  const octokit = await getUncachableGitHubClient(accessToken);
+
+  const response = await octokit.repos.getContent({
+    owner,
+    repo,
+    path,
+    ref,
+  });
+
+  if (!Array.isArray(response.data) && response.data.type === 'file') {
+    return Buffer.from(response.data.content, response.data.encoding as BufferEncoding).toString('utf-8');
+  } else {
+    throw new Error('Path is not a file');
+  }
+}
+
+// Update file content
+export async function updateFile(
+  owner: string,
+  repo: string,
+  path: string,
+  content: string,
+  message: string,
+  branch: string,
+  sha?: string, // Optional: if known, helps concurrency
+  accessToken?: string
+) {
+  const octokit = await getUncachableGitHubClient(accessToken);
+
+  // If sha not provided, fetch it (blind update)
+  let fileSha = sha;
+  if (!fileSha) {
+    try {
+      const { data } = await octokit.repos.getContent({
+        owner,
+        repo,
+        path,
+        ref: branch,
+      });
+      if (!Array.isArray(data)) {
+        fileSha = data.sha;
+      }
+    } catch (e: any) {
+      // If file doesn't exist, we might be creating it, so sha remains undefined
+      if (e.status !== 404) throw e;
+    }
+  }
+
+  await octokit.repos.createOrUpdateFileContents({
+    owner,
+    repo,
+    path,
+    message,
+    content: Buffer.from(content).toString('base64'),
+    branch,
+    sha: fileSha,
+  });
+}
+
+// Create a Pull Request
+export async function createPullRequest(
+  owner: string,
+  repo: string,
+  title: string,
+  body: string,
+  head: string,
+  base: string = 'main',
+  accessToken?: string
+) {
+  const octokit = await getUncachableGitHubClient(accessToken);
+
+  const { data } = await octokit.pulls.create({
+    owner,
+    repo,
+    title,
+    body,
+    head,
+    base,
+  });
+
+  return data;
+}

@@ -42,6 +42,7 @@ export interface IStorage {
 
   // Review Comments
   getReviewComments(reviewId: string): Promise<ReviewComment[]>;
+  getReviewComment(id: string): Promise<ReviewComment | undefined>;
   createReviewComment(comment: InsertReviewComment): Promise<ReviewComment>;
   updateReviewComment(id: string, data: Partial<InsertReviewComment>): Promise<ReviewComment | undefined>;
 
@@ -160,6 +161,14 @@ export class DatabaseStorage implements IStorage {
   // Review Comments
   async getReviewComments(reviewId: string): Promise<ReviewComment[]> {
     return db.select().from(reviewComments).where(eq(reviewComments.reviewId, reviewId)).orderBy(reviewComments.line);
+  }
+
+  async getReviewComment(id: string): Promise<ReviewComment | undefined> {
+    const [comment] = await db
+      .select()
+      .from(reviewComments)
+      .where(eq(reviewComments.id, id));
+    return comment;
   }
 
   async createReviewComment(comment: InsertReviewComment): Promise<ReviewComment> {

@@ -146,3 +146,51 @@ function createFallbackResponse(reason: string): AIReviewResponse {
     comments: [],
   };
 }
+
+export async function generateFix(fileContent: string, issueDescription: string, issueLine: number): Promise<string> {
+  const SYSTEM_PROMPT = `You are a senior application security engineer.
+
+Your task:
+- Fix the security issues in the code below
+- Remove hardcoded secrets
+- Replace secrets with environment variables
+- Follow industry best practices
+- Do NOT change business logic
+- Do NOT add new dependencies
+- Do NOT remove functionality
+
+Return:
+- ONLY the updated full file content
+- NO markdown
+- NO explanation`;
+
+  const userPrompt = `
+Full file content:
+${fileContent}
+
+Detected risk summary: ${issueDescription} (Line ${issueLine})
+
+Please provide the fixed full file content.`;
+
+  try {
+    const response = await withRetry(async () => {
+      return openai.chat.completions.create({
+        model: "gpt-5",
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userPrompt },
+        ],
+        max_completion_tokens: 8192, // Large limit for full file return
+      });
+    });
+
+    let content = response.choices[0]?.message?.content || "";
+
+    // Strip markdown code blocks if present (in case the model disobeys)
+    content = content.replace(/^```[\w]*\n/, '').replace(/\n```$/, '');
+
+    return content;
+  } catch (error: any) {
+    throw new Error(`Failed to generate fix: ${error.message}`);
+  }
+}

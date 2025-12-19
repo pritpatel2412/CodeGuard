@@ -147,6 +147,19 @@ export const users = pgTable("users", {
   githubId: text("github_id").unique(),
   avatarUrl: text("avatar_url"),
   accessToken: text("access_token"),
+
+  // Preferences
+  bugDetection: boolean("bug_detection").default(true),
+  securityAnalysis: boolean("security_analysis").default(true),
+  performanceIssues: boolean("performance_issues").default(true),
+  maintainability: boolean("maintainability").default(true),
+  skipStyleIssues: boolean("skip_style_issues").default(true),
+  postComments: boolean("post_comments").default(true),
+  highRiskAlerts: boolean("high_risk_alerts").default(true),
+
+  // Auto-Fix Preferences
+  autoFixStrictMode: boolean("auto_fix_strict_mode").default(true),
+  autoFixSafetyGuards: boolean("auto_fix_safety_guards").default(true),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
@@ -155,6 +168,15 @@ export const insertUserSchema = createInsertSchema(users).pick({
   githubId: true,
   avatarUrl: true,
   accessToken: true,
+  bugDetection: true,
+  securityAnalysis: true,
+  performanceIssues: true,
+  maintainability: true,
+  skipStyleIssues: true,
+  postComments: true,
+  highRiskAlerts: true,
+  autoFixStrictMode: true,
+  autoFixSafetyGuards: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

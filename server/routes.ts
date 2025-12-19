@@ -2,8 +2,8 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { insertRepositorySchema, insertReviewSchema, insertReviewCommentSchema } from "../shared/schema.js";
-import { getPullRequestDiff, getPullRequestDetails, postReviewComment, postReview } from "./github.js";
-import { analyzeCodeDiff } from "./openai.js";
+import { getPullRequestDiff, getPullRequestDetails, postReviewComment, postReview, createBranch, updateFile, createPullRequest, getFileContent } from "./github.js";
+import { analyzeCodeDiff, generateFix } from "./openai.js";
 import { z } from "zod";
 import crypto from "crypto";
 
@@ -46,6 +46,42 @@ export async function registerRoutes(
 ): Promise<Server> {
 
   // ============= REPOSITORIES =============
+
+  // Update user preferences
+  app.patch("/api/user", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+
+    try {
+      // Allow updating preference fields
+      const {
+        bugDetection,
+        securityAnalysis,
+        performanceIssues,
+        maintainability,
+        skipStyleIssues,
+        postComments,
+        highRiskAlerts,
+        autoFixStrictMode,
+        autoFixSafetyGuards
+      } = req.body;
+
+      const updatedUser = await storage.updateUser(req.user!.id, {
+        bugDetection,
+        securityAnalysis,
+        performanceIssues,
+        maintainability,
+        skipStyleIssues,
+        postComments,
+        highRiskAlerts,
+        autoFixStrictMode,
+        autoFixSafetyGuards
+      });
+
+      res.json(updatedUser);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // Get all repositories
   app.get("/api/repositories", async (req, res) => {
@@ -435,6 +471,127 @@ ${Object.entries(commentsByType).map(([type, count]) => `- ${type}: ${count}`).j
       error: "GitLab webhook support coming soon",
       message: "This endpoint is reserved for GitLab merge request webhooks"
     });
+  });
+
+  // Apply AI Fix
+  app.post("/api/reviews/:reviewId/comments/:commentId/fix", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+
+    try {
+      const { reviewId, commentId } = req.params;
+
+      const comment = await storage.getReviewComment(commentId);
+      if (!comment || comment.reviewId !== reviewId) {
+        return res.status(404).json({ error: "Comment not found" });
+      }
+
+      const review = await storage.getReview(reviewId);
+      if (!review) {
+        return res.status(404).json({ error: "Review not found" });
+      }
+
+      const repo = await storage.getRepository(review.repositoryId);
+      if (!repo) {
+        return res.status(404).json({ error: "Repository not found" });
+      }
+
+      // Check current user owns the repo connection
+      if (repo.userId !== req.user!.id) {
+        return res.status(403).json({ error: "Unauthorized access to repository" });
+      }
+
+      // 1. Safety Guards (User Spec)
+      const restrictedTerms = ['auth', 'login', 'payment', 'billing', '.env', 'config'];
+      if (restrictedTerms.some(term => comment.path.toLowerCase().includes(term))) {
+        return res.status(400).json({
+          error: "Safety Block: Cannot automatically fix sensitive files (Auth/Payment/Config). Manual review required."
+        });
+      }
+
+      // 2. Get PR details to find HEAD SHA
+      const prDetails = await getPullRequestDetails(repo.owner, repo.name, review.prNumber);
+      const headSha = prDetails.head.sha;
+      const baseBranch = prDetails.head.ref;
+
+      // 3. Get Full File Content (User Spec Requirement)
+      const accessToken = (req.user as any).accessToken;
+      const fileContent = await getFileContent(repo.owner, repo.name, comment.path, headSha, accessToken);
+
+      // 4. Generate Fix (OpenAI - "Senior App Sec Engineer" persona)
+      const fixedContent = await generateFix(fileContent, comment.comment, comment.line);
+
+      // 5. Validation (User Spec)
+      if (!fixedContent || fixedContent.trim().length === 0) {
+        throw new Error("AI returned empty content");
+      }
+      if (fixedContent.includes("rm -rf") || fixedContent.includes("sudo ")) {
+        throw new Error("Safety Block: AI generated potentially dangerous command");
+      }
+
+      // 6. Create new branch with specific naming convention
+      // Convention: refs/heads/security-fix-pr-{prNumber}-{random} to avoid collisions
+      const fixBranchName = `security-fix-pr-${review.prNumber}-${crypto.randomBytes(3).toString('hex')}`;
+      await createBranch(repo.owner, repo.name, fixBranchName, headSha, accessToken);
+
+      // 7. Commit fixed file
+      await updateFile(
+        repo.owner,
+        repo.name,
+        comment.path,
+        fixedContent,
+        `Security fix: resolve issue at ${comment.path}`,
+        fixBranchName,
+        undefined, // Let functionality fetch the correct file (blob) SHA
+        accessToken
+      );
+
+      // 8. Create PR targeting the original PR's branch
+      // Specific Template from User
+      const newPr = await createPullRequest(
+        repo.owner,
+        repo.name,
+        `🔒 Security Fix for High-Risk Issues (PR #${review.prNumber})`,
+        `
+This PR was generated automatically to reduce security risk.
+
+Fixes:
+- Removed hardcoded secrets
+- Refactored insecure logic
+- Followed security best practices
+
+Original PR: #${review.prNumber}
+`,
+        fixBranchName,
+        baseBranch,
+        accessToken
+      );
+
+      // 9. Comment on Original PR (User Spec: Trust and Transparency)
+      try {
+        await postReviewComment(
+          repo.owner,
+          repo.name,
+          review.prNumber,
+          headSha,
+          comment.path,
+          comment.line,
+          `🚨 **High-risk security issue detected.**\n\nA security-fix PR has been created:\n➡️ #${newPr.number}\n\nPlease review and merge the fix.`
+        );
+      } catch (commentError: any) {
+        console.error("Failed to post link on original PR:", commentError.message);
+        // Don't fail the whole request if just the comment fails
+      }
+
+      res.status(200).json({
+        message: "Fix PR created successfully",
+        prUrl: newPr.html_url,
+        prNumber: newPr.number
+      });
+
+    } catch (error: any) {
+      console.error("Failed to apply fix:", error);
+      res.status(500).json({ error: error.message });
+    }
   });
 
   return httpServer;
