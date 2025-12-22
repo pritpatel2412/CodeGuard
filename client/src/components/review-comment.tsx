@@ -11,11 +11,19 @@ import {
   Loader2,
   ExternalLink
 } from "lucide-react";
-import type { ReviewComment as ReviewCommentType } from "@shared/schema";
+
+// Remove static import to prevent cycles
+import { AiFixFlow } from "@/components/ai-fix-flow";
+import { type ReviewComment as ReviewCommentType } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import {
+  Dialog,
+  DialogContent,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 interface ReviewCommentProps {
   comment: ReviewCommentType;
@@ -62,6 +70,8 @@ export function ReviewCommentCard({ comment }: ReviewCommentProps) {
   const severity = comment.severity as "low" | "medium" | "high";
 
   const [isFixing, setIsFixing] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [createdPrUrl, setCreatedPrUrl] = useState<string>();
   const { toast } = useToast();
 
   const handleApplyFix = async () => {
@@ -72,6 +82,11 @@ export function ReviewCommentCard({ comment }: ReviewCommentProps) {
         `/api/reviews/${comment.reviewId}/comments/${comment.id}/fix`
       );
       const data = await res.json();
+
+      // Store the PR URL for the animation
+      if (data.prUrl) {
+        setCreatedPrUrl(data.prUrl);
+      }
 
       toast({
         title: "Fix PR Created",
@@ -141,24 +156,42 @@ export function ReviewCommentCard({ comment }: ReviewCommentProps) {
 
         {showFixButton && (
           <div className="pt-2">
-            <Button
-              size="sm"
-              className="gap-2 w-full sm:w-auto"
-              onClick={handleApplyFix}
-              disabled={isFixing}
-            >
-              {isFixing ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Generating Fix...
-                </>
-              ) : (
-                <>
+            <Dialog open={isDialogOpen} onOpenChange={(open) => {
+              setIsDialogOpen(open);
+              if (!open) {
+                // Reset/Cleanup if needed when dialog closes
+                // setCreatedPrUrl(undefined);
+              }
+            }}>
+              <DialogTrigger asChild>
+                <Button
+                  size="sm"
+                  className="gap-2 w-full sm:w-auto shadow-sm"
+                  variant="default"
+                  onClick={() => {
+                    setCreatedPrUrl(undefined); // Reset previous PR url
+                    handleApplyFix(); // Start the background fix process
+                  }}
+                  disabled={isFixing && !isDialogOpen}
+                >
                   <Wrench className="h-4 w-4" />
                   Apply AI Fix
-                </>
-              )}
-            </Button>
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[800px] border-border bg-background/95 backdrop-blur-xl p-0 overflow-hidden shadow-2xl">
+                <AiFixFlow
+                  autoStart
+                  filename={comment.path}
+                  prUrl={createdPrUrl}
+                  onComplete={() => {
+                    // Auto-close after animation (AiFixFlow waits 2s before calling this)
+                    setIsDialogOpen(false);
+                    setCreatedPrUrl(undefined);
+                  }}
+                  className="border-0 shadow-none bg-transparent"
+                />
+              </DialogContent>
+            </Dialog>
           </div>
         )}
       </CardContent>

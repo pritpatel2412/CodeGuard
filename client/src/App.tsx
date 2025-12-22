@@ -19,6 +19,7 @@ import Terms from "@/pages/terms";
 import Privacy from "@/pages/privacy";
 import Developer from "@/pages/developer";
 import AuthPage from "@/pages/auth-page";
+import DemoAiFixPage from "@/pages/demo-ai-fix";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
 
@@ -35,6 +36,7 @@ function Router() {
       <Route path="/privacy" component={Privacy} />
       <Route path="/developer" component={Developer} />
       <Route path="/auth" component={AuthPage} />
+      <Route path="/demo-ai-fix" component={DemoAiFixPage} />
       <Route component={NotFound} />
     </Switch>
   );
