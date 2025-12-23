@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { GlobalErrorModal } from "@/components/GlobalErrorModal";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import Reviews from "@/pages/reviews";
@@ -66,6 +67,7 @@ function App() {
               </div>
             </div>
           </SidebarProvider>
+          <GlobalErrorModal />
           <Toaster />
           <VisitorCounter />
           <VercelAnalytics />

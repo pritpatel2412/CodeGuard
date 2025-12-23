@@ -1,7 +1,19 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+import { useErrorStore } from "./error-store";
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
+    // Handle specific error cases globally
+    if (res.status === 429) {
+      useErrorStore.getState().showError("rate_limit", "Too many requests");
+    } else if (res.status === 401) {
+      // Create a specific handling for 401 if needed, or stick to the modal
+      useErrorStore.getState().showError("unauthorized", "Unauthorized access");
+    } else if (res.status >= 500) {
+      useErrorStore.getState().showError("server_error", "Internal server error");
+    }
+
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
   }
@@ -28,18 +40,18 @@ export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
-      credentials: "include",
-    });
+    async ({ queryKey }) => {
+      const res = await fetch(queryKey.join("/") as string, {
+        credentials: "include",
+      });
 
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
-    }
+      if (unauthorizedBehavior === "returnNull" && res.status === 401) {
+        return null;
+      }
 
-    await throwIfResNotOk(res);
-    return await res.json();
-  };
+      await throwIfResNotOk(res);
+      return await res.json();
+    };
 
 export const queryClient = new QueryClient({
   defaultOptions: {

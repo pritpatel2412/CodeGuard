@@ -1,5 +1,7 @@
 import React from "react";
 import { AiFixFlow } from "@/components/ai-fix-flow";
+import { Button } from "@/components/ui/button";
+import { useErrorStore } from "@/lib/error-store";
 
 export default function DemoAiFixPage() {
     return (
@@ -33,6 +35,35 @@ export function ReviewPage() {
   );
 }`}
                 </pre>
+            </div>
+            <div className="mt-12 max-w-2xl mx-auto p-6 bg-neutral-900/50 rounded-lg border border-neutral-800">
+                <h3 className="text-lg font-semibold text-white mb-4">Error Modal Testing</h3>
+                <div className="flex flex-wrap gap-4">
+                    <Button
+                        variant="destructive"
+                        onClick={() => useErrorStore.getState().showError("rate_limit", "Too many requests")}
+                    >
+                        Test Rate Limit (429)
+                    </Button>
+                    <Button
+                        variant="destructive"
+                        onClick={() => useErrorStore.getState().showError("unauthorized", "Unauthorized")}
+                    >
+                        Test Unauthorized (401)
+                    </Button>
+                    <Button
+                        variant="destructive"
+                        onClick={() => useErrorStore.getState().showError("server_error", "Server Error")}
+                    >
+                        Test Server Error (500)
+                    </Button>
+                    <Button
+                        variant="secondary"
+                        onClick={() => useErrorStore.getState().showError("connection_error", "Connection Lost")}
+                    >
+                        Test Connection Error
+                    </Button>
+                </div>
             </div>
         </div>
     );
