@@ -21,7 +21,12 @@ PostgreSQL connection string. Format: `postgresql://username:password@host:port/
 ### 2. OPENAI_API_KEY (Required for AI Reviews)
 Get your API key from: https://platform.openai.com/api-keys
 
-### 3. PORT (Optional)
+### 3. GITLAB_TOKEN (Required for GitLab Integration)
+A Personal Access Token from GitLab with `api` scope.
+Get it from: https://gitlab.com/-/profile/personal_access_tokens
+*Note: The `api` scope covers all necessary permissions including Merge Requests, Repository access, and Comments.*
+
+### 4. PORT (Optional)
 Server port. Defaults to 5000 if not set.
 
 ## Quick Start

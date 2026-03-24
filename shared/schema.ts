@@ -142,6 +142,49 @@ export const statsSchema = z.object({
 
 export type Stats = z.infer<typeof statsSchema>;
 
+// Time Range Stats Request
+export const timeRangeStatsRequestSchema = z.object({
+  range: z.enum(["24h", "7d", "15d", "1m"]),
+});
+
+export type TimeRangeStatsRequest = z.infer<typeof timeRangeStatsRequestSchema>;
+
+// Detailed Stats for Excel Export
+export const detailedStatsSchema = z.object({
+  summary: statsSchema,
+  reviews: z.array(z.object({
+    id: z.string(),
+    prNumber: z.number(),
+    prTitle: z.string(),
+    prUrl: z.string(),
+    author: z.string(),
+    repository: z.string(),
+    riskLevel: z.string(),
+    status: z.string(),
+    commentCount: z.number(),
+    filesChanged: z.number(),
+    additions: z.number(),
+    deletions: z.number(),
+    createdAt: z.date(),
+    completedAt: z.date().nullable(),
+  })),
+  comments: z.array(z.object({
+    id: z.string(),
+    reviewId: z.string(),
+    prNumber: z.number(),
+    repository: z.string(),
+    path: z.string(),
+    line: z.number(),
+    type: z.string(),
+    comment: z.string(),
+    severity: z.string(),
+    createdAt: z.date(),
+  })),
+  timeRange: z.string(),
+});
+
+export type DetailedStats = z.infer<typeof detailedStatsSchema>;
+
 // AI Review Response Type
 export const aiReviewResponseSchema = z.object({
   summary: z.string(),

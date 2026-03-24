@@ -137,7 +137,9 @@ export default function Settings() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Replace [repository-id] with your specific repository ID from the Repositories page
+              Replace [repository-id] with your specific repository ID from the Repositories page.
+              <br />
+              For GitLab, use <code>/api/webhooks/gitlab/[repository-id]</code>
             </p>
           </div>
 
@@ -302,7 +304,7 @@ export default function Settings() {
           <div className="p-4 bg-muted/50 rounded-md space-y-2">
             <h4 className="font-medium text-sm">Setup Instructions</h4>
             <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
-              <li>Ensure your GitHub login includes the <strong>repo</strong> scope (re-login if needed)</li>
+              <li>Ensure your GitHub login includes the <strong>repo</strong> scope (or GITLAB_TOKEN is set)</li>
               <li>Navigate to a Review with High or Medium severity issues</li>
               <li>Click the <strong className="text-primary">Apply AI Fix</strong> button</li>
               <li>The system will create a new branch and PR safely</li>
@@ -389,7 +391,7 @@ export default function Settings() {
           <Separator />
 
           <div className="space-y-2">
-            <Label>GitHub Integration</Label>
+            <Label>VCS Integration</Label>
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-green-600 dark:text-green-400">
                 Connected

@@ -45,6 +45,9 @@ async function getAccessToken() {
 // Access tokens expire, so a new client must be created each time.
 export async function getUncachableGitHubClient(accessToken?: string) {
   const token = accessToken || await getAccessToken();
+
+  console.log("GitHub token loaded, length:", token?.length);
+
   return new Octokit({ auth: token });
 }
 

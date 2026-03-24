@@ -1,8 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { StatsCardSkeleton } from "@/components/loading-skeleton";
 import type { Stats } from "@shared/schema";
+import { Download } from "lucide-react";
+import { useState } from "react";
 import {
   BarChart,
   Bar,
@@ -34,9 +45,39 @@ const TYPE_COLORS = [
 ];
 
 export default function Analytics() {
+  const [isDownloading, setIsDownloading] = useState(false);
+
   const { data: stats, isLoading } = useQuery<Stats>({
     queryKey: ["/api/stats"],
   });
+
+  const handleDownload = async (range: string) => {
+    try {
+      setIsDownloading(true);
+      const response = await fetch(`/api/stats/download?range=${range}`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Download failed');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `CodeGuard_Analytics_${range}_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Download error:', error);
+      alert('Failed to download report. Please try again.');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -58,29 +99,57 @@ export default function Analytics() {
 
   const riskData = stats
     ? [
-        { name: "Low Risk", value: stats.riskDistribution.low, fill: RISK_COLORS.low },
-        { name: "Medium Risk", value: stats.riskDistribution.medium, fill: RISK_COLORS.medium },
-        { name: "High Risk", value: stats.riskDistribution.high, fill: RISK_COLORS.high },
-      ]
+      { name: "Low Risk", value: stats.riskDistribution.low, fill: RISK_COLORS.low },
+      { name: "Medium Risk", value: stats.riskDistribution.medium, fill: RISK_COLORS.medium },
+      { name: "High Risk", value: stats.riskDistribution.high, fill: RISK_COLORS.high },
+    ]
     : [];
 
   const typeData = stats?.commentTypeDistribution
     ? Object.entries(stats.commentTypeDistribution).map(([name, value], i) => ({
-        name: name.charAt(0).toUpperCase() + name.slice(1),
-        value: value as number,
-        fill: TYPE_COLORS[i % TYPE_COLORS.length],
-      }))
+      name: name.charAt(0).toUpperCase() + name.slice(1),
+      value: value as number,
+      fill: TYPE_COLORS[i % TYPE_COLORS.length],
+    }))
     : [];
 
   const activityData = stats?.recentActivity || [];
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-semibold">Analytics</h1>
-        <p className="text-sm text-muted-foreground">
-          Insights and trends from your code reviews
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Analytics</h1>
+          <p className="text-sm text-muted-foreground">
+            Insights and trends from your code reviews
+          </p>
+        </div>
+
+        {/* Download Report Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="gap-2" disabled={isDownloading}>
+              <Download className="h-4 w-4" />
+              {isDownloading ? "Downloading..." : "Download Report"}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuLabel>Select Time Range</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => handleDownload("24h")}>
+              Last 24 Hours
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleDownload("7d")}>
+              Last 7 Days
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleDownload("15d")}>
+              Last 15 Days
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleDownload("1m")}>
+              Last 1 Month
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Summary Stats */}
@@ -135,29 +204,29 @@ export default function Analytics() {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={activityData}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis 
-                      dataKey="date" 
+                    <XAxis
+                      dataKey="date"
                       tick={{ fontSize: 12 }}
                       tickLine={false}
                       axisLine={false}
                     />
-                    <YAxis 
+                    <YAxis
                       tick={{ fontSize: 12 }}
                       tickLine={false}
                       axisLine={false}
                       allowDecimals={false}
                     />
-                    <Tooltip 
-                      contentStyle={{ 
+                    <Tooltip
+                      contentStyle={{
                         backgroundColor: 'hsl(var(--card))',
                         borderColor: 'hsl(var(--border))',
                         borderRadius: '8px'
                       }}
                     />
-                    <Bar 
-                      dataKey="count" 
+                    <Bar
+                      dataKey="count"
                       name="Reviews"
-                      fill="hsl(var(--primary))" 
+                      fill="hsl(var(--primary))"
                       radius={[4, 4, 0, 0]}
                     />
                   </BarChart>
@@ -189,7 +258,7 @@ export default function Analytics() {
                       outerRadius={90}
                       paddingAngle={2}
                       dataKey="value"
-                      label={({ name, percent }) => 
+                      label={({ name, percent }) =>
                         `${name}: ${(percent * 100).toFixed(0)}%`
                       }
                       labelLine={false}
@@ -198,8 +267,8 @@ export default function Analytics() {
                         <Cell key={`cell-${index}`} fill={entry.fill} />
                       ))}
                     </Pie>
-                    <Tooltip 
-                      contentStyle={{ 
+                    <Tooltip
+                      contentStyle={{
                         backgroundColor: 'hsl(var(--card))',
                         borderColor: 'hsl(var(--border))',
                         borderRadius: '8px'
@@ -251,13 +320,13 @@ export default function Analytics() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={typeData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis 
+                  <XAxis
                     type="number"
                     tick={{ fontSize: 12 }}
                     tickLine={false}
                     axisLine={false}
                   />
-                  <YAxis 
+                  <YAxis
                     type="category"
                     dataKey="name"
                     tick={{ fontSize: 12 }}
@@ -265,15 +334,15 @@ export default function Analytics() {
                     axisLine={false}
                     width={100}
                   />
-                  <Tooltip 
-                    contentStyle={{ 
+                  <Tooltip
+                    contentStyle={{
                       backgroundColor: 'hsl(var(--card))',
                       borderColor: 'hsl(var(--border))',
                       borderRadius: '8px'
                     }}
                   />
-                  <Bar 
-                    dataKey="value" 
+                  <Bar
+                    dataKey="value"
                     name="Count"
                     radius={[0, 4, 4, 0]}
                   >

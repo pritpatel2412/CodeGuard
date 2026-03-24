@@ -2,10 +2,10 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { 
-  GitPullRequest, 
-  MessageSquare, 
-  Clock, 
+import {
+  GitPullRequest,
+  MessageSquare,
+  Clock,
   ExternalLink,
   FileCode,
   Plus,
@@ -35,7 +35,9 @@ const riskDots = {
 
 export function ReviewCard({ review, repository, showActions = true }: ReviewCardProps) {
   const riskLevel = review.riskLevel as "low" | "medium" | "high";
-  
+  const isGitLab = repository?.platform === "gitlab";
+  const prLabel = isGitLab ? "MR" : "PR";
+
   return (
     <Card className="hover-elevate" data-testid={`review-card-${review.id}`}>
       <CardHeader className="pb-3">
@@ -53,7 +55,7 @@ export function ReviewCard({ review, repository, showActions = true }: ReviewCar
                   {review.prTitle}
                 </h3>
                 <Badge variant="outline" className="text-xs flex-shrink-0">
-                  #{review.prNumber}
+                  {prLabel} #{review.prNumber}
                 </Badge>
               </div>
               {repository && (
@@ -63,7 +65,7 @@ export function ReviewCard({ review, repository, showActions = true }: ReviewCar
               )}
             </div>
           </div>
-          <Badge 
+          <Badge
             className={`${riskColors[riskLevel]} flex items-center gap-1.5 flex-shrink-0`}
             variant="secondary"
           >
@@ -104,14 +106,14 @@ export function ReviewCard({ review, repository, showActions = true }: ReviewCar
           {showActions && (
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="sm" asChild>
-                <a 
-                  href={review.prUrl} 
-                  target="_blank" 
+                <a
+                  href={review.prUrl}
+                  target="_blank"
                   rel="noopener noreferrer"
                   data-testid={`link-pr-external-${review.id}`}
                 >
                   <ExternalLink className="h-3.5 w-3.5 mr-1" />
-                  View PR
+                  View {prLabel}
                 </a>
               </Button>
               <Button size="sm" asChild>

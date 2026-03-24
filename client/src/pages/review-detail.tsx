@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
-import { 
-  ArrowLeft, 
-  ExternalLink, 
+import {
+  ArrowLeft,
+  ExternalLink,
   GitPullRequest,
   FileCode,
   Plus,
@@ -36,7 +36,7 @@ const riskDots = {
 
 export default function ReviewDetail() {
   const params = useParams<{ id: string }>();
-  
+
   const { data, isLoading } = useQuery<ReviewWithComments>({
     queryKey: ["/api/reviews", params.id],
   });
@@ -84,6 +84,8 @@ export default function ReviewDetail() {
 
   const { review, comments, repository } = data;
   const riskLevel = review.riskLevel as "low" | "medium" | "high";
+  const isGitLab = repository?.platform === "gitlab";
+  const prLabel = isGitLab ? "MR" : "PR";
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -99,7 +101,7 @@ export default function ReviewDetail() {
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-2xl font-semibold">{review.prTitle}</h1>
               <Badge variant="outline">#{review.prNumber}</Badge>
-              <Badge 
+              <Badge
                 className={`${riskColors[riskLevel]} flex items-center gap-1.5`}
                 variant="secondary"
               >
@@ -115,19 +117,19 @@ export default function ReviewDetail() {
           </div>
         </div>
         <Button asChild>
-          <a 
-            href={review.prUrl} 
-            target="_blank" 
+          <a
+            href={review.prUrl}
+            target="_blank"
             rel="noopener noreferrer"
-            data-testid="link-view-pr-github"
+            data-testid="link-view-pr-external"
           >
             <ExternalLink className="h-4 w-4 mr-2" />
-            View on GitHub
+            View on {isGitLab ? "GitLab" : "GitHub"}
           </a>
         </Button>
       </div>
 
-      {/* PR Info Card */}
+      {/* Info Card */}
       <Card>
         <CardContent className="p-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -195,19 +197,23 @@ export default function ReviewDetail() {
             <Badge variant="secondary">{comments.length}</Badge>
           </h2>
         </div>
-        
+
         {comments.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center">
               <p className="text-muted-foreground">
-                No issues found in this pull request. Great job!
+                No issues found in this {isGitLab ? "merge" : "pull"} request. Great job!
               </p>
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-4">
             {comments.map((comment) => (
-              <ReviewCommentCard key={comment.id} comment={comment} />
+              <ReviewCommentCard
+                key={comment.id}
+                comment={comment}
+                platform={repository?.platform as "github" | "gitlab" || "github"}
+              />
             ))}
           </div>
         )}

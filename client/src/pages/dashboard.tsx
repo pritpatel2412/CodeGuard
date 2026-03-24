@@ -46,10 +46,10 @@ export default function Dashboard() {
 
   const riskData = stats
     ? [
-        { name: "Low", value: stats.riskDistribution.low, fill: RISK_COLORS.low },
-        { name: "Medium", value: stats.riskDistribution.medium, fill: RISK_COLORS.medium },
-        { name: "High", value: stats.riskDistribution.high, fill: RISK_COLORS.high },
-      ]
+      { name: "Low", value: stats.riskDistribution.low, fill: RISK_COLORS.low },
+      { name: "Medium", value: stats.riskDistribution.medium, fill: RISK_COLORS.medium },
+      { name: "High", value: stats.riskDistribution.high, fill: RISK_COLORS.high },
+    ]
     : [];
 
   const activityData = stats?.recentActivity || [];
@@ -97,10 +97,10 @@ export default function Dashboard() {
             <StatsCard
               title="Avg Comments/Review"
               value={stats?.avgCommentsPerReview?.toFixed(1) || "0"}
-              description="Per pull request"
+              description="Per review"
             />
             <StatsCard
-              title="High Risk PRs"
+              title="High Risk PRs/MRs"
               value={stats?.riskDistribution.high || 0}
               icon={<AlertTriangle className="h-4 w-4" />}
               description="Needs attention"
@@ -131,7 +131,7 @@ export default function Dashboard() {
             <EmptyState
               icon={GitPullRequest}
               title="No reviews yet"
-              description="Connect a repository and open a pull request to get started with AI-powered code reviews."
+              description="Connect a repository and open a pull/merge request to get started with AI-powered code reviews."
               action={{
                 label: "Add Repository",
                 onClick: () => window.location.href = "/repositories",
@@ -212,22 +212,22 @@ export default function Dashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={activityData}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis 
-                        dataKey="date" 
+                      <XAxis
+                        dataKey="date"
                         tick={{ fontSize: 10 }}
                         tickLine={false}
                         axisLine={false}
                       />
-                      <YAxis 
+                      <YAxis
                         tick={{ fontSize: 10 }}
                         tickLine={false}
                         axisLine={false}
                         allowDecimals={false}
                       />
                       <Tooltip />
-                      <Bar 
-                        dataKey="count" 
-                        fill="hsl(var(--primary))" 
+                      <Bar
+                        dataKey="count"
+                        fill="hsl(var(--primary))"
                         radius={[4, 4, 0, 0]}
                       />
                     </BarChart>

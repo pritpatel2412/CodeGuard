@@ -2,10 +2,13 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { insertRepositorySchema, insertReviewSchema, insertReviewCommentSchema } from "../shared/schema.js";
-import { getPullRequestDiff, getPullRequestDetails, postReviewComment, postReview, createBranch, updateFile, createPullRequest, getFileContent } from "./github.js";
+import { getUncachableGitHubClient, getPullRequestDiff, getPullRequestDetails, postReviewComment, postReview, createBranch, updateFile, createPullRequest, getFileContent } from "./github.js";
+import { getMergeRequestDetails, getGitLabFileContent, createGitLabBranch, updateGitLabFile, createMergeRequest, postMergeRequestComment } from "./gitlab.js";
 import { analyzeCodeDiff, generateFix } from "./openai.js";
+
 import { z } from "zod";
 import crypto from "crypto";
+import PDFDocument from "pdfkit";
 
 // Validation schemas for API requests
 const createRepositorySchema = z.object({
@@ -230,10 +233,374 @@ export async function registerRoutes(
   app.get("/api/stats", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
+      console.log(`[API] /api/stats hit for user ${req.user!.id} (${(req.user as any).username})`);
       const stats = await storage.getStats(req.user!.id);
+      console.log(`[API] returning stats: ${stats.totalReviews} reviews, ${stats.totalComments} comments`);
       res.json(stats);
     } catch (error: any) {
+      console.error("[API] /api/stats error:", error);
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============= STATS DOWNLOAD =============
+  app.get("/api/stats/download", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+
+    try {
+      const range = (req.query.range as string) || "24h";
+
+      // Calculate Date Range
+      const endDate = new Date();
+      const startDate = new Date();
+
+      switch (range) {
+        case "24h":
+          startDate.setHours(startDate.getHours() - 24);
+          break;
+        case "7d":
+          startDate.setDate(startDate.getDate() - 7);
+          break;
+        case "15d":
+          startDate.setDate(startDate.getDate() - 15);
+          break;
+        case "30d":
+        case "1m":
+          startDate.setDate(startDate.getDate() - 30);
+          break;
+        default:
+          // Default to 24h if invalid
+          startDate.setHours(startDate.getHours() - 24);
+      }
+
+      const stats = await storage.getStats(req.user!.id, startDate, endDate);
+
+      const safeStats = {
+        totalReviews: stats.totalReviews || 0,
+        totalComments: stats.totalComments || 0,
+        avgCommentsPerReview: stats.avgCommentsPerReview || 0,
+        riskDistribution: {
+          low: stats.riskDistribution?.low || 0,
+          medium: stats.riskDistribution?.medium || 0,
+          high: stats.riskDistribution?.high || 0,
+        },
+        recentActivity: Array.isArray(stats.recentActivity) ? stats.recentActivity : [],
+      };
+
+      // ── Security Health Score (premium touch) ──
+      const totalRisks = Object.values(safeStats.riskDistribution).reduce((a, b) => a + b, 0);
+      let securityScore = 95;
+      if (totalRisks > 0) {
+        const highWeight = safeStats.riskDistribution.high * 0.6;
+        const medWeight = safeStats.riskDistribution.medium * 0.25;
+        securityScore = Math.round(100 * (1 - (highWeight + medWeight) / totalRisks));
+        securityScore = Math.max(55, securityScore);
+      }
+
+      const doc = new PDFDocument({ margin: 50 });
+      const chunks: Buffer[] = [];
+
+      doc.on("data", (chunk) => chunks.push(chunk));
+      doc.on("end", () => {
+        const result = Buffer.concat(chunks);
+        res.status(200)
+          .setHeader("Content-Type", "application/pdf")
+          .setHeader("Content-Disposition", `attachment; filename=CodeGuard_Report_${range}.pdf`)
+          .setHeader("Content-Length", result.length)
+          .send(result);
+      });
+
+      doc.on("error", (err) => {
+        console.error("PDF error:", err);
+        if (!res.headersSent) res.status(500).json({ error: "Failed to generate PDF" });
+      });
+
+      // ── Premium Color Palette ──
+      const colors = {
+        primary: "#6366f1",
+        primaryDark: "#4338ca",
+        success: "#22c55e",
+        warning: "#eab308",
+        danger: "#ef4444",
+        text: "#1e293b",
+        textLight: "#64748b",
+        bgLight: "#f8fafc",
+        border: "#e2e8f0",
+      };
+
+      // Header gradient
+      const headerGrad = doc.linearGradient(0, 0, doc.page.width, 140);
+      headerGrad.stop(0, colors.primary);
+      headerGrad.stop(1, colors.primaryDark);
+      doc.rect(0, 0, doc.page.width, 140).fill(headerGrad);
+
+      // Logo + Title
+      doc.fillColor("#ffffff")
+        .fontSize(32)
+        .font("Helvetica-Bold")
+        .text("CodeGuard", 50, 48);
+
+      doc.fontSize(14)
+        .font("Helvetica")
+        .text("AI-Powered Code Security & Quality Report", 50, 82);
+
+      // Date badge
+      const reportDate = new Date().toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+      const badgeW = 168;
+      doc.roundedRect(doc.page.width - 50 - badgeW, 46, badgeW, 34, 17)
+        .fill("rgba(255,255,255,0.18)");
+      doc.fillColor("#ffffff")
+        .fontSize(11)
+        .text(reportDate, doc.page.width - 50 - badgeW, 55, { width: badgeW, align: "center" });
+
+      doc.y = 170;
+
+      // ── Performance Overview ──
+      doc.fillColor(colors.text)
+        .fontSize(22)
+        .font("Helvetica-Bold")
+        .text("Performance Overview", 50, doc.y);
+
+      doc.moveDown(0.6);
+      doc.fillColor(colors.textLight)
+        .fontSize(10.5)
+        .font("Helvetica")
+        .text(
+          `Summary of code quality and security insights from the past ${range === "24h" ? "24 hours" : range}.`,
+          50,
+          doc.y
+        );
+
+      doc.moveDown(3.5);
+      const cardY = doc.y;
+      const cardWidth = 170;
+      const cardGap = 35;
+      const cardHeight = 92;
+
+      // Enhanced card with shadow + accent bar
+      const drawCard = (
+        x: number,
+        y: number,
+        title: string,
+        value: string | number,
+        accent: string
+      ) => {
+        // Shadow
+        doc.roundedRect(x + 4, y + 4, cardWidth, cardHeight, 10)
+          .fill("#cbd5e1")
+          .opacity(0.5);
+        doc.opacity(1);
+
+        // Card
+        doc.roundedRect(x, y, cardWidth, cardHeight, 10)
+          .fill(colors.bgLight)
+          .stroke(colors.border);
+
+        // Accent bar
+        doc.rect(x + 6, y + 10, 7, cardHeight - 22).fill(accent);
+
+        // Title
+        doc.fillColor(colors.textLight)
+          .fontSize(9.8)
+          .text(title.toUpperCase(), x + 24, y + 18);
+
+        // Value
+        doc.fillColor(colors.text)
+          .fontSize(27)
+          .font("Helvetica-Bold")
+          .text(String(value), x + 24, y + 42);
+      };
+
+      // Row 1
+      drawCard(50, cardY, "Total Reviews", safeStats.totalReviews, colors.primary);
+      drawCard(50 + cardWidth + cardGap, cardY, "Issues Detected", safeStats.totalComments, colors.danger);
+
+      // Row 2
+      const row2Y = cardY + cardHeight + 22;
+      drawCard(50, row2Y, "Avg Issues / Review", safeStats.avgCommentsPerReview.toFixed(1), colors.success);
+      drawCard(
+        50 + cardWidth + cardGap,
+        row2Y,
+        "Security Score",
+        `${securityScore}%`,
+        securityScore >= 85 ? colors.success : securityScore >= 70 ? colors.warning : colors.danger
+      );
+
+      doc.y = row2Y + cardHeight + 30;
+
+      // ── Risk Distribution ──
+      doc.fillColor(colors.text)
+        .fontSize(19)
+        .font("Helvetica-Bold")
+        .text("Risk Distribution", 50, doc.y);
+
+      doc.moveDown(1.2);
+
+      if (totalRisks === 0) {
+        doc.fillColor(colors.success)
+          .fontSize(13)
+          .text("✅ No security risks detected in this period. Excellent work!", 50, doc.y);
+        doc.moveDown(3);
+      } else {
+        const barX = 50;
+        const barYStart = doc.y;
+        const barW = 430;
+        const barH = 26;
+        let currentY = barYStart;
+
+        const riskItems = [
+          { label: "High Risk", color: colors.danger, count: safeStats.riskDistribution.high },
+          { label: "Medium Risk", color: colors.warning, count: safeStats.riskDistribution.medium },
+          { label: "Low Risk", color: colors.success, count: safeStats.riskDistribution.low },
+        ];
+
+        riskItems.forEach((item) => {
+          const pct = Math.round((item.count / totalRisks) * 100) || 0;
+
+          // Label
+          doc.fillColor(colors.text)
+            .fontSize(11.5)
+            .text(item.label, barX, currentY + 7);
+
+          // Background bar
+          doc.roundedRect(barX + 115, currentY + 4, barW, barH, 6)
+            .fill(colors.bgLight)
+            .stroke(colors.border);
+
+          // Filled bar
+          if (item.count > 0) {
+            const fillWidth = Math.max(8, barW * (item.count / totalRisks));
+            doc.roundedRect(barX + 115, currentY + 4, fillWidth, barH, 6).fill(item.color);
+          }
+
+          // Percentage + count
+          doc.fillColor(colors.text)
+            .fontSize(11.5)
+            .text(`${pct}%`, barX + 115 + barW + 18, currentY + 7);
+
+          doc.fillColor(colors.textLight)
+            .fontSize(10)
+            .text(`${item.count} issues`, barX + 115 + barW + 72, currentY + 7);
+
+          currentY += barH + 18;
+        });
+
+        doc.y = currentY + 12;
+      }
+
+      // Legend (always shown)
+      const legendY = doc.y;
+      const drawLegend = (x: number, color: string, label: string, count: number) => {
+        const pct = totalRisks > 0 ? Math.round((count / totalRisks) * 100) : 0;
+        doc.circle(x, legendY + 6, 5.5).fill(color);
+        doc.fillColor(colors.text)
+          .fontSize(10.5)
+          .text(label, x + 18, legendY + 3);
+        doc.fillColor(colors.textLight)
+          .fontSize(9.8)
+          .text(`${count} issues • ${pct}%`, x + 18, legendY + 16);
+      };
+
+      drawLegend(50, colors.danger, "High Risk", safeStats.riskDistribution.high);
+      drawLegend(225, colors.warning, "Medium Risk", safeStats.riskDistribution.medium);
+      drawLegend(400, colors.success, "Low Risk", safeStats.riskDistribution.low);
+
+      doc.y = legendY + 55;
+
+      // ── Recent Activity Table ──
+      doc.fillColor(colors.text)
+        .fontSize(19)
+        .font("Helvetica-Bold")
+        .text("Recent Activity", 50, doc.y);
+
+      doc.moveDown(1.2);
+
+      const tableTop = doc.y;
+      const rowHeight = 36;
+      const tableWidth = 510;
+
+      // Table header
+      doc.rect(50, tableTop, tableWidth, 32)
+        .fill(colors.bgLight)
+        .stroke(colors.border);
+
+      doc.fillColor(colors.textLight)
+        .fontSize(9.5)
+        .text("DATE", 68, tableTop + 11)
+        .text("ACTIVITY", 245, tableTop + 11)
+        .text("STATUS", 450, tableTop + 11);
+
+      let currentRowY = tableTop + 32;
+      const activityData = safeStats.recentActivity.slice(0, 10);
+
+      activityData.forEach((activity, i) => {
+        const isEven = i % 2 === 0;
+
+        if (!isEven) {
+          doc.rect(50, currentRowY, tableWidth, rowHeight).fill("#f8fafc");
+        }
+
+        const isZero = activity.count === 0;
+
+        doc.fillColor(colors.text)
+          .fontSize(10.2)
+          .text(activity.date, 68, currentRowY + 12)
+          .text(`${activity.count} Reviews performed`, 245, currentRowY + 12);
+
+        // Status badge
+        const badgeColor = isZero ? "#f1f5f9" : "#dcfce7";
+        const textColor = isZero ? "#64748b" : "#166534";
+        const badgeText = isZero ? "Quiet" : "Active";
+
+        doc.roundedRect(445, currentRowY + 8.5, 72, 19, 9.5)
+          .fill(badgeColor);
+
+        doc.fillColor(textColor)
+          .fontSize(8.2)
+          .text(badgeText, 445, currentRowY + 12.5, { width: 72, align: "center" });
+
+        // Row divider
+        doc.moveTo(50, currentRowY + rowHeight)
+          .lineTo(560, currentRowY + rowHeight)
+          .lineWidth(0.8)
+          .stroke(colors.border);
+
+        currentRowY += rowHeight;
+      });
+
+      if (activityData.length === 0) {
+        doc.fillColor(colors.textLight)
+          .fontSize(10.5)
+          .text("No recent activity recorded yet.", 68, currentRowY + 12);
+      }
+
+      // Vertical column lines
+      doc.moveTo(240, tableTop).lineTo(240, currentRowY).stroke(colors.border);
+      doc.moveTo(440, tableTop).lineTo(440, currentRowY).stroke(colors.border);
+
+      // Footer
+      const footerY = doc.page.height - 52;
+      doc.moveTo(50, footerY - 18)
+        .lineTo(560, footerY - 18)
+        .lineWidth(1)
+        .stroke(colors.border);
+
+      doc.fillColor(colors.textLight)
+        .fontSize(8.2)
+        .text("© 2026 CodeGuard • Confidential AI Security Report", 50, footerY);
+
+      doc.text("Generated with ❤️ by CodeGuard AI", 380, footerY, { align: "right" });
+
+      doc.end();
+    } catch (error: any) {
+      console.error("PDF Generation error:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      }
     }
   });
 
@@ -433,17 +800,35 @@ export async function registerRoutes(
           return acc;
         }, {} as Record<string, number>);
 
-        const summaryBody = `## AI Code Review Summary
+        const summaryBody = `# 🤖 CodeGuard AI Agent — Code Review Summary
 
-**Risk Level:** ${riskEmoji[analysis.risk_level] || analysis.risk_level}
-
-${analysis.summary}
-
-**Issues Found:** ${analysis.comments.length}
-${Object.entries(commentsByType).map(([type, count]) => `- ${type}: ${count}`).join('\n')}
+**Overall Risk Level:** ${riskEmoji[analysis.risk_level] || analysis.risk_level}
 
 ---
-*Powered by AI PR Reviewer*`;
+
+### 📌 Executive Summary
+${analysis.summary}
+
+---
+
+### 🧩 Findings Overview
+**Total Issues Detected:** ${analysis.comments.length}
+
+${Object.entries(commentsByType)
+            .map(([type, count]) => `- **${type}**: ${count}`)
+            .join('\n')}
+
+---
+
+### 🛡️ About CodeGuard AI Agent
+This review was automatically generated by **CodeGuard AI Agent**, your intelligent code quality and security assistant.  
+It analyzes your changes for potential bugs, security risks, performance issues, and maintainability concerns—helping you ship safer, cleaner, and more reliable code with confidence.
+
+---
+
+*Generated by CodeGuard AI Agent • Intelligent Code Review System*
+`;
+
 
         try {
           await postReview(owner, repoName, prNumber, summaryBody, "COMMENT");
@@ -508,14 +893,69 @@ ${Object.entries(commentsByType).map(([type, count]) => `- ${type}: ${count}`).j
         });
       }
 
-      // 2. Get PR details to find HEAD SHA
-      const prDetails = await getPullRequestDetails(repo.owner, repo.name, review.prNumber);
-      const headSha = prDetails.head.sha;
-      const baseBranch = prDetails.head.ref;
-
-      // 3. Get Full File Content (User Spec Requirement)
+      // 2. Determine Platform and Get Context
+      let headSha: string;
+      let baseBranch: string;
+      let fileContent: string;
+      let targetPlatform = repo.platform;
       const accessToken = (req.user as any).accessToken;
-      const fileContent = await getFileContent(repo.owner, repo.name, comment.path, headSha, accessToken);
+
+      // Smart Fallback Logic:
+      // If configured for specific platform, try it.
+      // If it fails with 404 (Not Found), try the other platform.
+      // If the other platform succeeds, update the DB to reflect the correct platform.
+
+      try {
+        if (targetPlatform === "gitlab") {
+          const mrDetails = await getMergeRequestDetails(repo.owner, repo.name, review.prNumber);
+          headSha = mrDetails.sha;
+          baseBranch = mrDetails.source_branch;
+          fileContent = await getGitLabFileContent(repo.owner, repo.name, comment.path, headSha);
+        } else {
+          // GitHub Enforced
+          const prDetails = await getPullRequestDetails(repo.owner, repo.name, review.prNumber);
+          headSha = prDetails.head.sha;
+          baseBranch = prDetails.head.ref;
+          fileContent = await getFileContent(repo.owner, repo.name, comment.path, headSha, accessToken);
+        }
+      } catch (initialError: any) {
+        console.log(`Failed to fetch details from ${targetPlatform}: ${initialError.message}`);
+
+        // Only try fallback if it was a 404 Not Found
+        if (initialError.message.includes("Not Found") || initialError.status === 404) {
+          const fallbackPlatform = targetPlatform === "github" ? "gitlab" : "github"; // Actually unlikely to fallback to GitHub if user selected GitLab, but good for robustness
+          console.log(`Attempting fallback to ${fallbackPlatform}...`);
+
+          try {
+            if (fallbackPlatform === "gitlab") {
+              const mrDetails = await getMergeRequestDetails(repo.owner, repo.name, review.prNumber);
+              headSha = mrDetails.sha;
+              baseBranch = mrDetails.source_branch;
+              fileContent = await getGitLabFileContent(repo.owner, repo.name, comment.path, headSha);
+
+              // Success! Update DB
+              targetPlatform = "gitlab";
+              await storage.updateRepository(repo.id, { platform: "gitlab" });
+              console.log(`Successfully auto-corrected repository platform to GitLab for ${repo.fullName}`);
+            } else {
+              const prDetails = await getPullRequestDetails(repo.owner, repo.name, review.prNumber);
+              headSha = prDetails.head.sha;
+              baseBranch = prDetails.head.ref;
+              fileContent = await getFileContent(repo.owner, repo.name, comment.path, headSha, accessToken);
+
+              // Success! Update DB
+              targetPlatform = "github";
+              await storage.updateRepository(repo.id, { platform: "github" });
+              console.log(`Successfully auto-corrected repository platform to GitHub for ${repo.fullName}`);
+            }
+          } catch (fallbackError) {
+            // Both failed, throw the original error or a combined one
+            throw new Error(`Failed to access repository on both GitHub and GitLab. Please check your repository settings. Original error: ${initialError.message}`);
+          }
+        } else {
+          throw initialError;
+        }
+      }
 
       // 4. Generate Fix (OpenAI - "Senior App Sec Engineer" persona)
       const fixedContent = await generateFix(fileContent, comment.comment, comment.line);
@@ -530,28 +970,83 @@ ${Object.entries(commentsByType).map(([type, count]) => `- ${type}: ${count}`).j
 
       // 6. Create new branch with specific naming convention
       // Convention: refs/heads/security-fix-pr-{prNumber}-{random} to avoid collisions
-      const fixBranchName = `security-fix-pr-${review.prNumber}-${crypto.randomBytes(3).toString('hex')}`;
-      await createBranch(repo.owner, repo.name, fixBranchName, headSha, accessToken);
+      const fixBranchName = `security-fix-${review.prNumber}-${crypto.randomBytes(3).toString('hex')}`;
 
-      // 7. Commit fixed file
-      await updateFile(
-        repo.owner,
-        repo.name,
-        comment.path,
-        fixedContent,
-        `Security fix: resolve issue at ${comment.path}`,
-        fixBranchName,
-        undefined, // Let functionality fetch the correct file (blob) SHA
-        accessToken
-      );
+      let prUrl: string;
+      let prNumber: number;
 
-      // 8. Create PR targeting the original PR's branch
-      // Specific Template from User
-      const newPr = await createPullRequest(
-        repo.owner,
-        repo.name,
-        `🔒 Security Fix for High-Risk Issues (PR #${review.prNumber})`,
-        `
+      if (targetPlatform === "gitlab") {
+        await createGitLabBranch(repo.owner, repo.name, fixBranchName, headSha);
+
+        // 7. Commit fixed file
+        await updateGitLabFile(
+          repo.owner,
+          repo.name,
+          comment.path,
+          fixedContent,
+          `Security fix: resolve issue at ${comment.path}`,
+          fixBranchName
+        );
+
+        // 8. Create MR
+        const newMr = await createMergeRequest(
+          repo.owner,
+          repo.name,
+          `🔒 Security Fix for High-Risk Issues (MR #${review.prNumber})`,
+          `
+This MR was generated by **CodeGuard AI** to fix high-risk security issues found in the original merge request.
+
+Fixes:
+- Removed hardcoded secrets
+- Refactored insecure logic
+- Followed security best practices
+
+Original MR: #${review.prNumber}
+`,
+          fixBranchName,
+          baseBranch
+        );
+
+        prUrl = newMr.web_url;
+        prNumber = newMr.iid;
+
+        // 9. Comment on Original MR
+        try {
+          await postMergeRequestComment(
+            repo.owner,
+            repo.name,
+            review.prNumber,
+            headSha,
+            comment.path,
+            comment.line,
+            `🚨 **High-risk security issue detected.**\n\nA security-fix MR has been created:\n➡️ ${prUrl}\n\nPlease review and merge the fix.`
+          );
+        } catch (commentError: any) {
+          console.error("Failed to post link on original MR:", commentError.message);
+        }
+
+      } else {
+        // GitHub Flow
+        await createBranch(repo.owner, repo.name, fixBranchName, headSha, accessToken);
+
+        // 7. Commit fixed file
+        await updateFile(
+          repo.owner,
+          repo.name,
+          comment.path,
+          fixedContent,
+          `Security fix: resolve issue at ${comment.path}`,
+          fixBranchName,
+          undefined, // Let functionality fetch the correct file (blob) SHA
+          accessToken
+        );
+
+        // 8. Create PR targeting the original PR's branch
+        const newPr = await createPullRequest(
+          repo.owner,
+          repo.name,
+          `🔒 Security Fix for High-Risk Issues (PR #${review.prNumber})`,
+          `
 This PR was generated by **CodeGuard AI** to fix high-risk security issues found in the original pull request.
 
 Fixes:
@@ -561,36 +1056,51 @@ Fixes:
 
 Original PR: #${review.prNumber}
 `,
-        fixBranchName,
-        baseBranch,
-        accessToken
-      );
-
-      // 9. Comment on Original PR (User Spec: Trust and Transparency)
-      try {
-        await postReviewComment(
-          repo.owner,
-          repo.name,
-          review.prNumber,
-          headSha,
-          comment.path,
-          comment.line,
-          `🚨 **High-risk security issue detected.**\n\nA security-fix PR has been created:\n➡️ #${newPr.number}\n\nPlease review and merge the fix.`
+          fixBranchName,
+          baseBranch,
+          accessToken
         );
-      } catch (commentError: any) {
-        console.error("Failed to post link on original PR:", commentError.message);
-        // Don't fail the whole request if just the comment fails
+
+        prUrl = newPr.html_url;
+        prNumber = newPr.number;
+
+        // 9. Comment on Original PR
+        try {
+          await postReviewComment(
+            repo.owner,
+            repo.name,
+            review.prNumber,
+            headSha,
+            comment.path,
+            comment.line,
+            `🚨 **High-risk security issue detected.**\n\nA security-fix PR has been created:\n➡️ #${newPr.number}\n\nPlease review and merge the fix.`
+          );
+        } catch (commentError: any) {
+          console.error("Failed to post link on original PR:", commentError.message);
+        }
       }
 
       res.status(200).json({
         message: "Fix PR created successfully",
-        prUrl: newPr.html_url,
-        prNumber: newPr.number
+        prUrl: prUrl,
+        prNumber: prNumber
       });
 
     } catch (error: any) {
       console.error("Failed to apply fix:", error);
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Test GitHub Auth
+  app.get("/api/test-github-auth", async (req, res) => {
+    try {
+      const octokit = await getUncachableGitHubClient();
+      const { data } = await octokit.users.getAuthenticated();
+      res.json(data);
+    } catch (error: any) {
+      console.error("Test auth failed:", error);
+      res.status(401).json({ error: error.message });
     }
   });
 

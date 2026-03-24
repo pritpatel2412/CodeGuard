@@ -1,0 +1,149 @@
+--- Debug Data Start ---
+Checking ALL database data...
+Total Users in DB: 10
+User: parulbuch-alt (ID: 62caf5e9-0339-45d7-aa29-329d167cfb40)
+User: darshan2644 (ID: 95077d04-78a5-4ae8-b157-01b11c920954)
+User: nency2572-code (ID: 0cbab592-b3be-4b28-a10f-411a43b65420)
+User: samplepreet24-sudo (ID: 81c4236e-9a01-40ee-a995-7b03f4c5db02)
+User: Prit2412 (ID: 5bc87316-362f-415f-aba5-e4b26227b69c)
+User: pritpatel2412 (ID: 5d3bd976-0e52-4dcc-a545-543f6a8a039e)
+User: Krishvora22 (ID: 961dba24-292f-4196-9dd3-148326e0e726)
+User: Manan2k4 (ID: 15d35f08-f7d8-4dbd-8f58-3d6484214e58)
+User: Trushar30 (ID: ad7717bd-51c6-4906-a0e8-875c51a2e99a)
+User: aumshah1 (ID: 78f2286b-ed1f-4a1c-b1c9-28b2e6718cf5)
+Total Repositories in DB: 9
+Repo: Prit2412/Royal-Threads (ID: 4785c233-3635-48ec-b4d1-4b4002b8ab47, UserID: 5bc87316-362f-415f-aba5-e4b26227b69c)
+Repo: Prit2412/Portfolio1 (ID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, UserID: 5bc87316-362f-415f-aba5-e4b26227b69c)
+Repo: krishvora22/Vite-App (ID: 6ded6ecd-52b9-4748-9e94-b7748e59d559, UserID: 961dba24-292f-4196-9dd3-148326e0e726)
+Repo: darshan2644/lvs-machine-tools (ID: 4e231f05-bf01-4714-b27c-33d2955b216a, UserID: 95077d04-78a5-4ae8-b157-01b11c920954)
+Repo: Trushar30/Chat (ID: 0e8cc91d-a94f-4cb1-a3c8-26c4fa6fe3a2, UserID: ad7717bd-51c6-4906-a0e8-875c51a2e99a)
+Repo: pritpatel2412/sample (ID: 747b1146-fa2e-441d-bd3e-782cb68028aa, UserID: 5d3bd976-0e52-4dcc-a545-543f6a8a039e)
+Repo: pritpatel2412/kemlang (ID: bc01e016-bfd1-4634-8a49-c51469b71d9a, UserID: 5d3bd976-0e52-4dcc-a545-543f6a8a039e)
+Repo: darshan2644/Certchain (ID: 3861d3fe-eb98-4bd3-b62e-c4372b3da717, UserID: 95077d04-78a5-4ae8-b157-01b11c920954)
+Repo: pritptl2412/pritptl2412-project (ID: bc8b26a2-fc9e-4241-980a-e194a1f87cf0, UserID: 5d3bd976-0e52-4dcc-a545-543f6a8a039e)
+Total Reviews in DB: 76
+Review ID: 5df627a5-58a8-48a8-8239-881039b2b59a, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Fri Dec 19 2025 18:52:47 GMT+0530 (India Standard Time)
+Review ID: 93c9b038-f19f-43f9-96fa-04e2f6bbb55c, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Fri Dec 19 2025 19:17:47 GMT+0530 (India Standard Time)
+Review ID: 990dfb78-77c7-4f80-b0d3-8787c2e103cd, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Fri Dec 19 2025 19:20:45 GMT+0530 (India Standard Time)
+Review ID: 2faeae15-5b05-4b5a-a260-2c01b4c6b554, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Fri Dec 19 2025 19:25:53 GMT+0530 (India Standard Time)
+Review ID: 90f0cc2e-3f00-4b23-a061-f632f0a5d04f, RepoID: bc01e016-bfd1-4634-8a49-c51469b71d9a, CreatedAt: Fri Dec 12 2025 09:50:33 GMT+0530 (India Standard Time)
+Review ID: 91ba6230-a1e1-4921-98e4-949a2074ecda, RepoID: bc01e016-bfd1-4634-8a49-c51469b71d9a, CreatedAt: Fri Dec 12 2025 09:52:24 GMT+0530 (India Standard Time)
+Review ID: 3060b1c5-aa35-4315-82ba-86e27cc4afc8, RepoID: bc01e016-bfd1-4634-8a49-c51469b71d9a, CreatedAt: Fri Dec 12 2025 10:00:24 GMT+0530 (India Standard Time)
+Review ID: d5d8cc37-b606-4567-9b03-9a0fa025fd0e, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Fri Dec 19 2025 18:46:34 GMT+0530 (India Standard Time)
+Review ID: 86ee64c3-e8b8-474d-b26a-3ab78750ed12, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 18:58:33 GMT+0530 (India Standard Time)
+Review ID: a35cf0a5-8408-4c2f-a66a-48e1cca1294e, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 19:00:02 GMT+0530 (India Standard Time)
+Review ID: b229cfd1-2da0-4e46-ac16-5c13db5576b6, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 19:10:23 GMT+0530 (India Standard Time)
+Review ID: 2d650f47-a20d-405c-a96a-fa7f56cf1ecc, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 19:11:45 GMT+0530 (India Standard Time)
+Review ID: afc59b94-6ffe-412a-945d-ae312b468fe2, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 19:14:45 GMT+0530 (India Standard Time)
+Review ID: 68a8a3dd-523a-4fe6-8d37-851c0a20cb5c, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 19:17:48 GMT+0530 (India Standard Time)
+Review ID: ec31f6b9-3613-4a70-ae17-3cc757bb419c, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 19:17:41 GMT+0530 (India Standard Time)
+Review ID: e50653e1-5815-4b44-907d-6708cef4a0d0, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 19:28:12 GMT+0530 (India Standard Time)
+Review ID: a45dad52-353e-47d3-b746-04046c013229, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 19:31:22 GMT+0530 (India Standard Time)
+Review ID: 711d3628-e1dd-452a-8e1d-812cf13b01f3, RepoID: 4785c233-3635-48ec-b4d1-4b4002b8ab47, CreatedAt: Sun Dec 14 2025 08:49:51 GMT+0530 (India Standard Time)
+Review ID: 858903f2-2a9f-41d0-92f0-8be1622e05c2, RepoID: bc01e016-bfd1-4634-8a49-c51469b71d9a, CreatedAt: Sun Dec 14 2025 07:43:54 GMT+0530 (India Standard Time)
+Review ID: 758270ea-2c08-426c-a880-d0a96a042e6b, RepoID: 4785c233-3635-48ec-b4d1-4b4002b8ab47, CreatedAt: Sun Dec 14 2025 09:13:39 GMT+0530 (India Standard Time)
+Review ID: 461cf929-2d6a-4e1b-96ef-e7c423b3e667, RepoID: 4785c233-3635-48ec-b4d1-4b4002b8ab47, CreatedAt: Sun Dec 14 2025 09:17:02 GMT+0530 (India Standard Time)
+Review ID: d22d54ba-58ff-4be9-95fd-34fde88db231, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Mon Dec 15 2025 20:46:29 GMT+0530 (India Standard Time)
+Review ID: 1992d077-237a-4576-ab8b-5d4442d5d73b, RepoID: bc01e016-bfd1-4634-8a49-c51469b71d9a, CreatedAt: Sun Dec 14 2025 07:46:38 GMT+0530 (India Standard Time)
+Review ID: 42c6100b-4dce-472b-96f9-f0e3cbc6086a, RepoID: 6ded6ecd-52b9-4748-9e94-b7748e59d559, CreatedAt: Tue Dec 16 2025 12:08:55 GMT+0530 (India Standard Time)
+Review ID: 9ef6ea48-68b6-4ebc-835f-291dcd8e95a4, RepoID: 4e231f05-bf01-4714-b27c-33d2955b216a, CreatedAt: Fri Dec 19 2025 15:01:20 GMT+0530 (India Standard Time)
+Review ID: 36ea7ad5-8bfe-47d5-8e4c-ee1dae2a62cd, RepoID: 4e231f05-bf01-4714-b27c-33d2955b216a, CreatedAt: Fri Dec 19 2025 15:08:44 GMT+0530 (India Standard Time)
+Review ID: fd1ccc14-b99a-412c-a493-92a476b83142, RepoID: 4e231f05-bf01-4714-b27c-33d2955b216a, CreatedAt: Fri Dec 19 2025 15:23:44 GMT+0530 (India Standard Time)
+Review ID: fc323d45-6ac1-4bb7-8941-2f2f57193370, RepoID: bc01e016-bfd1-4634-8a49-c51469b71d9a, CreatedAt: Fri Dec 19 2025 15:58:53 GMT+0530 (India Standard Time)
+Review ID: 16f1e678-3769-411d-be2e-bb810b239c30, RepoID: bc01e016-bfd1-4634-8a49-c51469b71d9a, CreatedAt: Fri Dec 19 2025 18:30:40 GMT+0530 (India Standard Time)
+Review ID: 0b285a37-0752-4cf1-82f7-ae619e3a4e16, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Fri Dec 19 2025 18:45:30 GMT+0530 (India Standard Time)
+Review ID: ee17f075-8f06-4c50-85b6-939f5aac5494, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 19:37:11 GMT+0530 (India Standard Time)
+Review ID: 351f24d4-c2c5-4df7-b9ff-d78a7aa2ae9b, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 19:43:11 GMT+0530 (India Standard Time)
+Review ID: f636ec2c-85a2-48b3-ba68-03713289ce8b, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 19:46:43 GMT+0530 (India Standard Time)
+Review ID: 8bf8eb62-50f1-4b80-9e15-40a01a5d353f, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 19:48:27 GMT+0530 (India Standard Time)
+Review ID: b3852604-36bb-4301-8611-bceed3d7532e, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 19:49:05 GMT+0530 (India Standard Time)
+Review ID: 597a7ff1-2ac2-45ee-a9da-2f773fa4d230, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 20:17:14 GMT+0530 (India Standard Time)
+Review ID: 81b89317-f12d-4907-b38b-3554e1bae63c, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 20:18:44 GMT+0530 (India Standard Time)
+Review ID: 9fd42a9b-6d89-4dea-b780-12613945176a, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 20:23:41 GMT+0530 (India Standard Time)
+Review ID: 508acb62-fb6d-4ed3-a33e-898b586f10ba, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 20:25:13 GMT+0530 (India Standard Time)
+Review ID: 78876cd9-38f4-4f83-b19f-56f07d67bd02, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 20:26:30 GMT+0530 (India Standard Time)
+Review ID: d2cf8287-5374-4f4f-a34d-5af540980efb, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 20:28:14 GMT+0530 (India Standard Time)
+Review ID: 76e11f7d-e5d7-4e56-9dba-94957ddd8da7, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 20:30:06 GMT+0530 (India Standard Time)
+Review ID: a626e9bb-b452-4c12-94a5-08346337c0e3, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 20:33:57 GMT+0530 (India Standard Time)
+Review ID: 201cfad1-cae6-4d20-91ee-0a77613cc3e9, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Sat Dec 20 2025 20:36:09 GMT+0530 (India Standard Time)
+Review ID: d36edce9-0db7-4267-bd74-6c19cc2e142f, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Mon Dec 22 2025 12:25:13 GMT+0530 (India Standard Time)
+Review ID: c079c488-e3fb-49fe-88ef-ea3f6b506932, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Mon Dec 22 2025 12:29:39 GMT+0530 (India Standard Time)
+Review ID: f1630e9f-fb57-43c4-8354-5829bc3572fc, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Mon Dec 22 2025 18:32:59 GMT+0530 (India Standard Time)
+Review ID: af089425-2b87-4594-a90d-c08fbc598e23, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Mon Dec 22 2025 18:33:51 GMT+0530 (India Standard Time)
+Review ID: 995ab6c5-e3a3-4981-ac76-5e3ad5c3e145, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Mon Dec 22 2025 18:55:17 GMT+0530 (India Standard Time)
+Review ID: 2cec1217-dd3a-4199-ae2d-9bb9038b7725, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Mon Dec 22 2025 18:55:58 GMT+0530 (India Standard Time)
+Review ID: bd834817-bea2-4032-bfca-17415990fb89, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Mon Dec 22 2025 19:07:51 GMT+0530 (India Standard Time)
+Review ID: ba32faf7-0550-4ed2-a7af-8eb6103cec8a, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Tue Dec 23 2025 09:16:22 GMT+0530 (India Standard Time)
+Review ID: eb90fa79-22bc-46dc-9da1-ec47267090fc, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Tue Dec 23 2025 09:17:20 GMT+0530 (India Standard Time)
+Review ID: 79d62603-67ea-4e52-91aa-7cbf67a557f5, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Tue Dec 23 2025 09:18:45 GMT+0530 (India Standard Time)
+Review ID: fa6e0ee4-05f0-4685-8a33-0a48d768c4db, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Tue Dec 23 2025 10:46:22 GMT+0530 (India Standard Time)
+Review ID: 63774a3b-858e-4360-a265-3fbdd8abdf17, RepoID: 4e231f05-bf01-4714-b27c-33d2955b216a, CreatedAt: Tue Dec 23 2025 12:37:08 GMT+0530 (India Standard Time)
+Review ID: dad78658-39d2-4db5-9c12-0acb128b0f01, RepoID: 4e231f05-bf01-4714-b27c-33d2955b216a, CreatedAt: Tue Dec 23 2025 12:37:20 GMT+0530 (India Standard Time)
+Review ID: e58e1f1e-ff8f-4bce-867b-9e76e813e779, RepoID: 4e231f05-bf01-4714-b27c-33d2955b216a, CreatedAt: Tue Dec 23 2025 19:16:30 GMT+0530 (India Standard Time)
+Review ID: 9d0cbbfa-67a3-497d-9232-1633c091bff7, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Wed Dec 24 2025 12:43:42 GMT+0530 (India Standard Time)
+Review ID: 7c83b539-129e-46e9-b88e-ce6381db683f, RepoID: 4e231f05-bf01-4714-b27c-33d2955b216a, CreatedAt: Wed Dec 24 2025 13:17:12 GMT+0530 (India Standard Time)
+Review ID: cba457a4-c595-4d96-9588-f7c20f755e70, RepoID: 4e231f05-bf01-4714-b27c-33d2955b216a, CreatedAt: Fri Dec 26 2025 13:55:18 GMT+0530 (India Standard Time)
+Review ID: 57e80dd4-21a1-4973-83ee-53c9b8b7e4fe, RepoID: 4e231f05-bf01-4714-b27c-33d2955b216a, CreatedAt: Sat Dec 27 2025 15:35:08 GMT+0530 (India Standard Time)
+Review ID: 3d503dfe-9d1e-4a43-a925-204af272b68a, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Mon Jan 05 2026 16:18:01 GMT+0530 (India Standard Time)
+Review ID: 1ad7ec3e-4155-4489-ab80-5247cf0d2cf9, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Wed Jan 28 2026 17:07:38 GMT+0530 (India Standard Time)
+Review ID: 2b265b63-b6ca-432a-b9d2-d0be21b22740, RepoID: 3861d3fe-eb98-4bd3-b62e-c4372b3da717, CreatedAt: Tue Feb 03 2026 12:28:37 GMT+0530 (India Standard Time)
+Review ID: 00102c2c-8759-4976-a205-cd530017d9a8, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Mon Feb 09 2026 20:10:29 GMT+0530 (India Standard Time)
+Review ID: af82c68c-f789-45f9-baff-ff35b78ad774, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Mon Feb 09 2026 20:15:17 GMT+0530 (India Standard Time)
+Review ID: 2c2252cd-ce2d-4d05-b104-0c2b3988a447, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Mon Feb 09 2026 20:18:15 GMT+0530 (India Standard Time)
+Review ID: b33b419b-533f-4e0f-896d-f4006c15bb5c, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Mon Feb 09 2026 20:21:27 GMT+0530 (India Standard Time)
+Review ID: be31636f-33bd-4ccd-a063-8e9ccc25c1b8, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Mon Feb 09 2026 20:29:21 GMT+0530 (India Standard Time)
+Review ID: 27b8d789-455a-4f7b-a698-01d4e62704d6, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Mon Feb 09 2026 20:32:39 GMT+0530 (India Standard Time)
+Review ID: c9f2d7a6-e183-4970-923b-36bc913d03fe, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Mon Feb 09 2026 20:43:33 GMT+0530 (India Standard Time)
+Review ID: 850dd4d3-2668-4749-86f7-0f0e4cc2d271, RepoID: 747b1146-fa2e-441d-bd3e-782cb68028aa, CreatedAt: Mon Feb 09 2026 20:41:33 GMT+0530 (India Standard Time)
+Review ID: aa2bd373-ecc5-4d6c-a68c-ea3bafe897df, RepoID: bc8b26a2-fc9e-4241-980a-e194a1f87cf0, CreatedAt: Mon Feb 09 2026 20:46:15 GMT+0530 (India Standard Time)
+Review ID: 62e297aa-94c4-4c5d-a119-3f03a33c8ce4, RepoID: bc8b26a2-fc9e-4241-980a-e194a1f87cf0, CreatedAt: Mon Feb 09 2026 20:48:52 GMT+0530 (India Standard Time)
+Review ID: 054eebfe-407d-4a66-b4ff-5a78ae89023f, RepoID: db0e5c5c-fdb5-4e60-9c11-699c2e1d64b8, CreatedAt: Mon Feb 16 2026 20:02:10 GMT+0530 (India Standard Time)
+
+Checking specificstats for user: pritpatel2412 (ID: 5d3bd976-0e52-4dcc-a545-543f6a8a039e)
+Stats result: {
+  "totalReviews": 29,
+  "totalComments": 52,
+  "avgCommentsPerReview": 1.793103448275862,
+  "riskDistribution": {
+    "low": 12,
+    "medium": 8,
+    "high": 9
+  },
+  "commentTypeDistribution": {
+    "bug": 11,
+    "security": 21,
+    "performance": 4,
+    "maintainability": 15,
+    "readability": 1
+  },
+  "recentActivity": [
+    {
+      "date": "Tue",
+      "count": 0
+    },
+    {
+      "date": "Wed",
+      "count": 0
+    },
+    {
+      "date": "Thu",
+      "count": 0
+    },
+    {
+      "date": "Fri",
+      "count": 0
+    },
+    {
+      "date": "Sat",
+      "count": 0
+    },
+    {
+      "date": "Sun",
+      "count": 0
+    },
+    {
+      "date": "Mon",
+      "count": 0
+    }
+  ]
+}

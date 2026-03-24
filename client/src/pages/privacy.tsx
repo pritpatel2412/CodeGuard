@@ -1,103 +1,94 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import React from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { ArrowLeft } from "lucide-react";
+import { Link } from "wouter";
+import { Button } from "@/components/ui/button";
 
-export default function PrivacyPolicy() {
+export default function Privacy() {
     return (
-        <div className="p-6 space-y-6 max-w-4xl mx-auto">
-            <div>
-                <h1 className="text-2xl font-semibold">Privacy Policy</h1>
-                <p className="text-sm text-muted-foreground">
-                    Last updated: December 14, 2025
-                </p>
-            </div>
+        <div className="min-h-screen bg-background text-foreground p-6 md:p-8">
+            <div className="max-w-4xl mx-auto space-y-6">
+                <div className="flex items-center gap-4">
+                    <Link href="/">
+                        <Button variant="ghost" size="icon" className="h-9 w-9">
+                            <ArrowLeft className="w-5 h-5" />
+                        </Button>
+                    </Link>
+                    <div>
+                        <h1 className="text-2xl font-semibold tracking-tight">Privacy Policy</h1>
+                        <p className="text-sm text-muted-foreground">
+                            Last updated: {new Date().toLocaleDateString()}
+                        </p>
+                    </div>
+                </div>
 
-            <Card>
-                <CardContent className="p-6">
-                    <ScrollArea className="h-[600px] pr-4">
-                        <div className="space-y-6 text-sm text-muted-foreground leading-relaxed">
-                            <section>
-                                <h3 className="text-base font-medium text-foreground mb-2">1. Information We Collect</h3>
-                                <p>
-                                    We collect information you provide directly to us, such as when you create or modify your account,
-                                    request customer support, or otherwise communicate with us. This information may include your name,
-                                    email address, GitHub username, and repository details.
-                                </p>
-                                <p className="mt-2">
-                                    When you use our services, we automatically collect information about your interactions with the
-                                    Service, including code diffs and pull request metadata necessary for providing our AI analysis.
-                                </p>
-                            </section>
-
-                            <section>
-                                <h3 className="text-base font-medium text-foreground mb-2">2. How We Use Your Information</h3>
-                                <p>
-                                    We use the information we collect to provide, maintain, and improve our services, such as to:
-                                </p>
-                                <ul className="list-disc list-inside mt-2 space-y-1 pl-2">
-                                    <li>Process and analyze your code to provide review comments and risk assessments;</li>
-                                    <li>Send you technical notices, updates, security alerts, and support messages;</li>
-                                    <li>Respond to your comments, questions, and requests;</li>
-                                    <li>Monitor and analyze trends, usage, and activities in connection with our Service;</li>
-                                    <li>Detect, investigate, and prevent fraudulent transactions and other illegal activities.</li>
-                                </ul>
-                            </section>
-
-                            <section>
-                                <h3 className="text-base font-medium text-foreground mb-2">3. Data Retention</h3>
-                                <p>
-                                    We store code snippets and analysis results only for as long as necessary to provide our services
-                                    to you. We do not train our AI models on your private code repositories. We prioritize the security
-                                    and confidentiality of your intellectual property.
-                                </p>
-                            </section>
-
-                            <section>
-                                <h3 className="text-base font-medium text-foreground mb-2">4. Sharing of Information</h3>
-                                <p>
-                                    We do not share your personal information with third parties except as described in this policy.
-                                    We may share your information with our third-party service providers (such as OpenAI for processing
-                                    code analysis) who need access to such information to carry out work on our behalf. These service
-                                    providers are bound by confidentiality agreements and are prohibited from using your personal
-                                    information for any other purpose.
-                                </p>
-                            </section>
-
-                            <section>
-                                <h3 className="text-base font-medium text-foreground mb-2">5. Security</h3>
-                                <p>
-                                    We take reasonable measures to help protect information about you from loss, theft, misuse, and
-                                    unauthorized access, disclosure, alteration, and destruction. We use industry-standard encryption
-                                    to protect your data in transit and at rest.
-                                </p>
-                            </section>
-
-                            <section>
-                                <h3 className="text-base font-medium text-foreground mb-2">6. Your Rights</h3>
-                                <p>
-                                    You have the right to access, update, or delete your personal information at any time. You can
-                                    manage these settings directly within your account dashboard or by contacting our support team.
-                                </p>
-                            </section>
-
-                            <section>
-                                <h3 className="text-base font-medium text-foreground mb-2">7. Changes to this Policy</h3>
-                                <p>
-                                    We may change this privacy policy from time to time. If we make changes, we will notify you by
-                                    revising the date at the top of the policy and, in some cases, we may provide you with additional
-                                    notice (such as updating our homepage or sending you an email notification).
-                                </p>
-                            </section>
-
-                            <section>
-                                <h3 className="text-base font-medium text-foreground mb-2">8. Contact Us</h3>
-                                <p>
-                                    If you have any questions about this privacy policy, please contact us at support@codeguard.dev.
-                                </p>
-                            </section>
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Privacy Policy</CardTitle>
+                        <CardDescription>
+                            Your privacy is strictly protected.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                        <div className="space-y-2">
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                Your privacy is important to us. It is CodeGuard's policy to respect your privacy regarding any information we may collect from you across our website, and other sites we own and operate.
+                            </p>
                         </div>
-                    </ScrollArea>
-                </CardContent>
-            </Card>
+
+                        <div className="space-y-2">
+                            <h3 className="text-lg font-medium">1. Information We Collect</h3>
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                We only ask for personal information when we truly need it to provide a service to you. We collect it by fair and lawful means, with your knowledge and consent. We also let you know why we’re collecting it and how it will be used.
+                            </p>
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                We may collect the following types of information:
+                            </p>
+                            <ul className="list-disc pl-5 mt-2 space-y-1 text-sm text-muted-foreground">
+                                <li><strong>Personal Data:</strong> Name, email address, GitHub username.</li>
+                                <li><strong>Usage Data:</strong> Information on how you use our service, including pages visited and duration.</li>
+                            </ul>
+                        </div>
+
+                        <div className="space-y-2">
+                            <h3 className="text-lg font-medium">2. How We Use Information</h3>
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                We adhere to the following policies when using your data:
+                            </p>
+                            <ul className="list-disc pl-5 mt-2 space-y-1 text-sm text-muted-foreground">
+                                <li>We only retain collected information for as long as necessary to provide you with your requested service.</li>
+                                <li>What data we store, we’ll protect within commercially acceptable means to prevent loss and theft, as well as unauthorized access, disclosure, copying, use or modification.</li>
+                                <li>We don’t share any personally identifying information publicly or with third-parties, except when required to by law.</li>
+                            </ul>
+                        </div>
+
+                        <div className="space-y-2">
+                            <h3 className="text-lg font-medium">3. Third-Party Services</h3>
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                Our website links to external sites that are not operated by us. Please be aware that we have no control over the content and practices of these sites, and cannot accept responsibility or liability for their respective privacy policies.
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <h3 className="text-lg font-medium">4. GitHub Integration</h3>
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                CodeGuard integrates with GitHub to provide code review services. We invoke GitHub APIs on your behalf. We do not store your code permanently; we analyze it for security vulnerabilities and providing reviews.
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <h3 className="text-lg font-medium">5. Changes to This Policy</h3>
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                We may update our Privacy Policy from time to time. Thus, we advise you to review this page periodically for any changes. We will notify you of any changes by posting the new Privacy Policy on this page. These changes are effective immediately, after they are posted on this page.
+                            </p>
+                        </div>
+
+                        <p className="pt-4 mt-2 border-t text-sm text-muted-foreground">
+                            If you have any questions or suggestions about our Privacy Policy, do not hesitate to contact us.
+                        </p>
+                    </CardContent>
+                </Card>
+            </div>
         </div>
     );
 }

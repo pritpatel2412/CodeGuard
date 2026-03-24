@@ -27,6 +27,7 @@ import {
 
 interface ReviewCommentProps {
   comment: ReviewCommentType;
+  platform?: "github" | "gitlab";
 }
 
 const typeConfig = {
@@ -63,7 +64,7 @@ const severityColors = {
   high: "text-red-600 dark:text-red-400",
 };
 
-export function ReviewCommentCard({ comment }: ReviewCommentProps) {
+export function ReviewCommentCard({ comment, platform = "github" }: ReviewCommentProps) {
   const type = comment.type as keyof typeof typeConfig;
   const config = typeConfig[type] || typeConfig.bug;
   const Icon = config.icon;
@@ -183,6 +184,7 @@ export function ReviewCommentCard({ comment }: ReviewCommentProps) {
                   autoStart
                   filename={comment.path}
                   prUrl={createdPrUrl}
+                  platform={platform}
                   onComplete={() => {
                     // Auto-close after animation (AiFixFlow waits 2s before calling this)
                     setIsDialogOpen(false);

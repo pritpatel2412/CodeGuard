@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { app, log } from "./app";
 import { registerRoutes } from "./routes";
 import { setupAuth } from "./auth";

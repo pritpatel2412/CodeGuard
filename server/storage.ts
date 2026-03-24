@@ -48,7 +48,8 @@ export interface IStorage {
   updateReviewComment(id: string, data: Partial<InsertReviewComment>): Promise<ReviewComment | undefined>;
 
   // Stats
-  getStats(userId: string): Promise<Stats>;
+  getStats(userId: string, startDate?: Date, endDate?: Date): Promise<Stats>;
+  getDetailedStats(userId: string, startDate?: Date, endDate?: Date): Promise<any>;
 
   // Visitors
   recordVisitor(sessionId: string): Promise<number>;
@@ -115,28 +116,12 @@ export class DatabaseStorage implements IStorage {
   // Reviews
   async getReviews(userId: string): Promise<Review[]> {
     return db
-      .select({
-        id: reviews.id,
-        repositoryId: reviews.repositoryId,
-        prNumber: reviews.prNumber,
-        prTitle: reviews.prTitle,
-        prUrl: reviews.prUrl,
-        author: reviews.author,
-        authorAvatar: reviews.authorAvatar,
-        summary: reviews.summary,
-        riskLevel: reviews.riskLevel,
-        status: reviews.status,
-        commentCount: reviews.commentCount,
-        filesChanged: reviews.filesChanged,
-        additions: reviews.additions,
-        deletions: reviews.deletions,
-        createdAt: reviews.createdAt,
-        completedAt: reviews.completedAt,
-      })
+      .select()
       .from(reviews)
       .innerJoin(repositories, eq(reviews.repositoryId, repositories.id))
       .where(eq(repositories.userId, userId))
-      .orderBy(desc(reviews.createdAt));
+      .orderBy(desc(reviews.createdAt))
+      .then(results => results.map(r => r.reviews));
   }
 
   async getReview(id: string): Promise<Review | undefined> {
@@ -186,11 +171,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Stats
-  async getStats(userId: string): Promise<Stats> {
+  async getStats(userId: string, startDate?: Date, endDate?: Date): Promise<Stats> {
     const userReviews = await this.getReviews(userId);
 
+    // Filter by date range if provided
+    const filteredReviews = startDate && endDate
+      ? userReviews.filter(r => {
+        const reviewDate = new Date(r.createdAt);
+        return reviewDate >= startDate && reviewDate <= endDate;
+      })
+      : userReviews;
+
     // Get all comments for these reviews
-    const reviewIds = userReviews.map(r => r.id);
+    const reviewIds = filteredReviews.map(r => r.id);
     let allComments: ReviewComment[] = [];
 
     if (reviewIds.length > 0) {
@@ -211,17 +204,23 @@ export class DatabaseStorage implements IStorage {
         .innerJoin(repositories, eq(reviews.repositoryId, repositories.id))
         .where(eq(repositories.userId, userId));
 
-      allComments = commentsResult;
+      // Filter comments by date range if provided
+      allComments = startDate && endDate
+        ? commentsResult.filter(c => {
+          const commentDate = new Date(c.createdAt);
+          return commentDate >= startDate && commentDate <= endDate;
+        })
+        : commentsResult;
     }
 
-    const totalReviews = userReviews.length;
+    const totalReviews = filteredReviews.length;
     const totalComments = allComments.length;
     const avgCommentsPerReview = totalReviews > 0 ? totalComments / totalReviews : 0;
 
     const riskDistribution = {
-      low: userReviews.filter(r => r.riskLevel === "low").length,
-      medium: userReviews.filter(r => r.riskLevel === "medium").length,
-      high: userReviews.filter(r => r.riskLevel === "high").length,
+      low: filteredReviews.filter(r => r.riskLevel === "low").length,
+      medium: filteredReviews.filter(r => r.riskLevel === "medium").length,
+      high: filteredReviews.filter(r => r.riskLevel === "high").length,
     };
 
     const commentTypeDistribution: Record<string, number> = {};
@@ -238,7 +237,7 @@ export class DatabaseStorage implements IStorage {
       const date = new Date();
       date.setDate(date.getDate() - i);
       const dateStr = date.toLocaleDateString('en-US', { weekday: 'short' });
-      const count = userReviews.filter(r => {
+      const count = filteredReviews.filter(r => {
         const reviewDate = new Date(r.createdAt);
         return reviewDate.toDateString() === date.toDateString();
       }).length;
@@ -252,6 +251,94 @@ export class DatabaseStorage implements IStorage {
       riskDistribution,
       commentTypeDistribution,
       recentActivity,
+    };
+  }
+
+  async getDetailedStats(userId: string, startDate?: Date, endDate?: Date): Promise<any> {
+    const userReviews = await this.getReviews(userId);
+
+    // Filter by date range if provided
+    const filteredReviews = startDate && endDate
+      ? userReviews.filter(r => {
+        const reviewDate = new Date(r.createdAt);
+        return reviewDate >= startDate && reviewDate <= endDate;
+      })
+      : userReviews;
+
+    // Get repositories for review details
+    const reviewsWithRepo = await Promise.all(
+      filteredReviews.map(async (review) => {
+        const repo = await this.getRepository(review.repositoryId);
+        return {
+          id: review.id,
+          prNumber: review.prNumber,
+          prTitle: review.prTitle,
+          prUrl: review.prUrl,
+          author: review.author,
+          repository: repo?.fullName || 'Unknown',
+          riskLevel: review.riskLevel,
+          status: review.status,
+          commentCount: review.commentCount,
+          filesChanged: review.filesChanged,
+          additions: review.additions,
+          deletions: review.deletions,
+          createdAt: review.createdAt,
+          completedAt: review.completedAt,
+        };
+      })
+    );
+
+    // Get all comments with repository info
+    const reviewIds = filteredReviews.map(r => r.id);
+    let detailedComments: any[] = [];
+
+    if (reviewIds.length > 0) {
+      const commentsResult = await db
+        .select({
+          id: reviewComments.id,
+          reviewId: reviewComments.reviewId,
+          path: reviewComments.path,
+          line: reviewComments.line,
+          type: reviewComments.type,
+          comment: reviewComments.comment,
+          severity: reviewComments.severity,
+          createdAt: reviewComments.createdAt,
+        })
+        .from(reviewComments)
+        .innerJoin(reviews, eq(reviewComments.reviewId, reviews.id))
+        .innerJoin(repositories, eq(reviews.repositoryId, repositories.id))
+        .where(eq(repositories.userId, userId));
+
+      // Filter and enrich comments
+      const filteredComments = startDate && endDate
+        ? commentsResult.filter(c => {
+          const commentDate = new Date(c.createdAt);
+          return commentDate >= startDate && commentDate <= endDate;
+        })
+        : commentsResult;
+
+      detailedComments = await Promise.all(
+        filteredComments.map(async (comment) => {
+          const review = filteredReviews.find(r => r.id === comment.reviewId);
+          const repo = review ? await this.getRepository(review.repositoryId) : null;
+          return {
+            ...comment,
+            prNumber: review?.prNumber || 0,
+            repository: repo?.fullName || 'Unknown',
+          };
+        })
+      );
+    }
+
+    const summary = await this.getStats(userId, startDate, endDate);
+
+    return {
+      summary,
+      reviews: reviewsWithRepo,
+      comments: detailedComments,
+      timeRange: startDate && endDate
+        ? `${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}`
+        : 'All Time',
     };
   }
 

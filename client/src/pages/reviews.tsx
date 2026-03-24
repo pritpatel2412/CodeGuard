@@ -32,16 +32,16 @@ export default function Reviews() {
 
   const filteredReviews = useMemo(() => {
     if (!reviews) return [];
-    
+
     return reviews.filter((review) => {
-      const matchesSearch = searchQuery === "" || 
+      const matchesSearch = searchQuery === "" ||
         review.prTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
         review.author.toLowerCase().includes(searchQuery.toLowerCase());
-      
+
       const matchesRisk = riskFilter === "all" || review.riskLevel === riskFilter;
-      
+
       const matchesRepo = repoFilter === "all" || review.repositoryId === repoFilter;
-      
+
       return matchesSearch && matchesRisk && matchesRepo;
     });
   }, [reviews, searchQuery, riskFilter, repoFilter]);
@@ -60,7 +60,7 @@ export default function Reviews() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search by PR title or author..."
+            placeholder="Search by title or author..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
@@ -115,7 +115,7 @@ export default function Reviews() {
           title={reviews?.length === 0 ? "No reviews yet" : "No matching reviews"}
           description={
             reviews?.length === 0
-              ? "Reviews will appear here when pull requests are analyzed."
+              ? "Reviews will appear here when pull/merge requests are analyzed."
               : "Try adjusting your search or filters to find what you're looking for."
           }
         />

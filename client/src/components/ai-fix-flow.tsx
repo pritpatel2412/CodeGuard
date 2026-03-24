@@ -5,12 +5,14 @@ import {
     Check,
     Lock,
     Github,
+    Gitlab,
     AlertTriangle,
     FileCode,
     Terminal,
     ArrowRight,
     Loader2,
 } from "lucide-react";
+import { useErrorStore } from "@/lib/error-store";
 
 // Animation Steps
 enum Step {
@@ -31,6 +33,7 @@ interface AiFixFlowProps {
     className?: string;
     filename?: string;
     prUrl?: string;
+    platform?: "github" | "gitlab";
 }
 
 export function AiFixFlow({
@@ -38,9 +41,18 @@ export function AiFixFlow({
     autoStart = false,
     className,
     filename = "config.ts", // Default for demo
-    prUrl
+    prUrl,
+    platform = "github"
 }: AiFixFlowProps) {
     const [step, setStep] = useState<Step>(autoStart ? Step.LOADING : Step.IDLE);
+    const { isOpen: isErrorOpen } = useErrorStore();
+
+    // Reset to IDLE if an error occurs
+    useEffect(() => {
+        if (isErrorOpen) {
+            setStep(Step.IDLE);
+        }
+    }, [isErrorOpen]);
 
     // Auto-progress through steps once started
     useEffect(() => {
@@ -110,11 +122,11 @@ export function AiFixFlow({
                 )}
 
                 {step !== Step.IDLE && step !== Step.SUCCESS && (
-                    <ActiveFlow key="active" step={step} filename={filename} />
+                    <ActiveFlow key="active" step={step} filename={filename} platform={platform} />
                 )}
 
                 {step === Step.SUCCESS && (
-                    <SuccessState key="success" onReset={handleReset} prUrl={prUrl} />
+                    <SuccessState key="success" onReset={handleReset} prUrl={prUrl} platform={platform} />
                 )}
             </AnimatePresence>
 
@@ -127,7 +139,7 @@ export function AiFixFlow({
                         exit={{ opacity: 0, y: -20 }}
                         className="absolute bottom-12 text-center"
                     >
-                        <StatusText step={step} />
+                        <StatusText step={step} platform={platform} />
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -171,14 +183,14 @@ function InitialState({ onStart }: { onStart: () => void }) {
 }
 
 // 2. Main Active Flow Container
-function ActiveFlow({ step, filename }: { step: Step; filename: string }) {
+function ActiveFlow({ step, filename, platform }: { step: Step; filename: string; platform: "github" | "gitlab" }) {
     return (
         <div className="relative w-full h-[300px] flex items-center justify-center">
             {/* Central Agent */}
             <AgentVisual step={step} />
 
             {/* GitHub Destination */}
-            <GitHubDestination step={step} />
+            <GitHubDestination step={step} platform={platform} />
 
             {/* Connection Beam */}
             <ConnectionBeam step={step} />
@@ -187,7 +199,7 @@ function ActiveFlow({ step, filename }: { step: Step; filename: string }) {
             <CodeScanner step={step} filename={filename} />
 
             {/* New PR Card */}
-            <NewPRCard step={step} />
+            <NewPRCard step={step} platform={platform} />
         </div>
     );
 }
@@ -266,8 +278,9 @@ function AgentVisual({ step }: { step: Step }) {
     );
 }
 
-function GitHubDestination({ step }: { step: Step }) {
+function GitHubDestination({ step, platform }: { step: Step; platform: "github" | "gitlab" }) {
     const show = step >= Step.CONNECTING_GITHUB && step < Step.CREATING_PR;
+    const Icon = platform === "gitlab" ? Gitlab : Github;
 
     return (
         <AnimatePresence>
@@ -279,7 +292,7 @@ function GitHubDestination({ step }: { step: Step }) {
                     className="absolute z-10"
                 >
                     <div className="w-16 h-16 bg-card rounded-full flex items-center justify-center border border-border shadow-xl">
-                        <Github className="w-8 h-8 text-foreground" />
+                        <Icon className="w-8 h-8 text-foreground" />
                     </div>
                 </motion.div>
             )}
@@ -392,8 +405,10 @@ function CodeScanner({ step, filename }: { step: Step; filename: string }) {
     );
 }
 
-function NewPRCard({ step }: { step: Step }) {
+function NewPRCard({ step, platform }: { step: Step, platform: "github" | "gitlab" }) {
     const show = step === Step.CREATING_PR;
+    const isGitLab = platform === "gitlab";
+    const Icon = isGitLab ? Gitlab : Github;
 
     return (
         <AnimatePresence>
@@ -406,11 +421,11 @@ function NewPRCard({ step }: { step: Step }) {
                 >
                     <div className="flex items-start gap-3">
                         <div className="mt-1">
-                            <Github className="w-5 h-5 text-card-foreground" />
+                            <Icon className="w-5 h-5 text-card-foreground" />
                         </div>
                         <div>
                             <div className="text-sm font-semibold text-card-foreground">Security Fix: Reduce High-Risk Issues</div>
-                            <div className="text-xs text-muted-foreground mt-1">codeguard/security-fix-pr-generated</div>
+                            <div className="text-xs text-muted-foreground mt-1">codeguard/security-fix-{isGitLab ? "mr" : "pr"}-generated</div>
                             <div className="flex items-center gap-2 mt-3">
                                 <span className="px-2 py-0.5 rounded-full bg-green-500/10 text-[10px] text-green-500 border border-green-500/20">
                                     Creating...
@@ -426,7 +441,8 @@ function NewPRCard({ step }: { step: Step }) {
 }
 
 // 3. Success State
-function SuccessState({ onReset, prUrl }: { onReset: () => void; prUrl?: string }) {
+function SuccessState({ onReset, prUrl, platform }: { onReset: () => void; prUrl?: string; platform: "github" | "gitlab" }) {
+    const label = platform === "gitlab" ? "Merge Request" : "Pull Request";
     return (
         <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
@@ -445,7 +461,7 @@ function SuccessState({ onReset, prUrl }: { onReset: () => void; prUrl?: string 
             <div>
                 <h2 className="text-2xl font-bold text-foreground">Security Risk Reduced</h2>
                 <p className="text-muted-foreground mt-2">
-                    Vulnerabilities fixed and secure PR created.
+                    Vulnerabilities fixed and secure {label} created.
                 </p>
             </div>
 
@@ -453,13 +469,13 @@ function SuccessState({ onReset, prUrl }: { onReset: () => void; prUrl?: string 
                 {prUrl ? (
                     <a href={prUrl} target="_blank" rel="noopener noreferrer">
                         <button className="px-6 py-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground font-medium transition-colors shadow-lg shadow-primary/20">
-                            View Pull Request
+                            View {label}
                         </button>
                     </a>
                 ) : (
                     // Fallback should typically not be reachable in Success state due to logic above, but good for safety
                     <button disabled className="px-6 py-2 rounded-lg bg-muted text-muted-foreground font-medium cursor-not-allowed">
-                        PR URL Loading...
+                        {label} URL Loading...
                     </button>
                 )}
                 {/* Close button removed as requested */}
@@ -469,14 +485,17 @@ function SuccessState({ onReset, prUrl }: { onReset: () => void; prUrl?: string 
 }
 
 // Helper: Status Text
-function StatusText({ step }: { step: Step }) {
+function StatusText({ step, platform }: { step: Step; platform: "github" | "gitlab" }) {
+    const label = platform === "gitlab" ? "Merge Request" : "Pull Request";
+    const platformName = platform === "gitlab" ? "GitLab" : "GitHub";
+
     const textMap: Record<number, string> = {
         [Step.LOADING]: "Deploying CodeGuard Agent...",
         [Step.AGENT_ACTIVE]: "Agent Online",
-        [Step.CONNECTING_GITHUB]: "Connecting securely to GitHub repository...",
+        [Step.CONNECTING_GITHUB]: `Connecting securely to ${platformName} repository...`,
         [Step.SCANNING_CODE]: "Analyzing file content and dependencies...",
         [Step.FIXING_CODE]: "Applying secure fixes to identified issues...",
-        [Step.CREATING_PR]: "Pushing changes and facilitating Pull Request...",
+        [Step.CREATING_PR]: `Pushing changes and facilitating ${label}...`,
     };
 
     return (

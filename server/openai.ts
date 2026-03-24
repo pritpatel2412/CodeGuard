@@ -71,14 +71,15 @@ async function withRetry<T>(
   throw lastError;
 }
 
-export async function analyzeCodeDiff(diff: string, prTitle: string): Promise<AIReviewResponse> {
+export async function analyzeCodeDiff(diff: string, prTitle: string, platform: "github" | "gitlab" = "github"): Promise<AIReviewResponse> {
   // Truncate diff if too long (roughly 100k characters)
   const maxDiffLength = 100000;
   const truncatedDiff = diff.length > maxDiffLength
     ? diff.substring(0, maxDiffLength) + "\n\n[Diff truncated due to size]"
     : diff;
 
-  const userPrompt = `Please review this pull request titled "${prTitle}".
+  const requestType = platform === "gitlab" ? "Merge Request" : "Pull Request";
+  const userPrompt = `Please review this ${requestType} titled "${prTitle}".
 
 Here is the diff:
 
