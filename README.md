@@ -1,182 +1,139 @@
-# 🛡️ CodeGuard AI Agent — Automated Security & Code Quality
+<p align="center">
+  <h1 align="center">🛡️ CodeGuard</h1>
+  <p align="center"><strong>AI-Powered Code Security & Pull Request Risk Analysis Platform</strong></p>
+  <p align="center">Your 24/7 Senior AppSec Engineer — automatically reviewing every PR before it hits production.</p>
+</p>
 
-[![Security Score](https://img.shields.io/badge/Security-A+-brightgreen)](https://github.com/pritpatel2412/CodeGuard)
-[![AI Powered](https://img.shields.io/badge/AI-OpenAI-blue)](https://openai.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-CodeGuard is an intelligent, automated **Security and Code Quality Reviewer** designed to act as a "Senior App Sec Engineer" monitoring your repositories 24/7. It doesn't just find bugs; it **fixes** them using state-of-the-art AI.
-
----
-
-## 🚀 The Vision
-
-Modern development moves fast, but security often lags behind. CodeGuard bridges this gap by automatically analyzing every Pull Request (PR) for:
-- 🐞 **Bugs & Logical Flaws**
-- 🔒 **Security Vulnerabilities** (OWASP Top 10, SQLi, XSS, etc.)
-- ⚡ **Performance Bottlenecks**
-- 📖 **Code Readability & Maintainability**
-
-For **High-Risk** issues, the agent takes it a step further: it generates a secure fix, creates a new branch, and opens a secondary PR—turning a critical vulnerability into a resolved issue in seconds.
+<p align="center">
+  <img src="https://img.shields.io/badge/Node.js-Express-green?style=flat-square&logo=node.js" />
+  <img src="https://img.shields.io/badge/React-Vite-blue?style=flat-square&logo=react" />
+  <img src="https://img.shields.io/badge/OpenAI-GPT--4o-orange?style=flat-square&logo=openai" />
+  <img src="https://img.shields.io/badge/GitHub-Webhook_Integration-black?style=flat-square&logo=github" />
+  <img src="https://img.shields.io/badge/PostgreSQL-Drizzle_ORM-blue?style=flat-square&logo=postgresql" />
+</p>
 
 ---
 
-## 🛠️ Architecture & Pipeline
+## What is CodeGuard?
 
-CodeGuard follows a structured, multi-stage pipeline from detection to remediation.
+CodeGuard is an **autonomous AI security agent** that hooks into your GitHub workflow and analyzes every pull request for security vulnerabilities, logic errors, and high-risk code changes — before they reach production.
 
-```mermaid
-graph TD
-    subgraph "External VCS (GitHub/GitLab)"
-        PR[Developer opens PR]
-        WH[Webhook Trigger]
-        COM[Post Comments to PR]
-        FIXPR[Open Security-Fix PR]
-    end
+For critical issues, it doesn't just flag them. It **generates a secure fix**, creates a new branch, and opens a secondary PR automatically.
 
-    subgraph "CodeGuard Backend (Node.js/Express)"
-        VWH[Validate Webhook]
-        FD[Fetch Diff Context]
-        AE[AI Engine - OpenAI]
-        DB[(PostgreSQL - Drizzle)]
-        AF[Auto-Fix Logic]
-        SG[Safety Guards]
-    end
+---
 
-    subgraph "CodeGuard Frontend (React)"
-        DS[Review Dashboard]
-        VX[Fix Flow Visualizer]
-    end
+## The Problem It Solves
 
-    PR --> WH
-    WH --> VWH
-    VWH --> FD
-    FD --> AE
-    AE --> DB
-    DB --> COM
-    
-    AE -- "High Risk Detected" --> AF
-    AF --> SG
-    SG -- "Pass" --> AE
-    AE -- "Generate Fix" --> FIXPR
-    
-    DB --> DS
-    AF --> VX
+Modern dev teams ship fast. Security reviews are slow, expensive, and inconsistent. A single missed SQL injection or exposed API key can cost millions.
+
+CodeGuard makes security review instant, automated, and intelligent — acting as a Senior AppSec Engineer watching every commit 24/7.
+
+---
+
+## How It Works
+
+### 1. 🔍 Detection Phase (The Sentry)
+- GitHub webhook fires when a PR is opened or updated
+- CodeGuard fetches the full diff and analyzes it line-by-line
+- GPT-4o understands **context and intent** — not just pattern matching
+- Every review gets a risk score: Low / Medium / High
+
+### 2. 🔧 Remediation Phase (The Surgeon)
+- For High-Risk issues: Safety Guards verify the file isn't critical auth/payment logic
+- Fix agent reads the **entire vulnerable file** (not just the diff) for architectural soundness
+- Generates a secure, contextually correct fix
+- Auto-creates a branch + commits the fix + opens a new PR targeting the developer's branch
+
+### 3. 📊 Monitoring Phase (The Observer)
+- All reviews stored in PostgreSQL via Drizzle ORM
+- Dashboard shows PR history, risk trends, fix success rates
+- Fix Flow Visualizer shows the full remediation pipeline
+
+---
+
+## What It Catches
+
+- 🔒 **OWASP Top 10** — SQL injection, XSS, CSRF, insecure deserialization
+- 🔑 **Secrets exposure** — API keys, tokens, passwords in code
+- ⚡ **Performance bottlenecks** — N+1 queries, unoptimized loops
+- 🐞 **Logic errors** — off-by-one, null pointer, race conditions
+- 📖 **Code quality** — readability, maintainability, dead code
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Frontend | React, Vite, TypeScript, Tailwind CSS |
+| Backend | Node.js, Express.js |
+| AI Engine | OpenAI GPT-4o |
+| Database | PostgreSQL + Drizzle ORM |
+| Integration | GitHub Webhooks + GitHub API |
+| Deployment | Vercel |
+
+---
+
+## Pipeline
+
+```
+Developer opens PR
+        │
+        ▼
+GitHub Webhook → CodeGuard Backend
+        │
+        ▼
+Fetch Full Diff + File Context
+        │
+        ▼
+GPT-4o Analysis (line-by-line, context-aware)
+        │
+        ├── Low/Medium Risk → Comment on PR with findings
+        │
+        └── High Risk → Safety Guards check
+                              │
+                        ┌─────▼──────┐
+                        │  Generate   │
+                        │  Secure Fix │
+                        └─────┬───────┘
+                              │
+                    Create Branch → Commit Fix → Open Fix PR
+        │
+        ▼
+Store in PostgreSQL → Update Dashboard
 ```
 
 ---
 
-## ⚙️ How It Works (Step-by-Step)
+## Getting Started
 
-### 1. Detection (The "Sentry" Phase)
-- **Webhook Integration:** CodeGuard listens for PR events. When a code change is pushed, the backend validates the signature and fetches the full **Diff**.
-- **Deep Analysis:** The AI engine analyzes the diff line-by-line. Instead of simple linting, it understands *context* and *intent*.
-- **Risk Scoring:** Every review is assigned a risk level (Low, Medium, High).
-
-### 2. Remediation (The "Surgeon" Phase)
-- **Safety First:** Before touching code, **Safety Guards** verify that the file isn't highly sensitive (e.g., core auth logic, payment gateways).
-- **Contextual Fixes:** The fix agent (using a strict Senior Sec Engineer persona) reads the entire vulnerable file, not just the diff, to ensure the fix is architecturally sound.
-- **Automated Delivery:** A new branch is created, the fix is committed, and a new PR is opened targeting the developer's branch.
-
-### 3. Monitoring (The "Observer" Phase)
-- **Live Dashboard:** Real-time visualization of codebase health.
-- **Statistical insights:** Track vulnerability trends across your entire organization.
-
----
-
-## 📂 Repository Structure
-
-| Directory | Purpose |
-| :--- | :--- |
-| `client/` | React frontend built with Vite, Tailwind CSS, and Framer Motion. |
-| `server/` | Node.js/Express backend handling webhooks, AI logic, and VCS integration. |
-| `shared/` | Shared TypeScript types and Drizzle ORM database schema. |
-| `script/` | Build and utility scripts. |
-
-### Key Files:
-- 🧠 `server/openai.ts`: Core AI integration and prompting logic.
-- 🔌 `server/github.ts` & `server/gitlab.ts`: VCS API interaction layers.
-- 🚦 `server/routes.ts`: Main API router and webhook handlers.
-- 📐 `shared/schema.ts`: Database models.
-
----
-
-## 🛠️ Tech Stack
-
-- **Frontend:** React, Vite, Tailwind CSS, Framer Motion, Radix UI, Recharts, Wouter.
-- **Backend:** Node.js, Express, Socket.io (Real-time updates), Passport.js (Auth).
-- **AI:** OpenAI Engine (GPT-4o / GPT-4 Turbo).
-- **Database:** PostgreSQL with Drizzle ORM.
-- **Language:** TypeScript (End-to-end type safety).
-
----
-
-## 🚀 Getting Started
-
-### 1. Prerequisites
-- Node.js (v18+)
-- PostgreSQL Database
-- OpenAI API Key
-- GitHub/GitLab Personal Access Token
-
-### 2. Environment Variables
-Create a `.env` file in the root directory:
-```env
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/codeguard
-
-# AI
-OPENAI_API_KEY=your_openai_api_key
-
-# GitHub Auth (OAuth App)
-GITHUB_CLIENT_ID=your_github_client_id
-GITHUB_CLIENT_SECRET=your_github_client_secret
-GITHUB_CALLBACK_URL=http://localhost:5000/auth/github/callback
-
-# GitLab Integration
-GITLAB_TOKEN=your_gitlab_personal_access_token
-
-# App Settings
-SESSION_SECRET=your_random_session_secret
-PORT=5000
-```
-
-### 3. Installation & Run
 ```bash
-# Clone the repository
-git clone https://github.com/pritpatel2412/CodeGuard.git
+git clone https://github.com/pritpatel2412/CodeGuard
 cd CodeGuard
-
-# Install dependencies
 npm install
 
-# Initialize the database schema
-npm run db:push
+# Set up environment
+cp .env.example .env
+# Add: OPENAI_API_KEY, DATABASE_URL, GITHUB_APP_ID, GITHUB_PRIVATE_KEY
 
-# Start the development server
+# Run migrations
+npm run db:migrate
+
+# Start
 npm run dev
 ```
 
-The application will be accessible at `http://localhost:5000`.
+---
+
+## Why This Matters
+
+- **Shift security left** — catch vulnerabilities at PR time, not in production
+- **Reduce review overhead** — engineers focus on logic, not boilerplate security checks
+- **Auto-remediation** — critical issues get fixed, not just flagged
 
 ---
 
-## 🔒 Security Guards
+## Built By
 
-CodeGuard includes built-in safety mechanisms to prevent unintended code changes:
-- **Sensitive Path Blocking:** Files like `.env`, `secrets.yaml`, or `auth.ts` are automatically flagged for manual review only.
-- **Validation:** Generated code is checked for syntax errors and malicious patterns before being committed.
-- **Branch isolation:** All fixes occur on isolated branches, never on the source branch directly.
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for more information.
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-Developed with ❤️ by [Prit Patel](https://github.com/pritpatel2412)
+**Prit Patel** — B.Tech CSE @ CHARUSAT University
+[GitHub](https://github.com/pritpatel2412) · [LinkedIn](https://linkedin.com/in/pritpatel2412)
