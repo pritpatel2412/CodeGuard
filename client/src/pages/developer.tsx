@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Github, Instagram, Linkedin, Mail, Globe, Code2, Heart } from "lucide-react";
+import PixelCard from "@/components/ui/pixel-card";
+import { PremiumAvatar } from "@/components/ui/premium-avatar";
 
 export default function Developer() {
     return (
@@ -14,46 +15,53 @@ export default function Developer() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Profile Card */}
-                <Card className="md:col-span-1 border-primary/20 bg-primary/5 dark:bg-primary/10">
-                    <CardContent className="pt-6 flex flex-col items-center text-center space-y-4">
-                        <div className="relative">
-                            <Avatar className="h-32 w-32 border-4 border-background shadow-xl">
-                                <AvatarImage src="https://github.com/pritpatel2412.png" />
-                                <AvatarFallback className="text-4xl">PP</AvatarFallback>
-                            </Avatar>
-                            <div className="absolute bottom-0 right-0 bg-green-500 h-6 w-6 rounded-full border-4 border-background" />
+                {/* Profile Card with Pixel Animation */}
+                <PixelCard 
+                    variant="midnight" 
+                    className="md:col-span-1 rounded-[25px] overflow-hidden"
+                >
+                    <div className="p-8 flex flex-col items-center text-center space-y-6 h-full min-h-[420px]">
+                        <div className="relative group">
+                            <PremiumAvatar 
+                                src="https://github.com/pritpatel2412.png"
+                                name="Prit Patel"
+                                tier="aura"
+                                size="xl"
+                                className="z-10"
+                            />
+                            {/* Static Glow underneath */}
+                            <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full -z-10 group-hover:bg-primary/30 transition-colors" />
                         </div>
 
-                        <div className="space-y-1">
-                            <h2 className="text-xl font-bold">Prit Patel</h2>
-                            <p className="text-sm text-muted-foreground">Full Stack Developer</p>
+                        <div className="space-y-2">
+                            <h2 className="text-2xl font-bold tracking-tight">Prit Patel</h2>
+                            <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Full Stack Developer</p>
                         </div>
 
-                        <div className="flex gap-2 pt-2">
-                            <a href="https://github.com/pritpatel2412" target="_blank" rel="noopener noreferrer">
-                                <Button size="icon" variant="ghost" className="rounded-full h-8 w-8 text-muted-foreground hover:text-foreground">
-                                    <Github className="h-4 w-4" />
+                        <div className="flex gap-4 pt-4">
+                            <a href="https://github.com/pritpatel2412" target="_blank" rel="noopener noreferrer" title="GitHub">
+                                <Button size="icon" variant="ghost" className="rounded-full h-10 w-10 text-muted-foreground hover:text-foreground hover:bg-muted/50">
+                                    <Github className="h-5 w-5" />
                                 </Button>
                             </a>
-                            <a href="https://instagram.com/prit__2412" target="_blank" rel="noopener noreferrer">
-                                <Button size="icon" variant="ghost" className="rounded-full h-8 w-8 text-muted-foreground hover:text-foreground">
-                                    <Instagram className="h-4 w-4" />
+                            <a href="https://instagram.com/prit__2412" target="_blank" rel="noopener noreferrer" title="Instagram">
+                                <Button size="icon" variant="ghost" className="rounded-full h-10 w-10 text-muted-foreground hover:text-foreground hover:bg-muted/50">
+                                    <Instagram className="h-5 w-5" />
                                 </Button>
                             </a>
-                            <a href="https://linkedin.com/in/prit-patel-904272307" target="_blank" rel="noopener noreferrer">
-                                <Button size="icon" variant="ghost" className="rounded-full h-8 w-8 text-muted-foreground hover:text-foreground">
-                                    <Linkedin className="h-4 w-4" />
+                            <a href="https://linkedin.com/in/prit-patel-904272307" target="_blank" rel="noopener noreferrer" title="LinkedIn">
+                                <Button size="icon" variant="ghost" className="rounded-full h-10 w-10 text-muted-foreground hover:text-foreground hover:bg-muted/50">
+                                    <Linkedin className="h-5 w-5" />
                                 </Button>
                             </a>
-                            <a href="https://pritfolio.vercel.app" target="_blank" rel="noopener noreferrer">
-                                <Button size="icon" variant="ghost" className="rounded-full h-8 w-8 text-muted-foreground hover:text-foreground">
-                                    <Globe className="h-4 w-4" />
+                            <a href="https://pritfolio.vercel.app" target="_blank" rel="noopener noreferrer" title="Portfolio">
+                                <Button size="icon" variant="ghost" className="rounded-full h-10 w-10 text-muted-foreground hover:text-foreground hover:bg-muted/50">
+                                    <Globe className="h-5 w-5" />
                                 </Button>
                             </a>
                         </div>
-                    </CardContent>
-                </Card>
+                    </div>
+                </PixelCard>
 
                 {/* Bio and Details */}
                 <div className="md:col-span-2 space-y-6">

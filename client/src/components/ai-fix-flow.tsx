@@ -19,11 +19,15 @@ enum Step {
     IDLE = 0,
     LOADING = 1,
     AGENT_ACTIVE = 2,
-    CONNECTING_GITHUB = 3,
-    SCANNING_CODE = 4,
-    FIXING_CODE = 5,
-    CREATING_PR = 6,
-    SUCCESS = 7,
+    PREPARING_ENV = 3,
+    CONNECTING_GITHUB = 4,
+    SCANNING_CODE = 5,
+    VALIDATING_POLICIES = 6,
+    FIXING_CODE = 7,
+    REFACTORING_PATTERNS = 8,
+    VERIFYING_INTEGRITY = 9,
+    CREATING_PR = 10,
+    SUCCESS = 11,
 }
 
 interface AiFixFlowProps {
@@ -70,11 +74,15 @@ export function AiFixFlow({
 
         // Step Durations
         const stepDurations: Record<number, number> = {
-            [Step.LOADING]: 2000,
-            [Step.AGENT_ACTIVE]: 1500,
-            [Step.CONNECTING_GITHUB]: 2000,
-            [Step.SCANNING_CODE]: 3000,
-            [Step.FIXING_CODE]: 3000,
+            [Step.LOADING]: 2500,
+            [Step.AGENT_ACTIVE]: 1800,
+            [Step.PREPARING_ENV]: 2200,
+            [Step.CONNECTING_GITHUB]: 2500,
+            [Step.SCANNING_CODE]: 4500,
+            [Step.VALIDATING_POLICIES]: 3000,
+            [Step.FIXING_CODE]: 5000,
+            [Step.REFACTORING_PATTERNS]: 3500,
+            [Step.VERIFYING_INTEGRITY]: 3000,
             // CREATING_PR is handled specially below
         };
 
@@ -85,7 +93,7 @@ export function AiFixFlow({
                 // Wait a minimum specific time to ensure the "Creating..." state is visible
                 const timer = setTimeout(() => {
                     setStep(Step.SUCCESS);
-                }, 2000);
+                }, 3000);
                 return () => clearTimeout(timer);
             }
             // If no PR URL yet, we stay in this step INDEFINITELY
@@ -95,7 +103,7 @@ export function AiFixFlow({
         // Standard progression for other steps
         const timer = setTimeout(() => {
             setStep((prev) => prev + 1);
-        }, stepDurations[step] || 1000);
+        }, stepDurations[step] || 1500);
 
         return () => clearTimeout(timer);
     }, [step, onComplete, prUrl]); // Dependencies updated to react to prUrl changes
@@ -208,7 +216,11 @@ function ActiveFlow({ step, filename, platform }: { step: Step; filename: string
 
 function AgentVisual({ step }: { step: Step }) {
     const isMoving = step === Step.CONNECTING_GITHUB;
-    const isScanning = step === Step.SCANNING_CODE || step === Step.FIXING_CODE;
+    const isScanning = step === Step.SCANNING_CODE || 
+                     step === Step.VALIDATING_POLICIES || 
+                     step === Step.FIXING_CODE || 
+                     step === Step.REFACTORING_PATTERNS || 
+                     step === Step.VERIFYING_INTEGRITY;
 
     return (
         <motion.div
@@ -301,7 +313,7 @@ function GitHubDestination({ step, platform }: { step: Step; platform: "github" 
 }
 
 function ConnectionBeam({ step }: { step: Step }) {
-    const show = step === Step.CONNECTING_GITHUB;
+    const show = step === Step.CONNECTING_GITHUB || step === Step.PREPARING_ENV;
 
     return (
         <AnimatePresence>
@@ -331,8 +343,15 @@ function ConnectionBeam({ step }: { step: Step }) {
 }
 
 function CodeScanner({ step, filename }: { step: Step; filename: string }) {
-    const show = step === Step.SCANNING_CODE || step === Step.FIXING_CODE;
-    const isFixing = step === Step.FIXING_CODE;
+    const show = step === Step.SCANNING_CODE || 
+                 step === Step.VALIDATING_POLICIES || 
+                 step === Step.FIXING_CODE || 
+                 step === Step.REFACTORING_PATTERNS || 
+                 step === Step.VERIFYING_INTEGRITY;
+    
+    const isFixing = step === Step.FIXING_CODE || 
+                    step === Step.REFACTORING_PATTERNS || 
+                    step === Step.VERIFYING_INTEGRITY;
 
     // Mock code lines
     const lines = [
@@ -492,9 +511,13 @@ function StatusText({ step, platform }: { step: Step; platform: "github" | "gitl
     const textMap: Record<number, string> = {
         [Step.LOADING]: "Deploying CodeGuard Agent...",
         [Step.AGENT_ACTIVE]: "Agent Online",
-        [Step.CONNECTING_GITHUB]: `Connecting securely to ${platformName} repository...`,
-        [Step.SCANNING_CODE]: "Analyzing file content and dependencies...",
-        [Step.FIXING_CODE]: "Applying secure fixes to identified issues...",
+        [Step.PREPARING_ENV]: "Initializing secure orchestration environment...",
+        [Step.CONNECTING_GITHUB]: `Establishing encrypted tunnel to ${platformName}...`,
+        [Step.SCANNING_CODE]: "Performing deep contextual analysis of codebase...",
+        [Step.VALIDATING_POLICIES]: "Cross-referencing security policies and OWASP standards...",
+        [Step.FIXING_CODE]: "Applying state-of-the-art AI remediation to files...",
+        [Step.REFACTORING_PATTERNS]: "Refactoring code patterns for optimal maintainability...",
+        [Step.VERIFYING_INTEGRITY]: "Finalizing security audit and verifying integrity...",
         [Step.CREATING_PR]: `Pushing changes and facilitating ${label}...`,
     };
 

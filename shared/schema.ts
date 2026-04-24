@@ -204,7 +204,9 @@ export const visitors = pgTable("visitors", {
   id: serial("id").primaryKey(),
   sessionId: text("session_id").notNull().unique(),
   lastSeen: timestamp("last_seen").notNull().defaultNow(),
-});
+}, (table) => ({
+  lastSeenIdx: sql`INDEX last_seen_idx ON ${table} (${table.lastSeen})`,
+}));
 
 export const insertVisitorSchema = createInsertSchema(visitors);
 export type Visitor = typeof visitors.$inferSelect;

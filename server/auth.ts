@@ -19,20 +19,24 @@ export function setupAuth(app: Express) {
     });
 
     const sessionSettings: session.SessionOptions = {
-        secret: process.env.SESSION_SECRET || "r8q,+&1LM3)CD*zAGpx1xm{NeQhc;#",
+        name: "codeguard.sid", // Mask session name to prevent fingerprinting
+        secret: process.env.SESSION_SECRET || "codeguard-dev-secret-key-12345", 
         resave: false,
         saveUninitialized: false,
         cookie: {
             maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+            httpOnly: true,
+            sameSite: "lax",
+            secure: app.get("env") === "production",
         },
         store,
     };
 
     if (app.get("env") === "production") {
+        if (!process.env.SESSION_SECRET) {
+            throw new Error("SESSION_SECRET is required in production environment");
+        }
         app.set("trust proxy", 1); // trust first proxy
-        sessionSettings.cookie = {
-            secure: true,
-        };
     }
 
     app.use(session(sessionSettings));

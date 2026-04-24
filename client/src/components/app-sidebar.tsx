@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { PremiumAvatar } from "@/components/ui/premium-avatar";
 import { Button } from "@/components/ui/button";
 
 const navItems = [
@@ -135,14 +135,18 @@ export function AppSidebar() {
       </SidebarContent>
       <SidebarFooter className="p-4 border-t">
         {user && (
-          <div className="flex items-center gap-3 mb-4">
-            <Avatar className="h-8 w-8">
-              <AvatarImage src={user.avatarUrl || undefined} />
-              <AvatarFallback>{user.username.slice(0, 2).toUpperCase()}</AvatarFallback>
-            </Avatar>
+          <div className="flex items-center gap-3 mb-4 p-2 rounded-xl bg-accent/30 border border-white/5 shadow-inner">
+            <PremiumAvatar
+              name={user.username}
+              tier="premium"
+              size="md"
+              accentColor="hsl(var(--primary))"
+            />
             <div className="flex flex-col overflow-hidden">
-              <span className="text-sm font-medium truncate">{user.username}</span>
-              <span className="text-xs text-muted-foreground truncate">GitHub User</span>
+              <div className="flex items-center gap-1">
+                <span className="text-sm font-semibold truncate">{user.username}</span>
+              </div>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground truncate">User</span>
             </div>
           </div>
         )}

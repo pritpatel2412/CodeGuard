@@ -170,75 +170,66 @@ export class DatabaseStorage implements IStorage {
     return updated || undefined;
   }
 
-  // Stats
   async getStats(userId: string, startDate?: Date, endDate?: Date): Promise<Stats> {
-    const userReviews = await this.getReviews(userId);
+    const start = startDate || new Date(0);
+    const end = endDate || new Date();
 
-    // Filter by date range if provided
-    const filteredReviews = startDate && endDate
-      ? userReviews.filter(r => {
-        const reviewDate = new Date(r.createdAt);
-        return reviewDate >= startDate && reviewDate <= endDate;
+    // 1. Get filtered reviews
+    const filteredReviews = await db
+      .select()
+      .from(reviews)
+      .innerJoin(repositories, eq(reviews.repositoryId, repositories.id))
+      .where(
+        and(
+          eq(repositories.userId, userId),
+          gte(reviews.createdAt, start),
+          lt(reviews.createdAt, end)
+        )
+      )
+      .orderBy(desc(reviews.createdAt));
+
+    // 2. Get comment counts and distribution in one query
+    const commentsData = await db
+      .select({
+        type: reviewComments.type,
+        count: sql<number>`count(*)`
       })
-      : userReviews;
-
-    // Get all comments for these reviews
-    const reviewIds = filteredReviews.map(r => r.id);
-    let allComments: ReviewComment[] = [];
-
-    if (reviewIds.length > 0) {
-      const commentsResult = await db
-        .select({
-          id: reviewComments.id,
-          reviewId: reviewComments.reviewId,
-          path: reviewComments.path,
-          line: reviewComments.line,
-          type: reviewComments.type,
-          comment: reviewComments.comment,
-          severity: reviewComments.severity,
-          isPosted: reviewComments.isPosted,
-          createdAt: reviewComments.createdAt,
-        })
-        .from(reviewComments)
-        .innerJoin(reviews, eq(reviewComments.reviewId, reviews.id))
-        .innerJoin(repositories, eq(reviews.repositoryId, repositories.id))
-        .where(eq(repositories.userId, userId));
-
-      // Filter comments by date range if provided
-      allComments = startDate && endDate
-        ? commentsResult.filter(c => {
-          const commentDate = new Date(c.createdAt);
-          return commentDate >= startDate && commentDate <= endDate;
-        })
-        : commentsResult;
-    }
+      .from(reviewComments)
+      .innerJoin(reviews, eq(reviewComments.reviewId, reviews.id))
+      .innerJoin(repositories, eq(reviews.repositoryId, repositories.id))
+      .where(
+        and(
+          eq(repositories.userId, userId),
+          gte(reviews.createdAt, start),
+          lt(reviews.createdAt, end)
+        )
+      )
+      .groupBy(reviewComments.type);
 
     const totalReviews = filteredReviews.length;
-    const totalComments = allComments.length;
+    const totalComments = commentsData.reduce((sum, item) => sum + Number(item.count), 0);
     const avgCommentsPerReview = totalReviews > 0 ? totalComments / totalReviews : 0;
 
     const riskDistribution = {
-      low: filteredReviews.filter(r => r.riskLevel === "low").length,
-      medium: filteredReviews.filter(r => r.riskLevel === "medium").length,
-      high: filteredReviews.filter(r => r.riskLevel === "high").length,
+      low: filteredReviews.filter(r => r.reviews.riskLevel === "low").length,
+      medium: filteredReviews.filter(r => r.reviews.riskLevel === "medium").length,
+      high: filteredReviews.filter(r => r.reviews.riskLevel === "high").length,
     };
 
     const commentTypeDistribution: Record<string, number> = {};
-    for (const comment of allComments) {
-      commentTypeDistribution[comment.type] = (commentTypeDistribution[comment.type] || 0) + 1;
-    }
+    commentsData.forEach(item => {
+      commentTypeDistribution[item.type] = Number(item.count);
+    });
 
-    // Get activity for last 7 days
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
+    // 3. Activity for last 7 days (optimized)
     const recentActivity: { date: string; count: number }[] = [];
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       const dateStr = date.toLocaleDateString('en-US', { weekday: 'short' });
+      
       const count = filteredReviews.filter(r => {
-        const reviewDate = new Date(r.createdAt);
+        const reviewDate = new Date(r.reviews.createdAt);
         return reviewDate.toDateString() === date.toDateString();
       }).length;
       recentActivity.push({ date: dateStr, count });
@@ -255,80 +246,67 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getDetailedStats(userId: string, startDate?: Date, endDate?: Date): Promise<any> {
-    const userReviews = await this.getReviews(userId);
+    const start = startDate || new Date(0);
+    const end = endDate || new Date();
 
-    // Filter by date range if provided
-    const filteredReviews = startDate && endDate
-      ? userReviews.filter(r => {
-        const reviewDate = new Date(r.createdAt);
-        return reviewDate >= startDate && reviewDate <= endDate;
+    // 1. Get enriched reviews in one query
+    const reviewsResult = await db
+      .select({
+        review: reviews,
+        repository: repositories
       })
-      : userReviews;
+      .from(reviews)
+      .innerJoin(repositories, eq(reviews.repositoryId, repositories.id))
+      .where(
+        and(
+          eq(repositories.userId, userId),
+          gte(reviews.createdAt, start),
+          lt(reviews.createdAt, end)
+        )
+      )
+      .orderBy(desc(reviews.createdAt));
 
-    // Get repositories for review details
-    const reviewsWithRepo = await Promise.all(
-      filteredReviews.map(async (review) => {
-        const repo = await this.getRepository(review.repositoryId);
-        return {
-          id: review.id,
-          prNumber: review.prNumber,
-          prTitle: review.prTitle,
-          prUrl: review.prUrl,
-          author: review.author,
-          repository: repo?.fullName || 'Unknown',
-          riskLevel: review.riskLevel,
-          status: review.status,
-          commentCount: review.commentCount,
-          filesChanged: review.filesChanged,
-          additions: review.additions,
-          deletions: review.deletions,
-          createdAt: review.createdAt,
-          completedAt: review.completedAt,
-        };
+    const reviewsWithRepo = reviewsResult.map(({ review, repository }) => ({
+      id: review.id,
+      prNumber: review.prNumber,
+      prTitle: review.prTitle,
+      prUrl: review.prUrl,
+      author: review.author,
+      repository: repository.fullName,
+      riskLevel: review.riskLevel,
+      status: review.status,
+      commentCount: review.commentCount,
+      filesChanged: review.filesChanged,
+      additions: review.additions,
+      deletions: review.deletions,
+      createdAt: review.createdAt,
+      completedAt: review.completedAt,
+    }));
+
+    // 2. Get enriched comments in one query
+    const commentsResult = await db
+      .select({
+        comment: reviewComments,
+        review: reviews,
+        repository: repositories
       })
-    );
+      .from(reviewComments)
+      .innerJoin(reviews, eq(reviewComments.reviewId, reviews.id))
+      .innerJoin(repositories, eq(reviews.repositoryId, repositories.id))
+      .where(
+        and(
+          eq(repositories.userId, userId),
+          gte(reviews.createdAt, start),
+          lt(reviews.createdAt, end)
+        )
+      )
+      .orderBy(desc(reviewComments.createdAt));
 
-    // Get all comments with repository info
-    const reviewIds = filteredReviews.map(r => r.id);
-    let detailedComments: any[] = [];
-
-    if (reviewIds.length > 0) {
-      const commentsResult = await db
-        .select({
-          id: reviewComments.id,
-          reviewId: reviewComments.reviewId,
-          path: reviewComments.path,
-          line: reviewComments.line,
-          type: reviewComments.type,
-          comment: reviewComments.comment,
-          severity: reviewComments.severity,
-          createdAt: reviewComments.createdAt,
-        })
-        .from(reviewComments)
-        .innerJoin(reviews, eq(reviewComments.reviewId, reviews.id))
-        .innerJoin(repositories, eq(reviews.repositoryId, repositories.id))
-        .where(eq(repositories.userId, userId));
-
-      // Filter and enrich comments
-      const filteredComments = startDate && endDate
-        ? commentsResult.filter(c => {
-          const commentDate = new Date(c.createdAt);
-          return commentDate >= startDate && commentDate <= endDate;
-        })
-        : commentsResult;
-
-      detailedComments = await Promise.all(
-        filteredComments.map(async (comment) => {
-          const review = filteredReviews.find(r => r.id === comment.reviewId);
-          const repo = review ? await this.getRepository(review.repositoryId) : null;
-          return {
-            ...comment,
-            prNumber: review?.prNumber || 0,
-            repository: repo?.fullName || 'Unknown',
-          };
-        })
-      );
-    }
+    const detailedComments = commentsResult.map(({ comment, review, repository }) => ({
+      ...comment,
+      prNumber: review.prNumber,
+      repository: repository.fullName,
+    }));
 
     const summary = await this.getStats(userId, startDate, endDate);
 
@@ -344,25 +322,34 @@ export class DatabaseStorage implements IStorage {
 
   // Visitors
   async recordVisitor(sessionId: string): Promise<number> {
+    const now = new Date();
+    const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
+
     // 1. Update or insert current visitor
     await db
       .insert(visitors)
       .values({
         sessionId,
-        lastSeen: new Date(),
+        lastSeen: now,
       })
       .onConflictDoUpdate({
         target: visitors.sessionId,
-        set: { lastSeen: new Date() },
+        set: { lastSeen: now },
       });
 
     // 2. Delete old visitors (inactive for > 1 minute)
-    const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
-    await db.delete(visitors).where(lt(visitors.lastSeen, oneMinuteAgo));
+    // PROPER FIX: Only cleanup occasionally (5% chance) to reduce IO pressure
+    if (Math.random() < 0.05) {
+      await db.delete(visitors).where(lt(visitors.lastSeen, oneMinuteAgo));
+    }
 
     // 3. Count active visitors (seen within last 1 minute)
-    // We count rows that are "fresh". Since we just deleted old ones, count all.
-    const result = await db.select({ count: sql<number>`count(*)` }).from(visitors);
+    // Using the index we added to lastSeen for fast retrieval
+    const result = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(visitors)
+      .where(gte(visitors.lastSeen, oneMinuteAgo));
+      
     return Number(result[0]?.count) || 0;
   }
 }

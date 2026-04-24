@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { SpotlightCard } from "@/components/ui/spotlight-card";
 
 interface StatsCardProps {
   title: string;
@@ -22,7 +23,7 @@ export function StatsCard({
   className,
 }: StatsCardProps) {
   return (
-    <Card className={cn("", className)}>
+    <SpotlightCard className={cn("h-full", className)}>
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">
           {title}
@@ -56,6 +57,6 @@ export function StatsCard({
           </div>
         )}
       </CardContent>
-    </Card>
+    </SpotlightCard>
   );
 }

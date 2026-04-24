@@ -1,44 +1,24 @@
 import OpenAI from "openai";
 import { type AIReviewResponse, aiReviewResponseSchema } from "../shared/schema.js";
 
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+// the newest OpenAI model is "gpt-4o" for high-speed/high-quality. gpt-5 is currently a placeholder or future-spec.
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const SYSTEM_PROMPT = `You are an AI Pull Request Reviewer integrated into GitHub/GitLab via webhook.
-Your job: analyze code diffs only, and produce sharp, actionable, low-noise review comments.
+const SYSTEM_PROMPT = `You are a Senior App Sec Engineer. Analyze code diffs and provide a sharp, actionable JSON review.
 
-When analyzing a pull request diff:
+Guidelines:
+1. Focus on Bugs, Security (OWASP), Performance (N+1, heavy loops), and Maintainability.
+2. Ignore stylistic/formatting noise.
+3. Be concise. Provide specific reasoning and fixes.
 
-1. Identify REAL issues, NOT stylistic noise.
-2. Focus on:
-   - Bug Detection: Logical mistakes, wrong conditions, off-by-one errors, incorrect async/await usage, missing error handling, wrong types, unused/unreachable code
-   - Security Issues: SQL injection, dangerous string interpolation, JWT/session misuse, hardcoded secrets, unsafe cryptography, missing auth
-   - Performance Issues: N+1 queries, heavy loops, repeated expensive operations, poor caching, inefficient state usage
-   - Maintainability: Over-complex functions, missing types, weak error messages, bad naming, repeated code
-
-3. NEVER comment about:
-   - Prettier/ESLint style issues
-   - Single quotes vs double quotes
-   - Minor formatting
-   - Nitpicky suggestions
-
-4. Be concise, show exact reasoning, provide actionable fixes, mention risk if left unresolved.
-
-5. Respond ONLY with valid JSON in this exact structure:
+JSON Structure:
 {
-  "summary": "Short summary of the PR",
-  "risk_level": "low | medium | high",
-  "comments": [
-    {
-      "path": "file path",
-      "line": 123,
-      "type": "bug | performance | security | readability | maintainability",
-      "comment": "Your specific review comment here"
-    }
-  ]
+  "summary": "PR summary",
+  "risk_level": "low|medium|high",
+  "comments": [{"path": "file", "line": 10, "type": "bug|security|...", "comment": "fix this"}]
 }
 
-If there are no significant issues, return an empty comments array and low risk_level.`;
+If no issues, return empty comments and low risk.`;
 
 // Retry with exponential backoff
 async function withRetry<T>(
@@ -92,7 +72,7 @@ Analyze the changes and provide your review in JSON format.`;
   try {
     const response = await withRetry(async () => {
       return openai.chat.completions.create({
-        model: "gpt-5",
+        model: "gpt-4o",
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
@@ -176,7 +156,7 @@ Please provide the fixed full file content.`;
   try {
     const response = await withRetry(async () => {
       return openai.chat.completions.create({
-        model: "gpt-5",
+        model: "gpt-4o",
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },

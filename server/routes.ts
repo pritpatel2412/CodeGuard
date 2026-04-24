@@ -105,9 +105,16 @@ export async function registerRoutes(
       if (!repo) {
         return res.status(404).json({ error: "Repository not found" });
       }
+      
+      // Ownership check
+      if (repo.userId !== req.user!.id) {
+        return res.status(403).json({ error: "Unauthorized access to repository" });
+      }
+      
       res.json(repo);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(`[API] Error fetching repository ${req.params.id}:`, error);
+      res.status(500).json({ error: "An internal server error occurred" });
     }
   });
 
@@ -172,13 +179,21 @@ export async function registerRoutes(
         });
       }
 
-      const repo = await storage.updateRepository(req.params.id, parsed.data);
-      if (!repo) {
+      const existing = await storage.getRepository(req.params.id);
+      if (!existing) {
         return res.status(404).json({ error: "Repository not found" });
       }
+
+      // Ownership check
+      if (existing.userId !== req.user!.id) {
+        return res.status(403).json({ error: "Unauthorized access to repository" });
+      }
+
+      const repo = await storage.updateRepository(req.params.id, parsed.data);
       res.json(repo);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(`[API] Error updating repository ${req.params.id}:`, error);
+      res.status(500).json({ error: "An internal server error occurred" });
     }
   });
 
@@ -190,10 +205,17 @@ export async function registerRoutes(
       if (!repo) {
         return res.status(404).json({ error: "Repository not found" });
       }
+
+      // Ownership check
+      if (repo.userId !== req.user!.id) {
+        return res.status(403).json({ error: "Unauthorized access to repository" });
+      }
+
       await storage.deleteRepository(req.params.id);
       res.status(204).send();
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(`[API] Error deleting repository ${req.params.id}:`, error);
+      res.status(500).json({ error: "An internal server error occurred" });
     }
   });
 
@@ -219,12 +241,16 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Review not found" });
       }
 
-      const comments = await storage.getReviewComments(review.id);
       const repository = await storage.getRepository(review.repositoryId);
+      if (!repository || repository.userId !== req.user!.id) {
+        return res.status(403).json({ error: "Unauthorized access to review" });
+      }
 
+      const comments = await storage.getReviewComments(review.id);
       res.json({ review, comments, repository });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error(`[API] Error fetching review ${req.params.id}:`, error);
+      res.status(500).json({ error: "An internal server error occurred" });
     }
   });
 
@@ -747,10 +773,18 @@ export async function registerRoutes(
         completedAt: new Date(),
       });
 
-      // Save comments and post them to GitHub
-      for (const comment of analysis.comments) {
+      // Save comments and post them to GitHub in parallel
+      const typeEmoji: Record<string, string> = {
+        bug: "Bug",
+        security: "Security",
+        performance: "Performance",
+        readability: "Readability",
+        maintainability: "Maintainability",
+      };
+
+      await Promise.all(analysis.comments.map(async (comment) => {
         const savedComment = await storage.createReviewComment({
-          reviewId: review.id,
+          reviewId: review!.id,
           path: comment.path,
           line: comment.line,
           type: comment.type,
@@ -761,14 +795,6 @@ export async function registerRoutes(
 
         // Try to post the comment to GitHub
         try {
-          const typeEmoji: Record<string, string> = {
-            bug: "Bug",
-            security: "Security",
-            performance: "Performance",
-            readability: "Readability",
-            maintainability: "Maintainability",
-          };
-
           const commentBody = `**[${typeEmoji[comment.type] || comment.type}]** ${comment.comment}`;
 
           await postReviewComment(
@@ -783,9 +809,9 @@ export async function registerRoutes(
 
           await storage.updateReviewComment(savedComment.id, { isPosted: true });
         } catch (error: any) {
-          console.error("Failed to post comment:", error.message);
+          console.error(`Failed to post comment on ${comment.path}:${comment.line}:`, error.message);
         }
-      }
+      }));
 
       // Post a summary review
       if (analysis.comments.length > 0) {

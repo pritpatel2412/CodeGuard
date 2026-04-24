@@ -24,7 +24,7 @@
   --sidebar-accent-foreground: 20 14% 17%;
   --sidebar-ring: 9 75% 61%;
   --popover: 45 25% 97%;
-  --popover-foreground: 0 0% 100%;
+  --popover-foreground: 20 14% 17%;
   --popover-border: 45 15% 93%;
   --primary: 342 85.11% 52.55%;
   --primary-foreground: 0 0% 100%;
@@ -46,6 +46,7 @@
   --font-sans: 'Poppins', sans-serif;
   --font-serif: 'Poppins', sans-serif;
   --font-mono: Menlo, monospace;
+  --spotlight-color: rgba(0, 0, 0, 0.04);
   --radius: 0.8rem;
   --shadow-2xs: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(9, 75%, 61% / 0.00);
@@ -85,6 +86,56 @@
   /* Fallback for older browsers */
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+}
+
+.midnight {
+  --button-outline: rgba(255,255,255, .05);
+  --badge-outline: rgba(255,255,255, .03);
+  --opaque-button-border-intensity: 12;
+  --elevate-1: rgba(255,255,255, .02);
+  --elevate-2: rgba(255,255,255, .05);
+  --background: 0 0% 0%;
+  --foreground: 0 0% 98%;
+  --border: 0 0% 12%;
+  --card: 0 0% 4%;
+  --card-foreground: 0 0% 90%;
+  --card-border: 0 0% 8%;
+  --sidebar: 0 0% 2%;
+  --sidebar-foreground: 0 0% 85%;
+  --sidebar-border: 0 0% 10%;
+  --sidebar-primary: 342 85% 55%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 10%;
+  --sidebar-accent-foreground: 0 0% 95%;
+  --sidebar-ring: 342 85% 55%;
+  --popover: 0 0% 2%;
+  --popover-foreground: 0 0% 95%;
+  --popover-border: 0 0% 10%;
+  --primary: 342 85.11% 52.55%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 20%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 0 0% 10%;
+  --muted-foreground: 0 0% 50%;
+  --accent: 0 0% 8%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 356.3033 90.5579% 54.3137%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 0 0% 15%;
+  --ring: 342 85% 55%;
+  --spotlight-color: rgba(255, 255, 255, 0.05);
+  
+  --shadow-2xs: 0px 2px 0px 0px hsl(342 85% 55% / 0.00);
+  --shadow-xs: 0px 2px 0px 0px hsl(342 85% 55% / 0.00);
+  --shadow-sm: 0px 2px 0px 0px hsl(342 85% 55% / 0.00);
+  
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --primary-border: hsl(var(--primary));
+  --secondary-border: hsl(var(--secondary));
+  --muted-border: hsl(var(--muted));
+  --accent-border: hsl(var(--accent));
+  --destructive-border: hsl(var(--destructive));
 }
 
 .dark {
@@ -127,6 +178,7 @@
   --chart-3: 42.0290 92.8251% 56.2745%;
   --chart-4: 147.1429 78.5047% 41.9608%;
   --chart-5: 341.4894 75.2000% 50.9804%;
+  --spotlight-color: rgba(255, 255, 255, 0.1);
   --shadow-2xs: 0px 2px 0px 0px hsl(9 75% 61% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(9 75% 61% / 0.00);
   --shadow-sm: 0px 2px 0px 0px hsl(9 75% 61% / 0.00), 0px 1px 2px -1px hsl(9 75% 61% / 0.00);
@@ -285,4 +337,155 @@
   .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
     inset: -1px;
   }
+}
+
+/* THEME TRANSITION ANIMATION */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 9999;
+}
+
+/* BORDER GLOW CARD */
+.border-glow-card {
+  --edge-proximity: 0;
+  --cursor-angle: 45deg;
+  --edge-sensitivity: 30;
+  --color-sensitivity: calc(var(--edge-sensitivity) + 20);
+  --border-radius: 24px;
+  --glow-padding: 40px;
+  --cone-spread: 25;
+
+  position: relative;
+  border-radius: var(--border-radius);
+  isolation: isolate;
+  transform: translate3d(0, 0, 0.01px);
+  display: grid;
+  border: 1px solid hsl(var(--border) / 15%);
+  background: var(--card-bg, hsl(var(--card)));
+  overflow: visible;
+}
+
+.border-glow-card::before,
+.border-glow-card::after,
+.border-glow-card > .edge-light {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transition: opacity 0.25s ease-out;
+  z-index: -1;
+}
+
+.border-glow-card:not(:hover):not(.sweep-active)::before,
+.border-glow-card:not(:hover):not(.sweep-active)::after,
+.border-glow-card:not(:hover):not(.sweep-active) > .edge-light {
+  opacity: 0;
+  transition: opacity 0.75s ease-in-out;
+}
+
+/* colored mesh-gradient border */
+.border-glow-card::before {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--card-bg, hsl(var(--card))) 0 100%) padding-box,
+    linear-gradient(rgb(255 255 255 / 0%) 0% 100%) border-box,
+    var(--gradient-one) border-box,
+    var(--gradient-two) border-box,
+    var(--gradient-three) border-box,
+    var(--gradient-four) border-box,
+    var(--gradient-five) border-box,
+    var(--gradient-six) border-box,
+    var(--gradient-seven) border-box,
+    var(--gradient-base) border-box;
+
+  opacity: calc((var(--edge-proximity) - var(--color-sensitivity)) / (100 - var(--color-sensitivity)));
+
+  mask-image:
+    conic-gradient(
+      from var(--cursor-angle) at center,
+      black calc(var(--cone-spread) * 1%),
+      transparent calc((var(--cone-spread) + 15) * 1%),
+      transparent calc((100 - var(--cone-spread) - 15) * 1%),
+      black calc((100 - var(--cone-spread)) * 1%)
+    );
+}
+
+/* colored mesh-gradient background fill near edges */
+.border-glow-card::after {
+  border: 1px solid transparent;
+  background:
+    var(--gradient-one) padding-box,
+    var(--gradient-two) padding-box,
+    var(--gradient-three) padding-box,
+    var(--gradient-four) padding-box,
+    var(--gradient-five) padding-box,
+    var(--gradient-six) padding-box,
+    var(--gradient-seven) padding-box,
+    var(--gradient-base) padding-box;
+
+  mask-image:
+    linear-gradient(to bottom, black, black),
+    radial-gradient(ellipse at 50% 50%, black 40%, transparent 65%),
+    radial-gradient(ellipse at 66% 66%, black 5%, transparent 40%),
+    radial-gradient(ellipse at 33% 33%, black 5%, transparent 40%),
+    radial-gradient(ellipse at 66% 33%, black 5%, transparent 40%),
+    radial-gradient(ellipse at 33% 66%, black 5%, transparent 40%),
+    conic-gradient(from var(--cursor-angle) at center, transparent 5%, black 15%, black 85%, transparent 95%);
+
+  mask-composite: subtract, add, add, add, add, add;
+  opacity: calc(var(--fill-opacity, 0.5) * (var(--edge-proximity) - var(--color-sensitivity)) / (100 - var(--color-sensitivity)));
+  mix-blend-mode: soft-light;
+}
+
+/* outer glow layer */
+.border-glow-card > .edge-light {
+  inset: calc(var(--glow-padding) * -1);
+  pointer-events: none;
+  z-index: 1;
+
+  mask-image:
+    conic-gradient(
+      from var(--cursor-angle) at center, black 2.5%, transparent 10%, transparent 90%, black 97.5%
+    );
+
+  opacity: calc((var(--edge-proximity) - var(--edge-sensitivity)) / (100 - var(--edge-sensitivity)));
+  mix-blend-mode: plus-lighter;
+}
+
+.border-glow-card > .edge-light::before {
+  content: "";
+  position: absolute;
+  inset: var(--glow-padding);
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 1px var(--glow-color, hsl(40deg 80% 80% / 100%)),
+    inset 0 0 1px 0 var(--glow-color-60, hsl(40deg 80% 80% / 60%)),
+    inset 0 0 3px 0 var(--glow-color-50, hsl(40deg 80% 80% / 50%)),
+    inset 0 0 6px 0 var(--glow-color-40, hsl(40deg 80% 80% / 40%)),
+    inset 0 0 15px 0 var(--glow-color-30, hsl(40deg 80% 80% / 30%)),
+    inset 0 0 25px 2px var(--glow-color-20, hsl(40deg 80% 80% / 20%)),
+    inset 0 0 50px 2px var(--glow-color-10, hsl(40deg 80% 80% / 10%)),
+    0 0 1px 0 var(--glow-color-60, hsl(40deg 80% 80% / 60%)),
+    0 0 3px 0 var(--glow-color-50, hsl(40deg 80% 80% / 50%)),
+    0 0 6px 0 var(--glow-color-40, hsl(40deg 80% 80% / 40%)),
+    0 0 15px 0 var(--glow-color-30, hsl(40deg 80% 80% / 30%)),
+    0 0 25px 2px var(--glow-color-20, hsl(40deg 80% 80% / 20%)),
+    0 0 50px 2px var(--glow-color-10, hsl(40deg 80% 80% / 10%));
+}
+
+.border-glow-inner {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  z-index: 1;
 }
