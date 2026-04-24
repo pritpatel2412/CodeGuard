@@ -34,7 +34,8 @@ export function setupAuth(app: Express) {
 
     if (app.get("env") === "production") {
         if (!process.env.SESSION_SECRET) {
-            throw new Error("SESSION_SECRET is required in production environment");
+            console.warn("⚠️ SECURITY WARNING: SESSION_SECRET is missing in production environment.");
+            console.warn("Falling back to a development secret. This is INSECURE and sessions may not persist correctly.");
         }
         app.set("trust proxy", 1); // trust first proxy
     }

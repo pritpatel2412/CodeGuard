@@ -38,12 +38,7 @@ function CarouselItem({
 
   return (
     <div className="shrink-0 h-full flex items-center justify-center" style={{ width: itemWidth }}>
-      <BorderGlow
-        className="relative flex flex-col items-center justify-center p-6 cursor-grab active:cursor-grabbing h-full w-full"
-        borderRadius={24}
-        glowIntensity={0.8}
-        animated={item.id === 1}
-      >
+      <div className="relative flex flex-col items-center justify-center p-8 h-full w-full bg-card/40 border border-border/40 backdrop-blur-md rounded-[32px] shadow-sm transition-all duration-300 hover:border-border/60">
         <motion.div
           className="flex flex-col items-center justify-center w-full h-full"
           style={{
@@ -54,17 +49,17 @@ function CarouselItem({
           transition={transition}
         >
           <div className="mb-6 relative">
-            <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full scale-125 opacity-50 group-hover:opacity-100 transition-opacity" />
-            <div className="relative z-10 p-3.5 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 text-primary border border-primary/20">
+            {/* Removed the intense blur glow */}
+            <div className="relative z-10 p-4 rounded-2xl bg-primary/10 text-primary border border-primary/10 shadow-inner">
               {item.icon}
             </div>
           </div>
           <div className="text-center relative z-10">
-            <h3 className="text-xl font-black mb-2 tracking-tight">{item.title}</h3>
-            <p className="text-sm text-muted-foreground leading-relaxed font-medium px-2">{item.description}</p>
+            <h3 className="text-2xl font-bold mb-3 tracking-tight text-foreground">{item.title}</h3>
+            <p className="text-base text-muted-foreground leading-relaxed font-medium px-4 max-w-[320px]">{item.description}</p>
           </div>
         </motion.div>
-      </BorderGlow>
+      </div>
     </div>
   );
 }

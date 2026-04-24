@@ -21,23 +21,6 @@
   background: hsl(var(--card));
 }
 
-.pixel-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  aspect-ratio: 1;
-  background: radial-gradient(circle, hsl(var(--primary) / 0.05), transparent 85%);
-  opacity: 0;
-  transition: opacity 800ms cubic-bezier(0.5, 1, 0.89, 1);
-  pointer-events: none;
-}
-
-.pixel-card:hover::before,
-.pixel-card:focus-within::before {
-  opacity: 1;
-}
-
 .pixel-content {
   position: relative;
   z-index: 1;

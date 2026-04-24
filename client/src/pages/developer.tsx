@@ -21,7 +21,7 @@ export default function Developer() {
                     className="md:col-span-1 rounded-[25px] overflow-hidden"
                 >
                     <div className="p-8 flex flex-col items-center text-center space-y-6 h-full min-h-[420px]">
-                        <div className="relative group">
+                        <div className="relative">
                             <PremiumAvatar 
                                 src="https://github.com/pritpatel2412.png"
                                 name="Prit Patel"
@@ -29,8 +29,6 @@ export default function Developer() {
                                 size="xl"
                                 className="z-10"
                             />
-                            {/* Static Glow underneath */}
-                            <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full -z-10 group-hover:bg-primary/30 transition-colors" />
                         </div>
 
                         <div className="space-y-2">
