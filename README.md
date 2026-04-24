@@ -1,254 +1,159 @@
-<<<<<<< HEAD
-# 🛡️ CodeGuard AI Agent
+# CodeGuard AI Agent
+
 ### Automated Security & Code Quality Orchestrator
 
 [![Security Score](https://img.shields.io/badge/Security-A+-brightgreen?style=for-the-badge)](https://github.com/pritpatel2412/CodeGuard)
 [![AI Powered](https://img.shields.io/badge/AI-OpenAI_GPT--4o-blue?style=for-the-badge)](https://openai.com/)
 [![Premium UI](https://img.shields.io/badge/UI-Obsidian_Midnight-ec4899?style=for-the-badge)](https://github.com/pritpatel2412/CodeGuard)
+[![Vercel Deployment](https://img.shields.io/badge/Vercel-Deployed-000000?style=for-the-badge&logo=vercel)](https://github.com/pritpatel2412/CodeGuard)
 
-CodeGuard is an intelligent, automated **Security and Code Quality Reviewer** designed to act as a "Senior App Sec Engineer" monitoring your repositories 24/7. It doesn't just find bugs; it **fixes** them using state-of-the-art AI while providing a world-class, cinematic developer experience.
+---
+
+CodeGuard is an intelligent, autonomous **Security and Code Quality Agent** designed to act as a "Senior App Sec Engineer" monitoring your repositories 24/7. It doesn't just find bugs — it **fixes** them using state-of-the-art AI while providing a world-class, high-fidelity developer experience.
+
+---
+
+## Table of Contents
+
+- [Premium Experience](#-premium-experience)
+- [Core Capabilities](#-core-capabilities)
+- [Tech Stack](#-tech-stack)
+- [Getting Started](#-getting-started)
+- [Repository Structure](#-repository-structure)
+- [Security & Safety Guards](#-security--safety-guards)
 
 ---
 
 ## ✨ Premium Experience
-CodeGuard isn't just a tool; it's a high-end development environment.
 
-- 🌑 **Obsidian Midnight Theme**: An elite, true-black interface designed for high-performance developer workflows.
-- 🎭 **Premium Identity System**: AI-generated, artistic avatars with verified rings and premium badges.
-- 🎞️ **Cinematic Transitions**: Ultra-smooth circular reveal animations using the View Transitions API.
-- 🪄 **Dynamic UI**: Monochrome iconography and interactive border-glow cards that react to your presence.
+CodeGuard isn't just a security tool — it's a premium development environment.
+
+| Feature | Description |
+| :--- | :--- |
+| 🌑 **Obsidian Midnight Theme** | An elite, true-black interface with a custom **Cyber Cyan** and **CodeGuard Pink** palette. |
+| 🎴 **Interactive PixelCards** | Canvas-based, high-performance card animations that react to developer interactions. |
+| 🎭 **Aura Farming Identity** | Exclusive developer profile tiers featuring pulsating neon auras and verified badges. |
+| 🎞️ **Cinematic Transitions** | Ultra-smooth animations and glassmorphism throughout the platform. |
+| 🪄 **Dynamic UI** | Monochrome iconography and interactive border-glow effects that react to your presence. |
 
 ---
 
 ## 🚀 Core Capabilities
 
-Modern development moves fast, but security often lags behind. CodeGuard bridges this gap by automatically analyzing every Pull Request (PR) for:
-- 🐞 **Bugs & Logical Flaws**: Identify complex logic errors before they hit production.
-- 🔒 **Security Vulnerabilities**: Deep scanning for OWASP Top 10, SQLi, XSS, and broken access control.
-- ⚡ **Performance Bottlenecks**: Real-time detection of N+1 queries and memory-intensive loops.
-- 📖 **Maintainability**: AI-driven refactoring suggestions for cleaner, more readable code.
+Modern development moves fast, but security often lags. CodeGuard bridges this gap by automatically analyzing every Pull Request (PR) across three core pillars:
 
-**The "Surgeon" Agent**: For High-Risk issues, CodeGuard automatically generates a secure fix, creates a new branch, and opens a secondary PR—resolving vulnerabilities in seconds.
-=======
-<p align="center">
-  <h1 align="center">🛡️ CodeGuard</h1>
-  <p align="center"><strong>AI-Powered Code Security & Pull Request Risk Analysis Platform</strong></p>
-  <p align="center">Your 24/7 Senior AppSec Engineer — automatically reviewing every PR before it hits production.</p>
-</p>
+### 🔍 Detection — *The Sentry*
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Node.js-Express-green?style=flat-square&logo=node.js" />
-  <img src="https://img.shields.io/badge/React-Vite-blue?style=flat-square&logo=react" />
-  <img src="https://img.shields.io/badge/OpenAI-GPT--4o-orange?style=flat-square&logo=openai" />
-  <img src="https://img.shields.io/badge/GitHub-Webhook_Integration-black?style=flat-square&logo=github" />
-  <img src="https://img.shields.io/badge/PostgreSQL-Drizzle_ORM-blue?style=flat-square&logo=postgresql" />
-</p>
+- **OWASP Top 10** — Deep scanning for SQLi, XSS, CSRF, and broken access control.
+- **Logic Flaws** — Identifying complex off-by-one errors and race conditions.
+- **Secret Exposure** — Detecting leaked API keys, tokens, and credentials in real-time.
+- **Performance** — Highlighting N+1 queries and memory-intensive loops.
 
----
+### 🔧 Remediation — *The Surgeon*
 
-## What is CodeGuard?
+- **Auto-Fix Generation** — For critical issues, CodeGuard reads the entire file context (not just the diff) to generate architecturally sound fixes.
+- **One-Click PRs** — Automatically creates a branch, commits the fix, and opens a secondary PR targeting the developer's branch.
+- **Safety Guards** — Verifies fixes for syntax and logic before ever touching your code.
 
-CodeGuard is an **autonomous AI security agent** that hooks into your GitHub workflow and analyzes every pull request for security vulnerabilities, logic errors, and high-risk code changes — before they reach production.
+### 📊 Intelligence — *The Observer*
 
-For critical issues, it doesn't just flag them. It **generates a secure fix**, creates a new branch, and opens a secondary PR automatically.
->>>>>>> 6ec92882a691b74ab7c49fcfce1179be77d993ba
-
----
-
-## The Problem It Solves
-
-<<<<<<< HEAD
-```mermaid
-graph TD
-    subgraph "External VCS (GitHub/GitLab)"
-        PR[Developer opens PR]
-        WH[Webhook Trigger]
-        COM[Post Comments to PR]
-        FIXPR[Open Security-Fix PR]
-    end
-=======
-Modern dev teams ship fast. Security reviews are slow, expensive, and inconsistent. A single missed SQL injection or exposed API key can cost millions.
-
-CodeGuard makes security review instant, automated, and intelligent — acting as a Senior AppSec Engineer watching every commit 24/7.
->>>>>>> 6ec92882a691b74ab7c49fcfce1179be77d993ba
-
----
-
-<<<<<<< HEAD
-    subgraph "CodeGuard Frontend (React)"
-        DS[Premium Dashboard]
-        VX[Fix Flow Visualizer]
-        TM[Theme Engine - 3 Modes]
-    end
-=======
-## How It Works
->>>>>>> 6ec92882a691b74ab7c49fcfce1179be77d993ba
-
-### 1. 🔍 Detection Phase (The Sentry)
-- GitHub webhook fires when a PR is opened or updated
-- CodeGuard fetches the full diff and analyzes it line-by-line
-- GPT-4o understands **context and intent** — not just pattern matching
-- Every review gets a risk score: Low / Medium / High
-
-### 2. 🔧 Remediation Phase (The Surgeon)
-- For High-Risk issues: Safety Guards verify the file isn't critical auth/payment logic
-- Fix agent reads the **entire vulnerable file** (not just the diff) for architectural soundness
-- Generates a secure, contextually correct fix
-- Auto-creates a branch + commits the fix + opens a new PR targeting the developer's branch
-
-### 3. 📊 Monitoring Phase (The Observer)
-- All reviews stored in PostgreSQL via Drizzle ORM
-- Dashboard shows PR history, risk trends, fix success rates
-- Fix Flow Visualizer shows the full remediation pipeline
-
----
-
-## What It Catches
-
-- 🔒 **OWASP Top 10** — SQL injection, XSS, CSRF, insecure deserialization
-- 🔑 **Secrets exposure** — API keys, tokens, passwords in code
-- ⚡ **Performance bottlenecks** — N+1 queries, unoptimized loops
-- 🐞 **Logic errors** — off-by-one, null pointer, race conditions
-- 📖 **Code quality** — readability, maintainability, dead code
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| Frontend | React, Vite, TypeScript, Tailwind CSS |
-| Backend | Node.js, Express.js |
-| AI Engine | OpenAI GPT-4o |
-| Database | PostgreSQL + Drizzle ORM |
-| Integration | GitHub Webhooks + GitHub API |
-| Deployment | Vercel |
-
----
-
-## Pipeline
-
-```
-Developer opens PR
-        │
-        ▼
-GitHub Webhook → CodeGuard Backend
-        │
-        ▼
-Fetch Full Diff + File Context
-        │
-        ▼
-GPT-4o Analysis (line-by-line, context-aware)
-        │
-        ├── Low/Medium Risk → Comment on PR with findings
-        │
-        └── High Risk → Safety Guards check
-                              │
-                        ┌─────▼──────┐
-                        │  Generate   │
-                        │  Secure Fix │
-                        └─────┬───────┘
-                              │
-                    Create Branch → Commit Fix → Open Fix PR
-        │
-        ▼
-Store in PostgreSQL → Update Dashboard
-```
-
----
-
-<<<<<<< HEAD
-## 📂 Repository Structure
-
-| Directory | Purpose |
-| :--- | :--- |
-| `client/` | Premium React frontend (Vite, Tailwind, Framer Motion, Radix UI). |
-| `server/` | Node.js/Express backend handling AI orchestrators and VCS hooks. |
-| `shared/` | Shared TypeScript types and Drizzle database models. |
-| `script/` | Automated build and utility scripts. |
+- **Risk Scoring** — Every review gets a weighted risk score (Low / Medium / High).
+- **Fix Flow Visualizer** — Real-time visualization of the AI remediation pipeline.
+- **PR History** — Comprehensive tracking of security trends and remediation success rates.
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Frontend:** React 18, Vite, Tailwind CSS, Framer Motion, Radix UI, Recharts, Wouter.
-- **Backend:** Node.js, Express, Socket.io, Passport.js.
-- **AI Engine:** OpenAI GPT-4o / GPT-4 Turbo with custom "Security Engineer" personas.
-- **Persistence:** PostgreSQL with Drizzle ORM (Type-safe migrations).
-- **Architecture:** Monorepo with end-to-end TypeScript safety.
+| Layer | Technology |
+| :--- | :--- |
+| **Frontend** | React 18, Vite, TypeScript, Framer Motion, Tailwind CSS, Canvas API |
+| **Backend** | Node.js, Express.js, Socket.io, Passport.js (GitHub OAuth) |
+| **AI Engine** | OpenAI GPT-4o / GPT-4 Turbo |
+| **Database** | PostgreSQL + Drizzle ORM (Type-safe migrations) |
+| **Integration** | GitHub Webhooks + GitHub API |
+| **Deployment** | Vercel |
 
 ---
 
 ## 🚀 Getting Started
 
-### 1. Prerequisites
-- Node.js (v18+)
-- PostgreSQL Database
-- OpenAI API Key
-- GitHub/GitLab Personal Access Token (for PR comments and fixes)
+### Prerequisites
 
-### 2. Environment Variables
-Create a `.env` file in the root:
+Before you begin, ensure you have the following:
+
+- **Node.js** v18 or higher
+- **PostgreSQL** Database (Neon, Local, or Docker)
+- **OpenAI API Key**
+- **GitHub Personal Access Token** (for automated PR comments and fixes)
+
+### Environment Variables
+
+Create a `.env` file in the project root and populate it with the following:
+
 ```env
 DATABASE_URL=postgresql://user:password@localhost:5432/codeguard
 OPENAI_API_KEY=your_openai_api_key
 GITHUB_CLIENT_ID=your_github_client_id
 GITHUB_CLIENT_SECRET=your_github_client_secret
-SESSION_SECRET=your_random_session_secret
+GITHUB_CALLBACK_URL=http://localhost:5000/auth/github/callback
+SESSION_SECRET=your_random_secure_string
 ```
 
-### 3. Installation & Run
-=======
-## Getting Started
+### Installation & Running Locally
 
->>>>>>> 6ec92882a691b74ab7c49fcfce1179be77d993ba
 ```bash
+# 1. Clone the repository
 git clone https://github.com/pritpatel2412/CodeGuard
 cd CodeGuard
+
+# 2. Install dependencies
 npm install
 
-<<<<<<< HEAD
-# Initialize the database
+# 3. Initialize the database (push schema)
 npm run db:push
-=======
-# Set up environment
-cp .env.example .env
-# Add: OPENAI_API_KEY, DATABASE_URL, GITHUB_APP_ID, GITHUB_PRIVATE_KEY
->>>>>>> 6ec92882a691b74ab7c49fcfce1179be77d993ba
 
-# Run migrations
-npm run db:migrate
-
-# Start
+# 4. Start the development server
 npm run dev
 ```
 
-<<<<<<< HEAD
 ---
 
-## 🔒 Security & Safety Guards
+## 📂 Repository Structure
 
-CodeGuard includes built-in safety mechanisms to protect your code:
-- **Path Sanitization**: Sensitive files (`.env`, `secrets.yaml`, `auth.ts`) are automatically flagged and never modified by AI.
-- **Syntax Validation**: Generated fixes are validated for syntax and logic before PR creation.
-- **Branch Isolation**: All AI actions occur on dedicated, isolated branches.
+```
+CodeGuard/
+├── client/       # Premium React frontend (Vite, Tailwind, PixelCard, Framer Motion)
+├── server/       # Node.js/Express backend — AI orchestrators and VCS hooks
+├── shared/       # Shared TypeScript types and Drizzle database models
+└── script/       # Automated build and deployment utility scripts
+```
 
----
-
-Developed with ❤️ by [Prit Patel](https://github.com/pritpatel2412)
-=======
----
-
-## Why This Matters
-
-- **Shift security left** — catch vulnerabilities at PR time, not in production
-- **Reduce review overhead** — engineers focus on logic, not boilerplate security checks
-- **Auto-remediation** — critical issues get fixed, not just flagged
+| Directory | Purpose |
+| :--- | :--- |
+| `client/` | Premium React frontend (Vite, Tailwind, PixelCard, Framer Motion). |
+| `server/` | Node.js/Express backend handling AI orchestrators and VCS hooks. |
+| `shared/` | Shared TypeScript types and Drizzle database models. |
+| `script/` | Automated build and deployment utility scripts. |
 
 ---
 
-## Built By
+## 🛡️ Security & Safety Guards
 
-**Prit Patel** — B.Tech CSE @ CHARUSAT University
-[GitHub](https://github.com/pritpatel2412) · [LinkedIn](https://linkedin.com/in/pritpatel2412)
->>>>>>> 6ec92882a691b74ab7c49fcfce1179be77d993ba
+CodeGuard includes built-in safety mechanisms to protect your codebase at every stage:
+
+- **Path Sanitization** — Sensitive files (`.env`, `secrets.yaml`, `auth.ts`) are automatically flagged and never modified by AI.
+- **Context Isolation** — All AI actions occur on dedicated, isolated branches.
+- **Ownership Verification** — Strict IDOR prevention across all API routes ensures users only access their own data.
+
+---
+
+<div align="center">
+
+**Developed with ❤️ by [Prit Patel](https://github.com/pritpatel2412)**
+*B.Tech CSE @ CHARUSAT University*
+
+[![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/pritpatel2412)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://linkedin.com/in/pritpatel2412)
+
+</div>
