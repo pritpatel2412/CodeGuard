@@ -77,10 +77,10 @@ export function OnboardingModal() {
             </p>
           </div>
 
-          <div className="relative -mx-2">
+          <div className="relative flex justify-center w-full">
             <Carousel 
               items={STEPS} 
-              baseWidth={380} 
+              baseWidth={360} 
               autoplay={true}
               autoplayDelay={6000}
               loop={true}
