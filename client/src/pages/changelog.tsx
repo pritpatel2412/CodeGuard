@@ -94,7 +94,7 @@ export default function ChangelogPage() {
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
       <div className="space-y-2">
-        <h1 className="text-2xl font-semibold">Changelog</h1>
+        <h1 className="text-2xl font-semibold">Channel Log</h1>
         <p className="text-sm text-muted-foreground">
           Timeline of major platform updates, security improvements, and shipped features.
         </p>

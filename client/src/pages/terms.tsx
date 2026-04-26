@@ -17,7 +17,7 @@ export default function Terms() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Terms of Service</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Terms & Conditions</h1>
             <p className="text-sm text-muted-foreground">Last updated: {lastUpdated}</p>
           </div>
         </div>

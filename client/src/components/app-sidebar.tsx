@@ -142,7 +142,7 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={location === "/changelog"}>
                   <Link href="/changelog">
-                    <span>Changelog</span>
+                    <span>Channel Log</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
