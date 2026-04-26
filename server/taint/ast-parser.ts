@@ -1,7 +1,7 @@
 import { parse } from "@typescript-eslint/typescript-estree";
 import { AST_NODE_TYPES } from "@typescript-eslint/types";
 import type { TSESTree } from "@typescript-eslint/types";
-import type { FunctionNode, CallEdge } from "./types";
+import type { FunctionNode, CallEdge } from "./types.js";
 
 /**
  * Parses a single TypeScript/JavaScript file.

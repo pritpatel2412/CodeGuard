@@ -1,6 +1,6 @@
-import type { SemanticGraph, TaintSource, TaintSink, TaintPath, FunctionNode } from "./types";
-import { TAINT_SOURCE_PATTERNS, TAINT_SINK_PATTERNS, SANITIZER_PATTERNS } from "./taint-sources-sinks";
-import type { RepoFile } from "./repository-crawler";
+import type { SemanticGraph, TaintSource, TaintSink, TaintPath, FunctionNode } from "./types.js";
+import { TAINT_SOURCE_PATTERNS, TAINT_SINK_PATTERNS, SANITIZER_PATTERNS } from "./taint-sources-sinks.js";
+import type { RepoFile } from "./repository-crawler.js";
 
 /**
  * Main taint propagation engine.

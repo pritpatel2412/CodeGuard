@@ -1,6 +1,6 @@
-import type { RepoFile } from "./repository-crawler";
-import type { SemanticGraph, FunctionNode, CallEdge } from "./types";
-import { parseFileToGraph } from "./ast-parser";
+import type { RepoFile } from "./repository-crawler.js";
+import type { SemanticGraph, FunctionNode, CallEdge } from "./types.js";
+import { parseFileToGraph } from "./ast-parser.js";
 
 /**
  * Builds a complete inter-procedural semantic graph from all repo files.

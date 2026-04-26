@@ -1,10 +1,10 @@
 import { Octokit } from "@octokit/rest";
-import { crawlPRFiles } from "./repository-crawler";
-import { buildSemanticGraph } from "./graph-builder";
-import { runTaintPropagation } from "./propagation-engine";
-import { enrichTaintPathsWithAI } from "./ai-enricher";
-import { db } from "../db";
-import { semanticGraphs, taintPaths } from "../../shared/schema";
+import { crawlPRFiles } from "./repository-crawler.js";
+import { buildSemanticGraph } from "./graph-builder.js";
+import { runTaintPropagation } from "./propagation-engine.js";
+import { enrichTaintPathsWithAI } from "./ai-enricher.js";
+import { db } from "../db.js";
+import { semanticGraphs, taintPaths } from "../../shared/schema.js";
 import { eq } from "drizzle-orm";
 
 export interface TaintAnalysisInput {
