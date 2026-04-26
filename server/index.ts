@@ -5,18 +5,23 @@ import { setupAuth } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import type { Request, Response, NextFunction } from "express";
+import taintRouter from "./routes/taint";
 
 (async () => {
   const httpServer = createServer(app);
   setupAuth(app);
   await registerRoutes(httpServer, app);
+  
+  app.use("/api/taint", taintRouter);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    res.status(status).json({ message });
-    throw err;
+    if (!res.headersSent) {
+      res.status(status).json({ message });
+    }
+    console.error("[express] Unhandled error:", err);
   });
 
   // importantly only setup vite in development and after

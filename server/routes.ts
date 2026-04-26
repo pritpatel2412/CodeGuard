@@ -1,10 +1,16 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
-import { insertRepositorySchema, insertReviewSchema, insertReviewCommentSchema } from "../shared/schema.js";
+import { insertRepositorySchema, insertReviewSchema, insertReviewCommentSchema, policyViolations, reviews, repositories } from "../shared/schema.js";
 import { getUncachableGitHubClient, getPullRequestDiff, getPullRequestDetails, postReviewComment, postReview, createBranch, updateFile, createPullRequest, getFileContent } from "./github.js";
 import { getMergeRequestDetails, getGitLabFileContent, createGitLabBranch, updateGitLabFile, createMergeRequest, postMergeRequestComment } from "./gitlab.js";
 import { analyzeCodeDiff, generateFix } from "./openai.js";
+import { runCrossFileTaintAnalysis } from "./taint/taint-orchestrator.js";
+import { runPolicyEnforcement } from "./policy/policy-orchestrator.js";
+import policyRouter from "./routes/policy.js";
+import { db } from "./db.js";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { toPublicUser } from "./user-public.js";
 
 import { z } from "zod";
 import crypto from "crypto";
@@ -19,7 +25,10 @@ const createRepositorySchema = z.object({
 
 const updateRepositorySchema = z.object({
   isActive: z.boolean().optional(),
-  webhookSecret: z.string().optional(),
+  webhookSecret: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined ? undefined : v),
+    z.string().min(8, "Webhook secret must be at least 8 characters").optional(),
+  ),
 });
 
 // Verify GitHub webhook signature
@@ -43,10 +52,54 @@ function verifyWebhookSignature(payload: string, signature: string | undefined, 
   }
 }
 
+function buildPolicyComment(count: number): string {
+  return `## CodeGuard Policy Check
+
+**${count} company policy violation${count !== 1 ? "s" : ""} detected** in this PR.
+
+Your team's custom security policies defined in \`.codeguard.yml\` were violated.
+Please review and resolve the policy findings before merging.
+
+> These checks enforce organization-specific compliance and security standards beyond built-in OWASP rules.`;
+}
+
+async function getChangedFilesForPolicy(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  ref: string,
+): Promise<Array<{ path: string; content: string }>> {
+  const octokit = await getUncachableGitHubClient();
+  const changed = await octokit.paginate(octokit.pulls.listFiles, {
+    owner,
+    repo,
+    pull_number: prNumber,
+    per_page: 100,
+  });
+
+  const filePayloads = await Promise.all(
+    changed
+      .filter((file) => file.status !== "removed")
+      .slice(0, 30)
+      .map(async (file) => {
+        try {
+          const content = await getFileContent(owner, repo, file.filename, ref);
+          return { path: file.filename, content };
+        } catch {
+          return null;
+        }
+      }),
+  );
+
+  return filePayloads.filter((entry): entry is { path: string; content: string } => entry !== null);
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  app.use("/api/policy", policyRouter);
 
   // ============= REPOSITORIES =============
 
@@ -80,7 +133,7 @@ export async function registerRoutes(
         autoFixSafetyGuards
       });
 
-      res.json(updatedUser);
+      res.json(toPublicUser(updatedUser));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -313,6 +366,33 @@ export async function registerRoutes(
         recentActivity: Array.isArray(stats.recentActivity) ? stats.recentActivity : [],
       };
 
+      const policyTotals = await db
+        .select({
+          total: sql<number>`count(*)`,
+          critical: sql<number>`count(*) filter (where ${policyViolations.severity} = 'CRITICAL')`,
+          high: sql<number>`count(*) filter (where ${policyViolations.severity} = 'HIGH')`,
+          medium: sql<number>`count(*) filter (where ${policyViolations.severity} = 'MEDIUM')`,
+          low: sql<number>`count(*) filter (where ${policyViolations.severity} = 'LOW')`,
+        })
+        .from(policyViolations)
+        .innerJoin(reviews, eq(policyViolations.reviewId, reviews.id))
+        .innerJoin(repositories, eq(reviews.repositoryId, repositories.id))
+        .where(
+          and(
+            eq(repositories.userId, req.user!.id),
+            gte(reviews.createdAt, startDate),
+            lt(reviews.createdAt, endDate),
+          ),
+        );
+
+      const policySummary = policyTotals[0] ?? {
+        total: 0,
+        critical: 0,
+        high: 0,
+        medium: 0,
+        low: 0,
+      };
+
       // ── Security Health Score (premium touch) ──
       const totalRisks = Object.values(safeStats.riskDistribution).reduce((a, b) => a + b, 0);
       let securityScore = 95;
@@ -469,7 +549,7 @@ export async function registerRoutes(
       if (totalRisks === 0) {
         doc.fillColor(colors.success)
           .fontSize(13)
-          .text("✅ No security risks detected in this period. Excellent work!", 50, doc.y);
+          .text("No security risks detected in this period. Excellent work!", 50, doc.y);
         doc.moveDown(3);
       } else {
         const barX = 50;
@@ -536,6 +616,24 @@ export async function registerRoutes(
       drawLegend(400, colors.success, "Low Risk", safeStats.riskDistribution.low);
 
       doc.y = legendY + 55;
+
+      // ── Custom policy violations ──
+      doc.fillColor(colors.text)
+        .fontSize(19)
+        .font("Helvetica-Bold")
+        .text("Custom Policy Violations", 50, doc.y);
+      doc.moveDown(0.8);
+      doc.fillColor(colors.textLight)
+        .fontSize(11)
+        .font("Helvetica")
+        .text(`Total violations in selected range: ${Number(policySummary.total)}`);
+      doc.moveDown(0.5);
+      doc.fillColor(colors.text)
+        .fontSize(10.5)
+        .text(
+          `CRITICAL: ${Number(policySummary.critical)}   HIGH: ${Number(policySummary.high)}   MEDIUM: ${Number(policySummary.medium)}   LOW: ${Number(policySummary.low)}`,
+        );
+      doc.moveDown(1.2);
 
       // ── Recent Activity Table ──
       doc.fillColor(colors.text)
@@ -619,7 +717,7 @@ export async function registerRoutes(
         .fontSize(8.2)
         .text("© 2026 CodeGuard • Confidential AI Security Report", 50, footerY);
 
-      doc.text("Generated with ❤️ by CodeGuard AI", 380, footerY, { align: "right" });
+      doc.text("Generated by CodeGuard AI", 380, footerY, { align: "right" });
 
       doc.end();
     } catch (error: any) {
@@ -654,15 +752,24 @@ export async function registerRoutes(
         ? rawBodyBuffer.toString('utf8')
         : JSON.stringify(payload);
 
-      // Verify webhook signature if secret is configured
-      if (repo.webhookSecret) {
-        const isValid = verifyWebhookSignature(rawBody, signature, repo.webhookSecret);
-        if (!isValid) {
-          console.error("Invalid webhook signature for repository:", repositoryId);
-          console.error("Expected signature format: sha256=...");
-          console.error("Received signature:", signature);
-          return res.status(401).json({ error: "Invalid webhook signature" });
-        }
+      if (!repo.webhookSecret || !String(repo.webhookSecret).trim()) {
+        console.error("Webhook rejected: repository has no webhook secret configured:", repositoryId);
+        return res.status(401).json({ error: "Webhook secret not configured for this repository" });
+      }
+
+      const isValid = verifyWebhookSignature(rawBody, signature, repo.webhookSecret);
+      if (!isValid) {
+        console.error("Invalid webhook signature for repository:", repositoryId);
+        return res.status(401).json({ error: "Invalid webhook signature" });
+      }
+
+      const payloadFullName = payload.repository?.full_name as string | undefined;
+      if (
+        payloadFullName &&
+        payloadFullName.toLowerCase() !== repo.fullName.toLowerCase()
+      ) {
+        console.error("Webhook rejected: repository mismatch", payloadFullName, "!=", repo.fullName);
+        return res.status(403).json({ error: "Repository mismatch" });
       }
 
       // Handle ping event (GitHub sends this when webhook is first created)
@@ -714,6 +821,13 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Missing repository or commit info" });
       }
 
+      const payloadKey = `${owner}/${repoName}`.toLowerCase();
+      const expectedKey = `${repo.owner}/${repo.name}`.toLowerCase();
+      if (payloadKey !== expectedKey) {
+        console.error("Webhook rejected: owner/name mismatch", payloadKey, expectedKey);
+        return res.status(403).json({ error: "Repository identity mismatch" });
+      }
+
       // Check if we already have a review for this PR
       let review = await storage.getReviewByPR(repositoryId, prNumber);
 
@@ -749,6 +863,14 @@ export async function registerRoutes(
           summary: "Failed to fetch PR diff: " + error.message
         });
         return res.status(200).json({ message: "Failed to fetch diff" });
+      }
+
+      // Gather changed file snapshots for policy enforcement context
+      let fileContents: Array<{ path: string; content: string }> = [];
+      try {
+        fileContents = await getChangedFilesForPolicy(owner, repoName, prNumber, headSha);
+      } catch (error: any) {
+        console.warn("[Policy] Failed to collect changed files:", error?.message || error);
       }
 
       // Analyze the diff with OpenAI
@@ -826,18 +948,18 @@ export async function registerRoutes(
           return acc;
         }, {} as Record<string, number>);
 
-        const summaryBody = `# 🤖 CodeGuard AI Agent — Code Review Summary
+        const summaryBody = `# CodeGuard AI Agent — Code Review Summary
 
 **Overall Risk Level:** ${riskEmoji[analysis.risk_level] || analysis.risk_level}
 
 ---
 
-### 📌 Executive Summary
+## Executive Summary
 ${analysis.summary}
 
 ---
 
-### 🧩 Findings Overview
+## Findings Overview
 **Total Issues Detected:** ${analysis.comments.length}
 
 ${Object.entries(commentsByType)
@@ -846,7 +968,7 @@ ${Object.entries(commentsByType)
 
 ---
 
-### 🛡️ About CodeGuard AI Agent
+## About CodeGuard AI Agent
 This review was automatically generated by **CodeGuard AI Agent**, your intelligent code quality and security assistant.  
 It analyzes your changes for potential bugs, security risks, performance issues, and maintainability concerns—helping you ship safer, cleaner, and more reliable code with confidence.
 
@@ -863,9 +985,52 @@ It analyzes your changes for potential bugs, security risks, performance issues,
         }
       }
 
+      // Run taint analysis asynchronously (don't await, don't block webhook response)
+      if (process.env.TAINT_ENGINE_ENABLED === "true") {
+        setImmediate(async () => {
+          try {
+            await runCrossFileTaintAnalysis({
+              octokit: await getUncachableGitHubClient(),
+              owner,
+              repo: repoName,
+              ref: headSha,
+              prNumber,
+              reviewId: review!.id,
+              repositoryId: repo.id,
+              repoDescription: repository.description ?? undefined,
+            });
+          } catch (err) {
+            console.error("[Taint] Analysis failed:", err);
+          }
+        });
+      }
+
+      // Run custom policy analysis asynchronously
+      setImmediate(async () => {
+        try {
+          const octokit = await getUncachableGitHubClient();
+          const violationCount = await runPolicyEnforcement({
+            octokit,
+            owner,
+            repo: repoName,
+            ref: headSha,
+            repositoryId: repo.id,
+            reviewId: review!.id,
+            codeDiff: diff,
+            changedFiles: fileContents,
+          });
+
+          if (violationCount > 0) {
+            await postReview(owner, repoName, prNumber, buildPolicyComment(violationCount), "COMMENT");
+          }
+        } catch (err) {
+          console.error("[Policy] Enforcement failed:", err);
+        }
+      });
+
       res.status(200).json({
         message: "Review completed",
-        reviewId: review.id,
+        reviewId: review!.id,
         riskLevel: analysis.risk_level,
         commentsCount: analysis.comments.length,
       });
@@ -924,7 +1089,13 @@ It analyzes your changes for potential bugs, security risks, performance issues,
       let baseBranch: string;
       let fileContent: string;
       let targetPlatform = repo.platform;
-      const accessToken = (req.user as any).accessToken;
+      const tokenUser = await storage.getUser(req.user!.id);
+      const accessToken = tokenUser?.accessToken ?? undefined;
+      if (!accessToken) {
+        return res.status(403).json({
+          error: "GitHub access token not available; please sign out and sign in again to refresh permissions.",
+        });
+      }
 
       // Smart Fallback Logic:
       // If configured for specific platform, try it.
@@ -1018,7 +1189,7 @@ It analyzes your changes for potential bugs, security risks, performance issues,
         const newMr = await createMergeRequest(
           repo.owner,
           repo.name,
-          `🔒 Security Fix for High-Risk Issues (MR #${review.prNumber})`,
+          `[CodeGuard] Security Fix for High-Risk Issues (MR #${review.prNumber})`,
           `
 This MR was generated by **CodeGuard AI** to fix high-risk security issues found in the original merge request.
 
@@ -1045,7 +1216,7 @@ Original MR: #${review.prNumber}
             headSha,
             comment.path,
             comment.line,
-            `🚨 **High-risk security issue detected.**\n\nA security-fix MR has been created:\n➡️ ${prUrl}\n\nPlease review and merge the fix.`
+            `**[CodeGuard] High-risk security issue detected.**\n\nA security-fix MR has been created:\n> ${prUrl}\n\nPlease review and merge the fix.`
           );
         } catch (commentError: any) {
           console.error("Failed to post link on original MR:", commentError.message);
@@ -1071,7 +1242,7 @@ Original MR: #${review.prNumber}
         const newPr = await createPullRequest(
           repo.owner,
           repo.name,
-          `🔒 Security Fix for High-Risk Issues (PR #${review.prNumber})`,
+          `[CodeGuard] Security Fix for High-Risk Issues (PR #${review.prNumber})`,
           `
 This PR was generated by **CodeGuard AI** to fix high-risk security issues found in the original pull request.
 
@@ -1099,7 +1270,7 @@ Original PR: #${review.prNumber}
             headSha,
             comment.path,
             comment.line,
-            `🚨 **High-risk security issue detected.**\n\nA security-fix PR has been created:\n➡️ #${newPr.number}\n\nPlease review and merge the fix.`
+            `**[CodeGuard] High-risk security issue detected.**\n\nA security-fix PR has been created:\n> #${newPr.number}\n\nPlease review and merge the fix.`
           );
         } catch (commentError: any) {
           console.error("Failed to post link on original PR:", commentError.message);
@@ -1114,19 +1285,25 @@ Original PR: #${review.prNumber}
 
     } catch (error: any) {
       console.error("Failed to apply fix:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Unable to complete the fix request. Please try again later." });
     }
   });
 
-  // Test GitHub Auth
+  // Debug only: GitHub connectivity check (disabled by default in all environments)
   app.get("/api/test-github-auth", async (req, res) => {
+    if (process.env.ENABLE_DEBUG_GITHUB_AUTH !== "true") {
+      return res.status(404).json({ error: "Not found" });
+    }
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
     try {
       const octokit = await getUncachableGitHubClient();
       const { data } = await octokit.users.getAuthenticated();
-      res.json(data);
+      res.json({ login: data.login, id: data.id });
     } catch (error: any) {
       console.error("Test auth failed:", error);
-      res.status(401).json({ error: error.message });
+      res.status(401).json({ error: "GitHub authentication failed" });
     }
   });
 

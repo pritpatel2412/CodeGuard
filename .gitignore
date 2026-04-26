@@ -5,4 +5,17 @@ server/public
 vite.config.ts.*
 *.tar.gz
 .env
+.env.local
+.env.*.local
 attached_assets
+
+# Local data dumps / artifacts (never commit)
+users.json
+session.json
+repositories.json
+reviews.json
+review_comments.json
+visitors.json
+debug-output.txt
+*.pem
+*.key

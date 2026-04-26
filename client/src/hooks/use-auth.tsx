@@ -1,7 +1,8 @@
-import { createContext, ReactNode, useContext } from "react";
+import { createContext, ReactNode, useContext, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { User } from "@shared/schema";
 import { getQueryFn } from "@/lib/queryClient";
+import { getCsrfToken } from "@/lib/csrf";
 
 type AuthContextType = {
     user: User | null;
@@ -20,6 +21,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         queryKey: ["/api/user"],
         queryFn: getQueryFn({ on401: "returnNull" }),
     });
+
+    useEffect(() => {
+        if (user) {
+            void getCsrfToken();
+        }
+    }, [user]);
 
     if (isLoading) {
         return (

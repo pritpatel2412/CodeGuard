@@ -29,6 +29,7 @@ export function RepositoryCard({
 }: RepositoryCardProps) {
   const [copied, setCopied] = useState(false);
   const [copiedSecret, setCopiedSecret] = useState(false);
+  const [secretRevealed, setSecretRevealed] = useState(false);
 
   const copyWebhookUrl = async () => {
     await navigator.clipboard.writeText(webhookUrl);
@@ -37,7 +38,7 @@ export function RepositoryCard({
   };
 
   const copyWebhookSecret = async () => {
-    if (repository.webhookSecret) {
+    if (repository.webhookSecret && secretRevealed) {
       await navigator.clipboard.writeText(repository.webhookSecret);
       setCopiedSecret(true);
       setTimeout(() => setCopiedSecret(false), 2000);
@@ -105,22 +106,35 @@ export function RepositoryCard({
                   (Configure this in GitHub webhook settings)
                 </span>
               </label>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <code className="flex-1 p-2 text-xs bg-muted rounded-md font-mono truncate">
-                  {repository.webhookSecret}
+                  {secretRevealed ? repository.webhookSecret : "••••••••••••••••"}
                 </code>
-                <Button
-                  size="icon"
-                  variant="outline"
-                  onClick={copyWebhookSecret}
-                  data-testid={`button-copy-secret-${repository.id}`}
-                >
-                  {copiedSecret ? (
-                    <Check className="h-4 w-4 text-green-600" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setSecretRevealed((v) => !v)}
+                    data-testid={`button-toggle-secret-${repository.id}`}
+                  >
+                    {secretRevealed ? "Hide" : "Reveal"}
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={copyWebhookSecret}
+                    disabled={!secretRevealed}
+                    title={secretRevealed ? "Copy secret" : "Reveal secret to copy"}
+                    data-testid={`button-copy-secret-${repository.id}`}
+                  >
+                    {copiedSecret ? (
+                      <Check className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
               </div>
             </div>
           )}

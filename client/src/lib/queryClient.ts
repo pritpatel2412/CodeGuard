@@ -1,6 +1,17 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 import { useErrorStore } from "./error-store";
+import { getCsrfToken } from "./csrf";
+
+function userSafeErrorMessage(status: number, rawBody: string): string {
+  if (status === 403) return "This action was blocked. Try refreshing the page and signing in again.";
+  if (status === 401) return "You need to sign in to continue.";
+  if (status === 404) return "The requested resource was not found.";
+  if (status === 429) return "Too many requests. Please wait and try again.";
+  if (status >= 500) return "Something went wrong on our side. Please try again later.";
+  if (rawBody.length > 200) return `Request failed (${status}).`;
+  return `Request failed (${status}).`;
+}
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -15,18 +26,32 @@ async function throwIfResNotOk(res: Response) {
     }
 
     const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    const safe = userSafeErrorMessage(res.status, text);
+    throw new Error(safe);
   }
 }
+
+const UNSAFE = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const headers: Record<string, string> = {};
+  if (data) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (UNSAFE.has(method.toUpperCase()) && url.startsWith("/api") && !url.includes("/webhooks/")) {
+    const csrf = await getCsrfToken();
+    if (csrf) {
+      headers["X-CSRF-Token"] = csrf;
+    }
+  }
+
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
@@ -49,7 +74,10 @@ export const getQueryFn: <T>(options: {
         return null;
       }
 
-      await throwIfResNotOk(res);
+      if (!res.ok) {
+        const text = (await res.text()) || res.statusText;
+        throw new Error(userSafeErrorMessage(res.status, text));
+      }
       return await res.json();
     };
 

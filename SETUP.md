@@ -29,6 +29,12 @@ Get it from: https://gitlab.com/-/profile/personal_access_tokens
 ### 4. PORT (Optional)
 Server port. Defaults to 5000 if not set.
 
+### 5. SESSION_SECRET (Required in production)
+Must be at least **32 characters**. The server **exits** on startup if this is missing or too short when `NODE_ENV=production`.
+
+### 6. APP_ORIGIN (Required in production)
+Comma-separated browser origins allowed to call the API with cookies (CORS), e.g. `https://your-app.vercel.app`. Copy variable names from [.env.example](.env.example).
+
 ## Quick Start
 
 ### Option 1: Using .env file (Recommended)

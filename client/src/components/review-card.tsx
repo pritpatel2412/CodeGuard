@@ -9,11 +9,14 @@ import {
   ExternalLink,
   FileCode,
   Plus,
-  Minus
+  Minus,
+  ShieldCheck,
 } from "lucide-react";
 import { Link } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 import type { Review, Repository } from "@shared/schema";
+import { isSecurityFixTitle, stripEmoji } from "@/lib/text";
+import { safePrUrl } from "@/lib/safe-url";
 
 interface ReviewCardProps {
   review: Review;
@@ -37,6 +40,10 @@ export function ReviewCard({ review, repository, showActions = true }: ReviewCar
   const riskLevel = review.riskLevel as "low" | "medium" | "high";
   const isGitLab = repository?.platform === "gitlab";
   const prLabel = isGitLab ? "MR" : "PR";
+  const safeTitle = stripEmoji(review.prTitle);
+  const safeSummary = review.summary ? stripEmoji(review.summary) : review.summary;
+  const isSecurityFix = isSecurityFixTitle(review.prTitle);
+  const prHref = safePrUrl(review.prUrl);
 
   return (
     <Card className="hover-elevate" data-testid={`review-card-${review.id}`}>
@@ -52,11 +59,17 @@ export function ReviewCard({ review, repository, showActions = true }: ReviewCar
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-medium text-base truncate max-w-[300px]">
-                  {review.prTitle}
+                  {safeTitle}
                 </h3>
                 <Badge variant="outline" className="text-xs flex-shrink-0">
                   {prLabel} #{review.prNumber}
                 </Badge>
+                {isSecurityFix && (
+                  <Badge variant="secondary" className="text-xs flex-shrink-0">
+                    <ShieldCheck className="h-3 w-3 mr-1 text-emerald-500" />
+                    Security Fix
+                  </Badge>
+                )}
               </div>
               {repository && (
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">
@@ -77,7 +90,7 @@ export function ReviewCard({ review, repository, showActions = true }: ReviewCar
       <CardContent className="space-y-3">
         {review.summary && (
           <p className="text-sm text-muted-foreground line-clamp-2">
-            {review.summary}
+            {safeSummary}
           </p>
         )}
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
@@ -105,12 +118,15 @@ export function ReviewCard({ review, repository, showActions = true }: ReviewCar
           </div>
           {showActions && (
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" asChild>
+              <Button variant="ghost" size="sm" asChild disabled={!prHref}>
                 <a
-                  href={review.prUrl}
+                  href={prHref ?? "#"}
                   target="_blank"
                   rel="noopener noreferrer"
                   data-testid={`link-pr-external-${review.id}`}
+                  onClick={(e) => {
+                    if (!prHref) e.preventDefault();
+                  }}
                 >
                   <ExternalLink className="h-3.5 w-3.5 mr-1" />
                   View {prLabel}

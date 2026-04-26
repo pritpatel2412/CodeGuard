@@ -19,7 +19,13 @@ export async function setupVite(server: Server, app: Express) {
     allowedHosts: true as const,
   };
 
-  const viteConfigResolved = typeof viteConfig === "function" ? await viteConfig() : viteConfig;
+  const viteConfigResolved: Record<string, unknown> =
+    typeof viteConfig === "function"
+      ? ((await (viteConfig as (env: { command: "serve" | "build"; mode: string }) => Promise<unknown>)({
+          command: "serve",
+          mode: process.env.NODE_ENV ?? "development",
+        })) as Record<string, unknown>)
+      : (viteConfig as Record<string, unknown>);
   const vite = await createViteServer({
     ...viteConfigResolved,
     configFile: false,

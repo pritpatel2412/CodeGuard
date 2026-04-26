@@ -35,6 +35,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useState } from "react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { PolicyViewer } from "@/components/PolicyEditor";
 import type { Repository } from "@shared/schema";
 
 const addRepoSchema = z.object({
@@ -44,6 +45,26 @@ const addRepoSchema = z.object({
 });
 
 type AddRepoForm = z.infer<typeof addRepoSchema>;
+
+interface RepositoryPolicyRecord {
+  repositoryId: string;
+  policyName: string;
+  policyVersion: string;
+  complianceFrameworks: string[] | null;
+  rules: Array<{ id: string; name: string; severity: string; description: string }> | null;
+  isActive: boolean;
+  lastSyncedAt: string | null;
+}
+
+function RepositoryPolicyPanel({ repositoryId }: { repositoryId: string }) {
+  const { data: policy } = useQuery<RepositoryPolicyRecord | null>({
+    queryKey: ["/api/policy", repositoryId],
+    enabled: Boolean(repositoryId),
+  });
+
+  if (!policy) return null;
+  return <PolicyViewer policy={policy} repositoryId={repositoryId} />;
+}
 
 export default function Repositories() {
   const [isOpen, setIsOpen] = useState(false);
@@ -245,13 +266,15 @@ export default function Repositories() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {repositories?.map((repo) => (
-            <RepositoryCard
-              key={repo.id}
-              repository={repo}
-              webhookUrl={getWebhookUrl(repo)}
-              onToggleActive={(id, isActive) => toggleMutation.mutate({ id, isActive })}
-              onDelete={(id) => deleteMutation.mutate(id)}
-            />
+            <div key={repo.id}>
+              <RepositoryCard
+                repository={repo}
+                webhookUrl={getWebhookUrl(repo)}
+                onToggleActive={(id, isActive) => toggleMutation.mutate({ id, isActive })}
+                onDelete={(id) => deleteMutation.mutate(id)}
+              />
+              <RepositoryPolicyPanel repositoryId={repo.id} />
+            </div>
           ))}
         </div>
       )}

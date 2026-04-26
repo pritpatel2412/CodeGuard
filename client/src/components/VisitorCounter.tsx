@@ -21,19 +21,20 @@ export function VisitorCounter() {
 
     // Poll for active visitors every 10 seconds (more efficient than 5s)
     // Only polls when tab is active (refetchOnWindowFocus + refetchInterval)
-    const { data: count = 1 } = useQuery({
+    const { data: count = 1 } = useQuery<number>({
         queryKey: ["visitors", sessionId],
-        queryFn: async () => {
-            // Efficiency check: Don't fetch if tab is hidden
-            if (document.hidden) return count;
+        queryFn: async (): Promise<number> => {
+            if (document.hidden) {
+                return 1;
+            }
 
             try {
                 const res = await apiRequest("POST", "/api/visitors/heartbeat", { sessionId });
-                const data = await res.json();
-                return data.count;
+                const data = (await res.json()) as { count?: number };
+                return typeof data.count === "number" ? data.count : 1;
             } catch (err) {
                 console.error("Failed to sync visitor count:", err);
-                return count;
+                return 1;
             }
         },
         refetchInterval: 10000,

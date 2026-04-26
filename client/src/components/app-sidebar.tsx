@@ -23,6 +23,8 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { PremiumAvatar } from "@/components/ui/premium-avatar";
 import { Button } from "@/components/ui/button";
+import { apiRequest } from "@/lib/queryClient";
+import { clearCsrfToken, getCsrfToken } from "@/lib/csrf";
 
 const navItems = [
   {
@@ -56,8 +58,16 @@ export function AppSidebar() {
   const [location] = useLocation();
   const { user } = useAuth();
 
-  const handleLogout = () => {
-    window.location.href = "/api/logout";
+  const handleLogout = async () => {
+    try {
+      await getCsrfToken();
+      await apiRequest("POST", "/api/logout");
+    } catch {
+      // still clear client state
+    } finally {
+      clearCsrfToken();
+      window.location.href = "/auth";
+    }
   };
 
   return (
@@ -126,6 +136,13 @@ export function AppSidebar() {
                 <SidebarMenuButton asChild isActive={location === "/developer"}>
                   <Link href="/developer">
                     <span>Developer</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/changelog"}>
+                  <Link href="/changelog">
+                    <span>Changelog</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

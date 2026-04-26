@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { safePrUrl } from "@/lib/safe-url";
+import { stripEmoji } from "@/lib/text";
 import {
   Dialog,
   DialogContent,
@@ -69,6 +71,7 @@ export function ReviewCommentCard({ comment, platform = "github" }: ReviewCommen
   const config = typeConfig[type] || typeConfig.bug;
   const Icon = config.icon;
   const severity = comment.severity as "low" | "medium" | "high";
+  const safeCommentText = stripEmoji(comment.comment);
 
   const [isFixing, setIsFixing] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -83,25 +86,26 @@ export function ReviewCommentCard({ comment, platform = "github" }: ReviewCommen
         `/api/reviews/${comment.reviewId}/comments/${comment.id}/fix`
       );
       const data = await res.json();
+      const safeFixUrl = data.prUrl ? safePrUrl(data.prUrl) : null;
 
       // Store the PR URL for the animation
-      if (data.prUrl) {
-        setCreatedPrUrl(data.prUrl);
+      if (safeFixUrl) {
+        setCreatedPrUrl(safeFixUrl);
       }
 
       toast({
         title: "Fix PR Created",
         description: "A new PR with the fix has been created.",
-        action: (
-          <a href={data.prUrl} target="_blank" rel="noreferrer">
+        action: safeFixUrl ? (
+          <a href={safeFixUrl} target="_blank" rel="noreferrer">
             <Button variant="outline" size="sm" className="gap-2">
               View PR <ExternalLink className="h-3 w-3" />
             </Button>
           </a>
-        ),
+        ) : undefined,
       });
     } catch (error: any) {
-      if (error.message.includes("Safety Block")) {
+      if (error.message.includes("sensitive files") || error.message.includes("Safety")) {
         toast({
           title: "Safety Guard Active",
           description: "Action skipped to protect sensitive files. Manual review recommended.",
@@ -153,7 +157,7 @@ export function ReviewCommentCard({ comment, platform = "github" }: ReviewCommen
             Line {comment.line}
           </span>
         </div>
-        <p className="text-sm leading-relaxed">{comment.comment}</p>
+        <p className="text-sm leading-relaxed">{safeCommentText}</p>
 
         {showFixButton && (
           <div className="pt-2">

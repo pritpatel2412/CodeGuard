@@ -9,7 +9,9 @@ import {
   Minus,
   Clock,
   User,
-  MessageSquare
+  MessageSquare,
+  ShieldAlert,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +21,12 @@ import { Separator } from "@/components/ui/separator";
 import { ReviewCommentCard } from "@/components/review-comment";
 import { CommentCardSkeleton } from "@/components/loading-skeleton";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TaintGraphViewer } from "@/components/taint-graph-viewer";
+import { TaintPathsList } from "@/components/taint-paths-list";
+import { PolicyViolationsList, type PolicyViolationRecord } from "@/components/PolicyViolationsList";
+import { isSecurityFixTitle, stripEmoji } from "@/lib/text";
+import { safePrUrl } from "@/lib/safe-url";
 import { formatDistanceToNow, format } from "date-fns";
 import type { ReviewWithComments } from "@shared/schema";
 
@@ -39,6 +47,10 @@ export default function ReviewDetail() {
 
   const { data, isLoading } = useQuery<ReviewWithComments>({
     queryKey: ["/api/reviews", params.id],
+  });
+  const { data: policyViolations = [] } = useQuery<PolicyViolationRecord[]>({
+    queryKey: ["/api/policy/violations", params.id],
+    enabled: Boolean(params.id),
   });
 
   if (isLoading) {
@@ -86,6 +98,10 @@ export default function ReviewDetail() {
   const riskLevel = review.riskLevel as "low" | "medium" | "high";
   const isGitLab = repository?.platform === "gitlab";
   const prLabel = isGitLab ? "MR" : "PR";
+  const safeTitle = stripEmoji(review.prTitle);
+  const safeSummary = review.summary ? stripEmoji(review.summary) : review.summary;
+  const isSecurityFix = isSecurityFixTitle(review.prTitle);
+  const prHref = safePrUrl(review.prUrl);
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -99,8 +115,14 @@ export default function ReviewDetail() {
           </Button>
           <div>
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-semibold">{review.prTitle}</h1>
+              <h1 className="text-2xl font-semibold">{safeTitle}</h1>
               <Badge variant="outline">#{review.prNumber}</Badge>
+              {isSecurityFix && (
+                <Badge variant="secondary" className="flex items-center gap-1">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                  Security Fix
+                </Badge>
+              )}
               <Badge
                 className={`${riskColors[riskLevel]} flex items-center gap-1.5`}
                 variant="secondary"
@@ -116,12 +138,15 @@ export default function ReviewDetail() {
             )}
           </div>
         </div>
-        <Button asChild>
+        <Button asChild disabled={!prHref}>
           <a
-            href={review.prUrl}
+            href={prHref ?? "#"}
             target="_blank"
             rel="noopener noreferrer"
             data-testid="link-view-pr-external"
+            onClick={(e) => {
+              if (!prHref) e.preventDefault();
+            }}
           >
             <ExternalLink className="h-4 w-4 mr-2" />
             View on {isGitLab ? "GitLab" : "GitHub"}
@@ -176,48 +201,83 @@ export default function ReviewDetail() {
         </CardContent>
       </Card>
 
-      {/* Summary */}
-      {review.summary && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">AI Summary</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm leading-relaxed">{review.summary}</p>
-          </CardContent>
-        </Card>
-      )}
+      <Tabs defaultValue="summary" className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="summary">Summary & Findings</TabsTrigger>
+          <TabsTrigger value="policy">Policy</TabsTrigger>
+          <TabsTrigger value="taint-paths">Taint Paths</TabsTrigger>
+          <TabsTrigger value="taint-graph">Semantic Graph</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="summary" className="space-y-6">
+          {/* Summary */}
+          {review.summary && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">AI Summary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm leading-relaxed">{safeSummary}</p>
+              </CardContent>
+            </Card>
+          )}
 
-      {/* Comments */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <MessageSquare className="h-5 w-5" />
-            Review Comments
-            <Badge variant="secondary">{comments.length}</Badge>
-          </h2>
-        </div>
-
-        {comments.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center">
-              <p className="text-muted-foreground">
-                No issues found in this {isGitLab ? "merge" : "pull"} request. Great job!
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
+          {/* Comments */}
           <div className="space-y-4">
-            {comments.map((comment) => (
-              <ReviewCommentCard
-                key={comment.id}
-                comment={comment}
-                platform={repository?.platform as "github" | "gitlab" || "github"}
-              />
-            ))}
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <MessageSquare className="h-5 w-5" />
+                Review Comments
+                <Badge variant="secondary">{comments.length}</Badge>
+              </h2>
+            </div>
+
+            {comments.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center">
+                  <p className="text-muted-foreground">
+                    No issues found in this {isGitLab ? "merge" : "pull"} request. Great job!
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-4">
+                {comments.map((comment) => (
+                  <ReviewCommentCard
+                    key={comment.id}
+                    comment={comment}
+                    platform={repository?.platform as "github" | "gitlab" || "github"}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </TabsContent>
+
+        <TabsContent value="policy" className="space-y-4 mt-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
+            <ShieldAlert className="h-5 w-5 text-orange-500" />
+            Custom Policy Violations
+          </h2>
+          <PolicyViolationsList violations={policyViolations} />
+        </TabsContent>
+        
+        <TabsContent value="taint-paths" className="space-y-4 mt-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
+            <ShieldAlert className="h-5 w-5 text-red-500" />
+            Cross-File Vulnerability Paths
+          </h2>
+          <TaintPathsList reviewId={review.id} />
+        </TabsContent>
+
+        <TabsContent value="taint-graph" className="space-y-4 mt-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
+            <GitPullRequest className="h-5 w-5" />
+            Semantic Flow Graph
+          </h2>
+          <TaintGraphViewer reviewId={review.id} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

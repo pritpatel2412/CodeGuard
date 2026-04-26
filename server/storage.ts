@@ -12,7 +12,9 @@ import {
   type User,
   type InsertUser,
   type Stats,
-  visitors
+  visitors,
+  semanticGraphs,
+  taintPaths
 } from "../shared/schema.js";
 import { db } from "./db.js";
 import { eq, desc, sql, and, gte, lt } from "drizzle-orm";
@@ -50,6 +52,10 @@ export interface IStorage {
   // Stats
   getStats(userId: string, startDate?: Date, endDate?: Date): Promise<Stats>;
   getDetailedStats(userId: string, startDate?: Date, endDate?: Date): Promise<any>;
+
+  // Taint Analysis
+  getSemanticGraphs(reviewId: string): Promise<any[]>;
+  getTaintPaths(reviewId: string): Promise<any[]>;
 
   // Visitors
   recordVisitor(sessionId: string): Promise<number>;
@@ -318,6 +324,15 @@ export class DatabaseStorage implements IStorage {
         ? `${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}`
         : 'All Time',
     };
+  }
+
+  // Taint Analysis
+  async getSemanticGraphs(reviewId: string): Promise<any[]> {
+    return db.select().from(semanticGraphs).where(eq(semanticGraphs.reviewId, reviewId)).orderBy(desc(semanticGraphs.createdAt));
+  }
+
+  async getTaintPaths(reviewId: string): Promise<any[]> {
+    return db.select().from(taintPaths).where(eq(taintPaths.reviewId, reviewId)).orderBy(desc(taintPaths.severity), desc(taintPaths.createdAt));
   }
 
   // Visitors

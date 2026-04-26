@@ -67,6 +67,92 @@ export const reviewComments = pgTable("review_comments", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Stores the full semantic graph snapshot for a given PR analysis
+export const semanticGraphs = pgTable("semantic_graphs", {
+  id: serial("id").primaryKey(),
+  reviewId: varchar("review_id").notNull().references(() => reviews.id, { onDelete: "cascade" }),
+  repositoryId: varchar("repository_id").notNull(),
+  // JSON: { nodes: GraphNode[], edges: GraphEdge[] }
+  graphData: jsonb("graph_data").notNull(),
+  fileCount: integer("file_count").notNull().default(0),
+  functionCount: integer("function_count").notNull().default(0),
+  edgeCount: integer("edge_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Each row is one detected taint path (source → chain → sink)
+export const taintPaths = pgTable("taint_paths", {
+  id: serial("id").primaryKey(),
+  reviewId: varchar("review_id").notNull().references(() => reviews.id, { onDelete: "cascade" }),
+  semanticGraphId: integer("semantic_graph_id").references(() => semanticGraphs.id),
+
+  // Human-readable vulnerability title
+  title: text("title").notNull(),
+
+  // "SQLI" | "XSS" | "CMD_INJECTION" | "PATH_TRAVERSAL" | "SENSITIVE_LEAK" | "PROTOTYPE_POLLUTION"
+  vulnerabilityType: text("vulnerability_type").notNull(),
+
+  // "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
+  severity: text("severity").notNull(),
+
+  // Source node — where tainted input enters the system
+  sourceFile: text("source_file").notNull(),
+  sourceFunction: text("source_function").notNull(),
+  sourceLine: integer("source_line"),
+  sourceExpression: text("source_expression").notNull(), // e.g. "req.body.username"
+
+  // Sink node — where tainted data is dangerously consumed
+  sinkFile: text("sink_file").notNull(),
+  sinkFunction: text("sink_function").notNull(),
+  sinkLine: integer("sink_line"),
+  sinkExpression: text("sink_expression").notNull(), // e.g. "db.query(`SELECT * FROM users WHERE id=${id}`)"
+
+  // JSON array of intermediate hops: [{ file, function, line, expression }]
+  propagationChain: jsonb("propagation_chain").notNull().default([]),
+
+  // Was a sanitizer present but bypassable?
+  sanitizerBypassed: boolean("sanitizer_bypassed").default(false),
+  sanitizerLocation: text("sanitizer_location"), // e.g. "middleware/validate.ts:sanitizeInput()"
+
+  // GPT-4o generated explanation and fix
+  aiExplanation: text("ai_explanation"),
+  aiFixSuggestion: text("ai_fix_suggestion"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Stores parsed/validated .codeguard.yml policy per repository
+export const repositoryPolicies = pgTable("repository_policies", {
+  id: serial("id").primaryKey(),
+  repositoryId: varchar("repository_id").notNull().unique().references(() => repositories.id, { onDelete: "cascade" }),
+  policyName: text("policy_name").notNull().default("Custom Policy"),
+  policyVersion: text("policy_version").default("1"),
+  complianceFrameworks: text("compliance_frameworks").array().default([]),
+  rules: jsonb("rules").notNull().default([]),
+  disabledBuiltinRules: text("disabled_builtin_rules").array().default([]),
+  rawYaml: text("raw_yaml"),
+  fileSha: text("file_sha"),
+  isActive: boolean("is_active").notNull().default(true),
+  lastSyncedAt: timestamp("last_synced_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Per-review custom policy violations
+export const policyViolations = pgTable("policy_violations", {
+  id: serial("id").primaryKey(),
+  reviewId: varchar("review_id").notNull().references(() => reviews.id, { onDelete: "cascade" }),
+  repositoryId: varchar("repository_id").notNull().references(() => repositories.id, { onDelete: "cascade" }),
+  ruleId: text("rule_id").notNull(),
+  ruleName: text("rule_name").notNull(),
+  severity: text("severity").notNull(),
+  filePath: text("file_path").notNull(),
+  lineNumber: integer("line_number"),
+  violatingCode: text("violating_code"),
+  explanation: text("explanation"),
+  suggestedFix: text("suggested_fix"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Relations
 export const repositoriesRelations = relations(repositories, ({ many }) => ({
   reviews: many(reviews),
@@ -113,6 +199,8 @@ export type InsertReview = z.infer<typeof insertReviewSchema>;
 
 export type ReviewComment = typeof reviewComments.$inferSelect;
 export type InsertReviewComment = z.infer<typeof insertReviewCommentSchema>;
+export type RepositoryPolicy = typeof repositoryPolicies.$inferSelect;
+export type PolicyViolation = typeof policyViolations.$inferSelect;
 
 // API Response Types
 export const reviewWithCommentsSchema = z.object({

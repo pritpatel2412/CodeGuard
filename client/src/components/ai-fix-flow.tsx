@@ -13,6 +13,7 @@ import {
     Loader2,
 } from "lucide-react";
 import { useErrorStore } from "@/lib/error-store";
+import { safePrUrl } from "@/lib/safe-url";
 
 // Animation Steps
 enum Step {
@@ -462,6 +463,7 @@ function NewPRCard({ step, platform }: { step: Step, platform: "github" | "gitla
 // 3. Success State
 function SuccessState({ onReset, prUrl, platform }: { onReset: () => void; prUrl?: string; platform: "github" | "gitlab" }) {
     const label = platform === "gitlab" ? "Merge Request" : "Pull Request";
+    const safeHref = prUrl ? safePrUrl(prUrl) : null;
     return (
         <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
@@ -485,9 +487,9 @@ function SuccessState({ onReset, prUrl, platform }: { onReset: () => void; prUrl
             </div>
 
             <div className="flex gap-3 mt-2">
-                {prUrl ? (
-                    <a href={prUrl} target="_blank" rel="noopener noreferrer">
-                        <button className="px-6 py-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground font-medium transition-colors shadow-lg shadow-primary/20">
+                {safeHref ? (
+                    <a href={safeHref} target="_blank" rel="noopener noreferrer">
+                        <button type="button" className="px-6 py-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground font-medium transition-colors shadow-lg shadow-primary/20">
                             View {label}
                         </button>
                     </a>
