@@ -1,5 +1,5 @@
 import { Octokit } from "@octokit/rest";
-import { crawlPRFiles } from "./repository-crawler.js";
+import { crawlRepository } from "./repository-crawler.js";
 import { buildSemanticGraph } from "./graph-builder.js";
 import { runTaintPropagation } from "./propagation-engine.js";
 import { enrichTaintPathsWithAI } from "./ai-enricher.js";
@@ -43,11 +43,11 @@ export async function runCrossFileTaintAnalysis(input: TaintAnalysisInput): Prom
     await db.delete(semanticGraphs).where(eq(semanticGraphs.reviewId, reviewIdStr));
   }
 
-  // ── Phase 1: Crawl ONLY the files changed in this PR ─────────────────────
-  // Scoping to changed files prevents unrelated files (e.g. getStudentInfo.js
-  // from a different feature branch) from polluting the results.
-  const files = await crawlPRFiles(octokit, owner, repo, prNumber, ref, maxFiles);
-  console.log(`[Taint] Crawled ${files.length} PR-changed files`);
+  // ── Phase 1: Crawl the full repository for context ─────────────────────
+  // We crawl the full repository at the PR's head ref to ensure we have
+  // the complete structural context (Semantic Graph) of the application.
+  const files = await crawlRepository(octokit, owner, repo, ref, maxFiles);
+  console.log(`[Taint] Crawled ${files.length} repository files for context`);
 
   if (files.length === 0) {
     console.warn("[Taint] No source files changed in this PR. Aborting.");
