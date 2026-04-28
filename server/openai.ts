@@ -1,8 +1,5 @@
-import OpenAI from "openai";
 import { type AIReviewResponse, aiReviewResponseSchema } from "../shared/schema.js";
-
-// the newest OpenAI model is "gpt-4o" for high-speed/high-quality. gpt-5 is currently a placeholder or future-spec.
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+import { callAI } from "./ai/provider.js";
 
 const SYSTEM_PROMPT = `You are a Senior App Sec Engineer. Analyze code diffs and provide a sharp, actionable JSON review.
 
@@ -21,37 +18,6 @@ JSON Structure:
 }
 
 If no issues, return empty comments and low risk.`;
-
-// Retry with exponential backoff
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  maxRetries: number = 3,
-  baseDelayMs: number = 1000
-): Promise<T> {
-  let lastError: Error | undefined;
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error: any) {
-      lastError = error;
-
-      // Don't retry on authentication or validation errors
-      if (error.status === 401 || error.status === 400) {
-        throw error;
-      }
-
-      // Wait with exponential backoff before retrying
-      if (attempt < maxRetries - 1) {
-        const delay = baseDelayMs * Math.pow(2, attempt);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        console.log(`Retry attempt ${attempt + 1} after ${delay}ms`);
-      }
-    }
-  }
-
-  throw lastError;
-}
 
 export async function analyzeCodeDiff(diff: string, prTitle: string, platform: "github" | "gitlab" = "github"): Promise<AIReviewResponse> {
   // Truncate diff if too long (roughly 100k characters)
@@ -72,37 +38,37 @@ ${truncatedDiff}
 Analyze the changes and provide your review in JSON format.`;
 
   try {
-    const response = await withRetry(async () => {
-      return openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userPrompt },
-        ],
-        response_format: { type: "json_object" },
-        max_completion_tokens: 4096,
-      });
+    const result = await callAI({
+      task: "analysis",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      responseFormat: { type: "json_object" },
+      maxTokens: 4096,
     });
 
-    const content = response.choices[0]?.message?.content;
+    const content = result.content;
     if (!content) {
-      console.error("OpenAI returned empty content");
+      console.error("AI returned empty content");
       return createFallbackResponse("AI returned empty response");
     }
+
+    console.log(`[Analysis] Served by: ${result.provider} (${result.model})`);
 
     // Parse and validate the JSON response
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);
     } catch (parseError) {
-      console.error("Failed to parse OpenAI JSON response:", content);
+      console.error("Failed to parse AI JSON response:", content);
       return createFallbackResponse("AI returned invalid JSON");
     }
 
     // Validate against schema
     const validationResult = aiReviewResponseSchema.safeParse(parsed);
     if (!validationResult.success) {
-      console.error("OpenAI response validation failed:", validationResult.error.errors);
+      console.error("AI response validation failed:", validationResult.error.errors);
 
       // Try to extract what we can from the response
       const partialData = parsed as Record<string, unknown>;
@@ -117,7 +83,7 @@ Analyze the changes and provide your review in JSON format.`;
 
     return validationResult.data;
   } catch (error: any) {
-    console.error("OpenAI analysis failed after retries:", error.message);
+    console.error("AI analysis failed:", error.message);
     return createFallbackResponse(`AI analysis failed: ${error.message}`);
   }
 }
@@ -131,7 +97,7 @@ function createFallbackResponse(reason: string): AIReviewResponse {
 }
 
 export async function generateFix(fileContent: string, issueDescription: string, issueLine: number): Promise<string> {
-  const SYSTEM_PROMPT = `You are a senior application security engineer.
+  const FIX_SYSTEM_PROMPT = `You are a senior application security engineer.
 
 Your task:
 - Fix the security issues in the code below
@@ -156,18 +122,18 @@ Detected risk summary: ${issueDescription} (Line ${issueLine})
 Please provide the fixed full file content.`;
 
   try {
-    const response = await withRetry(async () => {
-      return openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userPrompt },
-        ],
-        max_completion_tokens: 8192, // Large limit for full file return
-      });
+    const result = await callAI({
+      task: "fix",
+      messages: [
+        { role: "system", content: FIX_SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      maxTokens: 8192, // Large limit for full file return
     });
 
-    let content = response.choices[0]?.message?.content || "";
+    let content = result.content || "";
+
+    console.log(`[Fix] Served by: ${result.provider} (${result.model})`);
 
     // Strip markdown code blocks if present (in case the model disobeys)
     content = content.replace(/^```[\w]*\n/, '').replace(/\n```$/, '');

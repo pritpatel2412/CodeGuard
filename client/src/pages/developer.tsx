@@ -78,7 +78,7 @@ export default function Developer() {
                                 security vulnerabilities, and architectural issues that truly matter.
                             </p>
                             <p className="mt-4 text-muted-foreground leading-relaxed">
-                                By leveraging advanced AI models, CodeGuard acts as an tireless senior engineer,
+                                By leveraging advanced AI models, CodeGuard acts as a tireless senior engineer,
                                 providing deep, contextual code analysis instantly on every pull request.
                             </p>
                         </CardContent>

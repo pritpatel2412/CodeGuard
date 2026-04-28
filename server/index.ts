@@ -6,13 +6,18 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import type { Request, Response, NextFunction } from "express";
 import taintRouter from "./routes/taint";
+import aiStatusRouter from "./routes/ai-status.js";
+
+import { setupSocketIO } from "./socket";
 
 (async () => {
   const httpServer = createServer(app);
+  setupSocketIO(httpServer);
   setupAuth(app);
   await registerRoutes(httpServer, app);
   
   app.use("/api/taint", taintRouter);
+  app.use("/api/ai", aiStatusRouter);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

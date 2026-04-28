@@ -18,6 +18,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import AIProviderStatus from "@/components/AIProviderStatus";
 
 type UserSettings = {
   bugDetection: boolean;
@@ -272,6 +273,8 @@ export default function Settings() {
         </CardContent>
       </Card>
 
+      <AIProviderStatus />
+      
       <div className="flex items-center justify-end gap-2">
         <Button variant="outline" onClick={handleReset} disabled={isLoading || saveMutation.isPending || !isDirty}>
           <RotateCcw className="h-4 w-4 mr-2" />

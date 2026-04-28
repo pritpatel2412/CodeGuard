@@ -23,6 +23,7 @@ import { AuthProvider } from "@/hooks/use-auth";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { withLayout } from "@/components/layout";
+import { SocketManager } from "@/components/SocketManager";
 
 function App() {
   return (
@@ -30,7 +31,8 @@ function App() {
       <AuthProvider>
         <ThemeProvider>
           <TooltipProvider>
-          <Switch>
+            <SocketManager />
+            <Switch>
             <Route path="/auth" component={AuthPage} />
             <Route path="/404" component={NotFound} />
             

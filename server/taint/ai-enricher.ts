@@ -1,7 +1,5 @@
-import OpenAI from "openai";
 import type { TaintPath } from "./types.js";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+import { callAI } from "../ai/provider.js";
 
 /**
  * For each detected taint path, asks GPT-4o to:
@@ -26,11 +24,8 @@ export async function enrichTaintPathsWithAI(
         const prompt = buildEnrichmentPrompt(path, repoContext);
 
         try {
-          const response = await openai.chat.completions.create({
-            model: "gpt-4o",
-            max_tokens: 1000,
-            temperature: 0.1,
-            response_format: { type: "json_object" },
+          const result = await callAI({
+            task: "enrich",
             messages: [
               {
                 role: "system",
@@ -44,9 +39,12 @@ You are given a cross-file taint analysis finding. Respond ONLY with valid JSON 
               },
               { role: "user", content: prompt },
             ],
+            responseFormat: { type: "json_object" },
+            maxTokens: 1000,
+            temperature: 0.1,
           });
 
-          const content = response.choices[0].message.content ?? "{}";
+          const content = result.content || "{}";
           const parsed = JSON.parse(content);
 
           return {
@@ -54,7 +52,8 @@ You are given a cross-file taint analysis finding. Respond ONLY with valid JSON 
             aiExplanation: `${parsed.explanation}\n\nAttack Vector: ${parsed.attackVector}`,
             aiFixSuggestion: parsed.fix ?? "No fix generated.",
           };
-        } catch {
+        } catch (error: any) {
+          console.error(`[Taint AI] Enrichment failed for path: ${error.message}`);
           return {
             ...path,
             aiExplanation: "AI enrichment failed for this path.",

@@ -19,6 +19,7 @@ import {
 import { db } from "./db.js";
 import { eq, desc, sql, and, gte, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { emitReviewUpdate } from "./socket.js";
 
 export interface IStorage {
   // Users
@@ -107,6 +108,7 @@ export class DatabaseStorage implements IStorage {
   async createRepository(repo: InsertRepository): Promise<Repository> {
     const webhookSecret = randomUUID();
     const [created] = await db.insert(repositories).values({ ...repo, webhookSecret }).returning();
+    emitReviewUpdate();
     return created;
   }
 
@@ -145,11 +147,13 @@ export class DatabaseStorage implements IStorage {
 
   async createReview(review: InsertReview): Promise<Review> {
     const [created] = await db.insert(reviews).values(review).returning();
+    emitReviewUpdate();
     return created;
   }
 
   async updateReview(id: string, data: Partial<InsertReview> & { completedAt?: Date | null }): Promise<Review | undefined> {
     const [updated] = await db.update(reviews).set(data).where(eq(reviews.id, id)).returning();
+    if (updated) emitReviewUpdate();
     return updated || undefined;
   }
 
@@ -168,6 +172,7 @@ export class DatabaseStorage implements IStorage {
 
   async createReviewComment(comment: InsertReviewComment): Promise<ReviewComment> {
     const [created] = await db.insert(reviewComments).values(comment).returning();
+    emitReviewUpdate();
     return created;
   }
 
