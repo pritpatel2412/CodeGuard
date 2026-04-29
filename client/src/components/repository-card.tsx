@@ -38,8 +38,9 @@ export function RepositoryCard({
   };
 
   const copyWebhookSecret = async () => {
-    if (repository.webhookSecret && secretRevealed) {
-      await navigator.clipboard.writeText(repository.webhookSecret);
+    const secret = repository.webhookSecret || repository.id;
+    if (secret && secretRevealed) {
+      await navigator.clipboard.writeText(secret);
       setCopiedSecret(true);
       setTimeout(() => setCopiedSecret(false), 2000);
     }
@@ -98,46 +99,46 @@ export function RepositoryCard({
               </Button>
             </div>
           </div>
-          {repository.webhookSecret && (
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">
-                Webhook Secret
-                <span className="ml-1 text-xs text-muted-foreground">
-                  (Configure this in GitHub webhook settings)
-                </span>
-              </label>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <code className="flex-1 p-2 text-xs bg-muted rounded-md font-mono truncate">
-                  {secretRevealed ? repository.webhookSecret : "••••••••••••••••"}
-                </code>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setSecretRevealed((v) => !v)}
-                    data-testid={`button-toggle-secret-${repository.id}`}
-                  >
-                    {secretRevealed ? "Hide" : "Reveal"}
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    onClick={copyWebhookSecret}
-                    disabled={!secretRevealed}
-                    title={secretRevealed ? "Copy secret" : "Reveal secret to copy"}
-                    data-testid={`button-copy-secret-${repository.id}`}
-                  >
-                    {copiedSecret ? (
-                      <Check className="h-4 w-4 text-green-600" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground">
+              Webhook Secret
+              <span className="ml-1 text-xs text-muted-foreground">
+                (Configure this in GitHub webhook settings)
+              </span>
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <code className="flex-1 p-2 text-xs bg-muted rounded-md font-mono truncate">
+                {secretRevealed 
+                  ? (repository.webhookSecret || repository.id) 
+                  : "••••••••••••••••"}
+              </code>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setSecretRevealed((v) => !v)}
+                  data-testid={`button-toggle-secret-${repository.id}`}
+                >
+                  {secretRevealed ? "Hide" : "Reveal"}
+                </Button>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={copyWebhookSecret}
+                  disabled={!secretRevealed}
+                  title={secretRevealed ? "Copy secret" : "Reveal secret to copy"}
+                  data-testid={`button-copy-secret-${repository.id}`}
+                >
+                  {copiedSecret ? (
+                    <Check className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
               </div>
             </div>
-          )}
+          </div>
         </div>
         <div className="flex items-center justify-between pt-2 border-t">
           <span className="text-xs text-muted-foreground">

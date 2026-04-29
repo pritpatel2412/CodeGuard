@@ -752,12 +752,14 @@ export async function registerRoutes(
         ? rawBodyBuffer.toString('utf8')
         : JSON.stringify(payload);
 
-      if (!repo.webhookSecret || !String(repo.webhookSecret).trim()) {
-        console.error("Webhook rejected: repository has no webhook secret configured:", repositoryId);
+      const webhookSecret = repo.webhookSecret || repo.id;
+
+      if (!webhookSecret || !String(webhookSecret).trim()) {
+        console.error("Webhook rejected: repository has no secret/id configured:", repositoryId);
         return res.status(401).json({ error: "Webhook secret not configured for this repository" });
       }
 
-      const isValid = verifyWebhookSignature(rawBody, signature, repo.webhookSecret);
+      const isValid = verifyWebhookSignature(rawBody, signature, webhookSecret);
       if (!isValid) {
         console.error("Invalid webhook signature for repository:", repositoryId);
         return res.status(401).json({ error: "Invalid webhook signature" });
