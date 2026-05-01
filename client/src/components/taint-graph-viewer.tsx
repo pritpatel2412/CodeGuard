@@ -59,7 +59,7 @@ const SemanticNode = memo(({ data }: NodeProps) => {
         <div className="text-[11px] font-bold leading-tight truncate w-full group-hover:text-primary transition-colors">
           {String((data as { functionName?: unknown }).functionName ?? "")}
         </div>
-        <div className="text-[10px] opacity-60 mt-1 font-mono truncate w-full">
+        <div className="text-[10px] text-foreground/70 mt-1 font-mono truncate w-full border-t border-border/30 pt-1">
           {String((data as { fileName?: unknown }).fileName ?? "")}:{String((data as { line?: unknown }).line ?? "")}
         </div>
       </div>

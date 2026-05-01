@@ -119,16 +119,16 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/terms"}>
-                  <Link href="/terms">
-                    <span>Terms & Conditions</span>
+                <SidebarMenuButton asChild isActive={location === "/how-to-use"}>
+                  <Link href="/how-to-use">
+                    <span>Quick Start</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/privacy"}>
-                  <Link href="/privacy">
-                    <span>Privacy Policy</span>
+                <SidebarMenuButton asChild isActive={location === "/changelog"}>
+                  <Link href="/changelog">
+                    <span>Changelog</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -140,9 +140,16 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/changelog"}>
-                  <Link href="/changelog">
-                    <span>Channel Log</span>
+                <SidebarMenuButton asChild isActive={location === "/terms"}>
+                  <Link href="/terms">
+                    <span>Terms & Conditions</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/privacy"}>
+                  <Link href="/privacy">
+                    <span>Privacy Policy</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

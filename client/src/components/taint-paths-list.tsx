@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ShieldAlert, ArrowRight, CheckCircle, FileCode, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
+import { ShieldAlert, ArrowRight, CheckCircle, FileCode, ChevronDown, ChevronUp, AlertTriangle, Cpu } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useState } from "react";
 
@@ -78,41 +78,41 @@ function PathCard({ path }: { path: TaintPath }) {
         {/* Source → Sink flow */}
         <div className="flex flex-col md:flex-row items-stretch gap-3">
           {/* Source */}
-          <div className="flex-1 rounded-lg border bg-muted/40 p-4 space-y-2">
-            <Badge variant="outline" className="text-xs bg-yellow-100 dark:bg-yellow-900/30 border-yellow-300 dark:border-yellow-700">
+          <div className="flex-1 rounded-lg border border-border/60 bg-muted/30 p-4 space-y-2.5 transition-colors hover:bg-muted/50">
+            <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-500/30">
               Source
             </Badge>
-            <div className="font-mono text-xs bg-background px-2 py-1 rounded border break-all">
+            <div className="font-mono text-xs bg-card px-2 py-1.5 rounded border border-border/50 shadow-sm break-all text-foreground/90">
               {path.sourceExpression}
             </div>
-            <div className="flex items-center gap-1 text-muted-foreground text-xs">
-              <FileCode className="h-3 w-3 flex-shrink-0" />
+            <div className="flex items-center gap-1.5 text-foreground/70 font-medium text-[11px]">
+              <FileCode className="h-3.5 w-3.5 text-primary/70 flex-shrink-0" />
               <span className="truncate">{sourceLabel}:{path.sourceLine}</span>
               {path.sourceFunction && (
-                <span className="ml-1 opacity-60">in {path.sourceFunction}()</span>
+                <span className="ml-1 text-muted-foreground font-normal italic">in {path.sourceFunction}()</span>
               )}
             </div>
           </div>
 
           {/* Arrow */}
           <div className="flex items-center justify-center px-2">
-            <ArrowRight className="h-5 w-5 text-muted-foreground hidden md:block" />
-            <ArrowRight className="h-5 w-5 text-muted-foreground rotate-90 md:hidden" />
+            <ArrowRight className="h-5 w-5 text-muted-foreground/50 hidden md:block" />
+            <ArrowRight className="h-5 w-5 text-muted-foreground/50 rotate-90 md:hidden" />
           </div>
 
           {/* Sink */}
-          <div className="flex-1 rounded-lg border bg-muted/40 p-4 space-y-2">
-            <Badge variant="outline" className="text-xs bg-red-100 dark:bg-red-900/30 border-red-300 dark:border-red-700">
+          <div className="flex-1 rounded-lg border border-border/60 bg-muted/30 p-4 space-y-2.5 transition-colors hover:bg-muted/50">
+            <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30">
               Sink
             </Badge>
-            <div className="font-mono text-xs bg-background px-2 py-1 rounded border break-all">
+            <div className="font-mono text-xs bg-card px-2 py-1.5 rounded border border-border/50 shadow-sm break-all text-foreground/90">
               {path.sinkExpression}
             </div>
-            <div className="flex items-center gap-1 text-muted-foreground text-xs">
-              <FileCode className="h-3 w-3 flex-shrink-0" />
+            <div className="flex items-center gap-1.5 text-foreground/70 font-medium text-[11px]">
+              <FileCode className="h-3.5 w-3.5 text-primary/70 flex-shrink-0" />
               <span className="truncate">{sinkLabel}:{path.sinkLine}</span>
               {path.sinkFunction && (
-                <span className="ml-1 opacity-60">in {path.sinkFunction}()</span>
+                <span className="ml-1 text-muted-foreground font-normal italic">in {path.sinkFunction}()</span>
               )}
             </div>
           </div>
@@ -151,18 +151,46 @@ function PathCard({ path }: { path: TaintPath }) {
 
         {/* AI Analysis */}
         {path.aiExplanation && (
-          <div className="space-y-3">
+          <div className="space-y-4 pt-2 border-t border-border/40">
             <div>
-              <h4 className="text-sm font-semibold mb-2">AI Analysis</h4>
-              <div className="text-sm text-muted-foreground prose dark:prose-invert prose-sm max-w-none">
-                <ReactMarkdown>{path.aiExplanation}</ReactMarkdown>
+              <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                <Cpu className="h-4 w-4 text-primary" />
+                AI Analysis
+              </h4>
+              <div className="text-sm text-foreground/90 prose dark:prose-invert prose-sm max-w-none 
+                prose-headings:text-foreground prose-headings:font-bold prose-headings:mt-4 prose-headings:mb-2
+                prose-h1:text-base prose-h2:text-sm prose-h3:text-sm">
+                <ReactMarkdown
+                  components={{
+                    h1: ({node, ...props}) => <h1 className="text-base font-bold text-foreground bg-muted/50 px-2 py-1 rounded inline-block mb-2" {...props} />,
+                    h2: ({node, ...props}) => <h2 className="text-sm font-bold text-foreground/80 mt-3" {...props} />,
+                    code: ({node, ...props}) => <code className="bg-muted px-1.5 py-0.5 rounded text-[13px] font-mono" {...props} />,
+                    pre: ({node, ...props}) => <pre className="bg-slate-950 text-slate-50 p-4 rounded-lg overflow-x-auto my-3 border border-border/50" {...props} />
+                  }}
+                >
+                  {path.aiExplanation}
+                </ReactMarkdown>
               </div>
             </div>
             {path.aiFixSuggestion && (
-              <div>
-                <h4 className="text-sm font-semibold mb-2">Recommended Fix</h4>
-                <div className="text-sm text-muted-foreground prose dark:prose-invert prose-sm max-w-none">
-                  <ReactMarkdown>{path.aiFixSuggestion}</ReactMarkdown>
+              <div className="bg-primary/5 rounded-xl p-4 border border-primary/10 shadow-inner">
+                <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">
+                  <CheckCircle className="h-4 w-4" />
+                  Recommended Fix
+                </h4>
+                <div className="text-sm text-foreground/90 prose dark:prose-invert prose-sm max-w-none
+                  prose-headings:text-foreground prose-headings:font-bold prose-headings:mt-4 prose-headings:mb-2
+                  prose-h1:text-base prose-h2:text-sm prose-h3:text-sm">
+                  <ReactMarkdown
+                    components={{
+                      h1: ({node, ...props}) => <h1 className="text-base font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-lg inline-block mb-3 border border-primary/20 shadow-sm" {...props} />,
+                      h2: ({node, ...props}) => <h2 className="text-sm font-bold text-foreground/80 mt-3" {...props} />,
+                      code: ({node, ...props}) => <code className="bg-muted px-1.5 py-0.5 rounded text-[13px] font-mono" {...props} />,
+                      pre: ({node, ...props}) => <pre className="bg-slate-950 text-slate-50 p-4 rounded-lg overflow-x-auto my-3 border border-border/50 shadow-lg" {...props} />
+                    }}
+                  >
+                    {path.aiFixSuggestion}
+                  </ReactMarkdown>
                 </div>
               </div>
             )}

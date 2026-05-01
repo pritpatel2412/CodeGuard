@@ -17,6 +17,7 @@ import Terms from "@/pages/terms";
 import Privacy from "@/pages/privacy";
 import Developer from "@/pages/developer";
 import ChangelogPage from "@/pages/changelog";
+import HowToUsePage from "@/pages/how-to-use";
 import AuthPage from "@/pages/auth-page";
 import DemoAiFixPage from "@/pages/demo-ai-fix";
 import { AuthProvider } from "@/hooks/use-auth";
@@ -45,10 +46,11 @@ function App() {
             <ProtectedRoute path="/settings" component={withLayout(Settings)} />
             
             {/* Public Routes with Sidebar */}
+            <Route path="/how-to-use" component={withLayout(HowToUsePage)} />
+            <Route path="/changelog" component={withLayout(ChangelogPage)} />
+            <Route path="/developer" component={withLayout(Developer)} />
             <Route path="/terms" component={withLayout(Terms)} />
             <Route path="/privacy" component={withLayout(Privacy)} />
-            <Route path="/developer" component={withLayout(Developer)} />
-            <Route path="/changelog" component={withLayout(ChangelogPage)} />
             <Route path="/demo-ai-fix" component={withLayout(DemoAiFixPage)} />
             
             {/* Catch-all: Truly Full Screen 404 */}
