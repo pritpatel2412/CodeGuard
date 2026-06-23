@@ -153,6 +153,30 @@ export const policyViolations = pgTable("policy_violations", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Audits
+export const audits = pgTable("audits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  repositoryUrl: text("repository_url").notNull(),
+  branch: text("branch").notNull(),
+  framework: text("framework").notNull().default("asvs-5.0"),
+  status: text("status").notNull().default("pending"),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  reportId: varchar("report_id"),
+  userId: varchar("user_id").references(() => users.id),
+});
+
+// Audit Reports
+export const auditReports = pgTable("audit_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  auditId: varchar("audit_id").notNull().references(() => audits.id, { onDelete: "cascade" }),
+  reportJson: jsonb("report_json").notNull(),
+  reportHash: text("report_hash"),
+  signature: text("signature"),
+  pdfPath: text("pdf_path"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Relations
 export const repositoriesRelations = relations(repositories, ({ many }) => ({
   reviews: many(reviews),
@@ -202,6 +226,22 @@ export type InsertReviewComment = z.infer<typeof insertReviewCommentSchema>;
 export type RepositoryPolicy = typeof repositoryPolicies.$inferSelect;
 export type PolicyViolation = typeof policyViolations.$inferSelect;
 
+export const insertAuditSchema = createInsertSchema(audits).omit({
+  id: true,
+  startedAt: true,
+  completedAt: true,
+  reportId: true,
+});
+export type Audit = typeof audits.$inferSelect;
+export type InsertAudit = z.infer<typeof insertAuditSchema>;
+
+export const insertAuditReportSchema = createInsertSchema(auditReports).omit({
+  id: true,
+  createdAt: true,
+});
+export type AuditReport = typeof auditReports.$inferSelect;
+export type InsertAuditReport = z.infer<typeof insertAuditReportSchema>;
+
 // API Response Types
 export const reviewWithCommentsSchema = z.object({
   review: z.custom<Review>(),
@@ -226,6 +266,12 @@ export const statsSchema = z.object({
     date: z.string(),
     count: z.number(),
   })),
+  operationalMetrics: z.object({
+    mttrHours: z.number(),
+    reopenRate: z.number(),
+    fixAdoptionRate: z.number(),
+    riskBurndownPercent: z.number(),
+  }),
 });
 
 export type Stats = z.infer<typeof statsSchema>;

@@ -50,7 +50,7 @@ graph TD
 
 ### 1. Trigger & Authentication
 - **Event Detection:** When a PR is opened, updated, or reopened, GitHub/GitLab sends a webhook.
-- **Security Check:** The backend performs a HMAC signature verification (`verifyWebhookSignature`) using the `webhookSecret` unique to each repository.
+- **Security Check:** The backend performs an HMAC signature verification (`verifyWebhookSignature`) using the `webhookSecret` unique to each repository.
 - **OAuth Context:** Requests to the VCS are made using the specific user's OAuth access token, ensuring compliance with organization permissions.
 
 ### 2. Analysis (The "Detection" Phase)
