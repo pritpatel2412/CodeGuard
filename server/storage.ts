@@ -14,12 +14,19 @@ import {
   type Stats,
   visitors,
   semanticGraphs,
-  taintPaths
+  taintPaths,
+  audits,
+  auditReports,
+  type Audit,
+  type InsertAudit,
+  type AuditReport,
+  type InsertAuditReport
 } from "../shared/schema.js";
 import { db } from "./db.js";
 import { eq, desc, sql, and, gte, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { emitReviewUpdate } from "./socket.js";
+import { decryptAccessToken, encryptAccessToken } from "./security/token-crypto.js";
 
 export interface IStorage {
   // Users
@@ -60,34 +67,76 @@ export interface IStorage {
 
   // Visitors
   recordVisitor(sessionId: string): Promise<number>;
+
+  // Audits
+  createAudit(audit: InsertAudit): Promise<Audit>;
+  updateAudit(id: string, data: Partial<InsertAudit> & { completedAt?: Date | null, reportId?: string | null }): Promise<Audit | undefined>;
+  getAudit(id: string): Promise<Audit | undefined>;
+  createAuditReport(report: InsertAuditReport): Promise<AuditReport>;
+  getAuditReport(id: string): Promise<AuditReport | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
+  private hydrateUser(user: User | undefined): User | undefined {
+    if (!user) return undefined;
+    let decryptedAccessToken: string | null = null;
+    try {
+      decryptedAccessToken = decryptAccessToken(user.accessToken) ?? null;
+    } catch (error: any) {
+      console.error(`[SECURITY] Failed to decrypt access token for user ${user.id}:`, error?.message || error);
+      decryptedAccessToken = null;
+    }
+    return {
+      ...user,
+      accessToken: decryptedAccessToken,
+    };
+  }
+
+  private normalizeUserInsert(data: InsertUser): InsertUser {
+    if (typeof data.accessToken === "string" && data.accessToken.trim()) {
+      return {
+        ...data,
+        accessToken: encryptAccessToken(data.accessToken),
+      };
+    }
+    return data;
+  }
+
+  private normalizeUserPatch(data: Partial<InsertUser>): Partial<InsertUser> {
+    if (typeof data.accessToken === "string" && data.accessToken.trim()) {
+      return {
+        ...data,
+        accessToken: encryptAccessToken(data.accessToken),
+      };
+    }
+    return data;
+  }
+
   // Users
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user || undefined;
+    return this.hydrateUser(user || undefined);
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user || undefined;
+    return this.hydrateUser(user || undefined);
   }
 
   async getUserByGitHubId(githubId: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.githubId, githubId));
-    return user || undefined;
+    return this.hydrateUser(user || undefined);
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
-    return user;
+    const [user] = await db.insert(users).values(this.normalizeUserInsert(insertUser)).returning();
+    return this.hydrateUser(user)!;
   }
 
   async updateUser(id: string, data: Partial<InsertUser>): Promise<User> {
-    const [user] = await db.update(users).set(data).where(eq(users.id, id)).returning();
+    const [user] = await db.update(users).set(this.normalizeUserPatch(data)).where(eq(users.id, id)).returning();
     if (!user) throw new Error("User not found");
-    return user;
+    return this.hydrateUser(user)!;
   }
 
   // Repositories
@@ -246,6 +295,69 @@ export class DatabaseStorage implements IStorage {
       recentActivity.push({ date: dateStr, count });
     }
 
+    // Operational Metrics
+    const completedReviews = filteredReviews
+      .map((r) => r.reviews)
+      .filter((r) => r.completedAt && r.status === "completed");
+
+    const mttrHours = completedReviews.length > 0
+      ? completedReviews.reduce((sum, r) => {
+          const createdAtMs = new Date(r.createdAt).getTime();
+          const completedAtMs = new Date(r.completedAt as Date).getTime();
+          const durationHours = Math.max(0, (completedAtMs - createdAtMs) / (1000 * 60 * 60));
+          return sum + durationHours;
+        }, 0) / completedReviews.length
+      : 0;
+
+    // Reopen rate (best-effort): duplicate review keys indicate re-open/recreated review records.
+    const reviewKeyCounts = new Map<string, number>();
+    for (const item of filteredReviews) {
+      const key = `${item.reviews.repositoryId}:${item.reviews.prNumber}`;
+      reviewKeyCounts.set(key, (reviewKeyCounts.get(key) ?? 0) + 1);
+    }
+    const reopenedCount = Array.from(reviewKeyCounts.values()).filter((count) => count > 1).length;
+    const reopenRate = totalReviews > 0 ? (reopenedCount / totalReviews) * 100 : 0;
+
+    // Auto-fix adoption (best-effort): security-fix PRs linked to high-risk original PR numbers.
+    const allReviewRows = filteredReviews.map((r) => r.reviews);
+    const securityFixRows = allReviewRows.filter((r) => /security fix/i.test(r.prTitle));
+    const highRiskRows = allReviewRows.filter((r) => r.riskLevel === "high" && !/security fix/i.test(r.prTitle));
+
+    const adoptedFixes = highRiskRows.filter((r) => {
+      const prRefPattern = new RegExp(`\\((?:PR|MR)\\s*#${r.prNumber}\\)`, "i");
+      return securityFixRows.some((fix) => prRefPattern.test(fix.prTitle));
+    }).length;
+    const fixAdoptionRate = highRiskRows.length > 0 ? (adoptedFixes / highRiskRows.length) * 100 : 0;
+
+    // Risk burn-down: compare high-risk reviews in current window to previous equal window.
+    const windowMs = end.getTime() - start.getTime();
+    let riskBurndownPercent = 0;
+    if (windowMs > 0) {
+      const prevStart = new Date(start.getTime() - windowMs);
+      const prevEnd = new Date(start.getTime());
+      const previousRows = await db
+        .select({ riskLevel: reviews.riskLevel })
+        .from(reviews)
+        .innerJoin(repositories, eq(reviews.repositoryId, repositories.id))
+        .where(
+          and(
+            eq(repositories.userId, userId),
+            gte(reviews.createdAt, prevStart),
+            lt(reviews.createdAt, prevEnd)
+          )
+        );
+
+      const currentHighRisk = allReviewRows.filter((r) => r.riskLevel === "high").length;
+      const previousHighRisk = previousRows.filter((r) => r.riskLevel === "high").length;
+      if (previousHighRisk > 0) {
+        riskBurndownPercent = ((previousHighRisk - currentHighRisk) / previousHighRisk) * 100;
+      } else if (currentHighRisk === 0) {
+        riskBurndownPercent = 100;
+      } else {
+        riskBurndownPercent = 0;
+      }
+    }
+
     return {
       totalReviews,
       totalComments,
@@ -253,6 +365,12 @@ export class DatabaseStorage implements IStorage {
       riskDistribution,
       commentTypeDistribution,
       recentActivity,
+      operationalMetrics: {
+        mttrHours,
+        reopenRate,
+        fixAdoptionRate,
+        riskBurndownPercent,
+      },
     };
   }
 
@@ -338,6 +456,32 @@ export class DatabaseStorage implements IStorage {
 
   async getTaintPaths(reviewId: string): Promise<any[]> {
     return db.select().from(taintPaths).where(eq(taintPaths.reviewId, reviewId)).orderBy(desc(taintPaths.severity), desc(taintPaths.createdAt));
+  }
+
+  // Audits
+  async createAudit(audit: InsertAudit): Promise<Audit> {
+    const [created] = await db.insert(audits).values(audit).returning();
+    return created;
+  }
+
+  async updateAudit(id: string, data: Partial<InsertAudit> & { completedAt?: Date | null, reportId?: string | null }): Promise<Audit | undefined> {
+    const [updated] = await db.update(audits).set(data).where(eq(audits.id, id)).returning();
+    return updated || undefined;
+  }
+
+  async getAudit(id: string): Promise<Audit | undefined> {
+    const [audit] = await db.select().from(audits).where(eq(audits.id, id));
+    return audit || undefined;
+  }
+
+  async createAuditReport(report: InsertAuditReport): Promise<AuditReport> {
+    const [created] = await db.insert(auditReports).values(report).returning();
+    return created;
+  }
+
+  async getAuditReport(id: string): Promise<AuditReport | undefined> {
+    const [report] = await db.select().from(auditReports).where(eq(auditReports.id, id));
+    return report || undefined;
   }
 
   // Visitors

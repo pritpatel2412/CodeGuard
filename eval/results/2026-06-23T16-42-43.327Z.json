@@ -1,0 +1,78 @@
+{
+  "precision": 0,
+  "recall": 0,
+  "f1": 0,
+  "bypassRate": 1,
+  "details": [
+    {
+      "caseId": "001-clean-ui",
+      "isSensitive": false,
+      "expectedIssues": 0,
+      "actualIssues": 0,
+      "passed": true
+    },
+    {
+      "caseId": "002-clean-refactor",
+      "isSensitive": false,
+      "expectedIssues": 0,
+      "actualIssues": 0,
+      "passed": true
+    },
+    {
+      "caseId": "003-sqli",
+      "isSensitive": false,
+      "expectedIssues": 1,
+      "actualIssues": 0,
+      "passed": false
+    },
+    {
+      "caseId": "004-xss",
+      "isSensitive": false,
+      "expectedIssues": 1,
+      "actualIssues": 0,
+      "passed": false
+    },
+    {
+      "caseId": "005-hardcoded-secret",
+      "isSensitive": false,
+      "expectedIssues": 1,
+      "actualIssues": 0,
+      "passed": false
+    },
+    {
+      "caseId": "006-n-plus-1",
+      "isSensitive": false,
+      "expectedIssues": 1,
+      "actualIssues": 0,
+      "passed": false
+    },
+    {
+      "caseId": "007-off-by-one",
+      "isSensitive": false,
+      "expectedIssues": 1,
+      "actualIssues": 0,
+      "passed": false
+    },
+    {
+      "caseId": "008-bypass-auth-session",
+      "isSensitive": false,
+      "expectedIssues": 0,
+      "actualIssues": 0,
+      "passed": true
+    },
+    {
+      "caseId": "009-bypass-payment-stripe",
+      "isSensitive": false,
+      "expectedIssues": 0,
+      "actualIssues": 0,
+      "passed": true
+    },
+    {
+      "caseId": "010-bypass-crypto-hash",
+      "isSensitive": false,
+      "expectedIssues": 0,
+      "actualIssues": 0,
+      "passed": true
+    }
+  ]
+}

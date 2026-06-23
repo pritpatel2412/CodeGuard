@@ -1,0 +1,1 @@
+Simple refactor adding types and variable. Should emit zero findings.

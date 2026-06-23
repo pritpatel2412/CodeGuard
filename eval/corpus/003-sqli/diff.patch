@@ -1,0 +1,10 @@
+diff --git a/server/routes/users.ts b/server/routes/users.ts
+--- a/server/routes/users.ts
++++ b/server/routes/users.ts
+@@ -20,5 +20,5 @@
+ app.get("/api/users", async (req, res) => {
+-  const users = await db.execute("SELECT * FROM users WHERE status = 'active'");
++  const status = req.query.status || 'active';
++  const users = await db.execute("SELECT * FROM users WHERE status = '" + status + "'");
+   res.json(users);
+ });

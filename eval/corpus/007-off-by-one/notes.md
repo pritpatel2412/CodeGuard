@@ -1,0 +1,1 @@
+Logical bug: Math.floor instead of Math.ceil for pagination.

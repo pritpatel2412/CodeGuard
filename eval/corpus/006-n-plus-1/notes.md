@@ -1,0 +1,1 @@
+N+1 query in a loop. Should flag as performance.

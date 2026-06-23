@@ -12,7 +12,8 @@ If secrets, tokens, or webhook keys were ever committed, exposed in logs, or sha
    - Truncate the `session` table in PostgreSQL, or rotate `SESSION_SECRET` (invalidates all cookies).
 
 3. **Revoke OAuth tokens**
-   - In GitHub: Settings → Applications → revoke CodeGuard / PATs tied to leaked `users.access_token` values.
+   - In GitHub: Settings → Applications → revoke CodeGuard / PATs tied to leaked OAuth access tokens.
+   - Rotate `TOKEN_ENCRYPTION_KEYS` (prepend new primary key, keep old key for decryption during migration window, then remove old key).
 
 4. **Repository hygiene**
    - Remove `users.json`, `session.json`, `repositories.json`, `.env` from git tracking if they were committed; use `git filter-repo` or BFG for history purge, then force-push only with team agreement.

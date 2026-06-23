@@ -1,0 +1,10 @@
+{
+  "risk_level": "medium",
+  "comments": [
+    {
+      "path": "client/src/pages/Profile.tsx",
+      "line": 16,
+      "type": "security"
+    }
+  ]
+}

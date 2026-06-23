@@ -1,0 +1,8 @@
+diff --git a/client/src/components/Button.tsx b/client/src/components/Button.tsx
+--- a/client/src/components/Button.tsx
++++ b/client/src/components/Button.tsx
+@@ -10,6 +10,6 @@
+ export function Button({ children, ...props }: ButtonProps) {
+-  return <button className="bg-blue-500" {...props}>{children}</button>;
++  return <button className="bg-blue-600 hover:bg-blue-700" {...props}>{children}</button>;
+ }

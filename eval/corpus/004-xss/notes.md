@@ -1,0 +1,1 @@
+XSS vulnerability using dangerouslySetInnerHTML.

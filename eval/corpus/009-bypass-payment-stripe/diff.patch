@@ -1,0 +1,10 @@
+diff --git a/server/services/checkout.ts b/server/services/checkout.ts
+--- a/server/services/checkout.ts
++++ b/server/services/checkout.ts
+@@ -1,5 +1,6 @@
++import Stripe from "stripe";
+ export async function processOrder(orderId: string) {
+-  // do something
++  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
++  await stripe.charges.create({ amount: 1000, currency: "usd" });
+ }

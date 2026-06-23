@@ -1,0 +1,10 @@
+{
+  "risk_level": "high",
+  "comments": [
+    {
+      "path": "server/routes/users.ts",
+      "line": 22,
+      "type": "security"
+    }
+  ]
+}

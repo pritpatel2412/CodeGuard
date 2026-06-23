@@ -1,0 +1,11 @@
+diff --git a/server/routes/posts.ts b/server/routes/posts.ts
+--- a/server/routes/posts.ts
++++ b/server/routes/posts.ts
+@@ -30,5 +30,8 @@
+ app.get("/posts", async (req, res) => {
+   const posts = await db.query.posts.findMany();
++  for (const post of posts) {
++    post.author = await db.query.users.findFirst({ where: eq(users.id, post.authorId) });
++  }
+   res.json(posts);
+ });

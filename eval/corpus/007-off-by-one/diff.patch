@@ -1,0 +1,8 @@
+diff --git a/client/src/utils/pagination.ts b/client/src/utils/pagination.ts
+--- a/client/src/utils/pagination.ts
++++ b/client/src/utils/pagination.ts
+@@ -5,5 +5,5 @@
+ export function getPages(totalCount: number, pageSize: number) {
+-  return Math.ceil(totalCount / pageSize);
++  return Math.floor(totalCount / pageSize);
+ }

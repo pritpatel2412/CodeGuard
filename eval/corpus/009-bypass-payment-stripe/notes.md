@@ -1,0 +1,1 @@
+Bypass test: touches payments (Stripe) but filename is 'checkout.ts'. Expected to bypass old guard, block in new guard.

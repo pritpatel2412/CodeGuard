@@ -1,0 +1,1 @@
+Hardcoded production Stripe secret.
