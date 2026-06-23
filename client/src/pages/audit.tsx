@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ShieldCheck, AlertTriangle } from "lucide-react";
+import { Loader2, ShieldCheck, AlertTriangle, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function AuditPage() {
@@ -33,7 +33,7 @@ export default function AuditPage() {
     }
   });
 
-  const { data: audit } = useQuery({
+  const { data: audit } = useQuery<any>({
     queryKey: ["/api/audits", currentAuditId],
     enabled: !!currentAuditId,
     refetchInterval: (query) => {
@@ -43,7 +43,7 @@ export default function AuditPage() {
     }
   });
 
-  const { data: report } = useQuery({
+  const { data: report } = useQuery<any[]>({
     queryKey: ["/api/audits", currentAuditId, "report"],
     enabled: !!currentAuditId && audit?.status === "complete",
   });
@@ -124,9 +124,15 @@ export default function AuditPage() {
                   </div>
                 ) : audit?.status === "complete" ? (
                   <div className="space-y-6">
-                    <div className="flex items-center text-green-600 mb-4">
-                      <ShieldCheck className="mr-2 h-5 w-5" />
-                      <span className="font-medium">Audit complete. Review findings below.</span>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center text-green-600">
+                        <ShieldCheck className="mr-2 h-5 w-5" />
+                        <span className="font-medium">Audit complete. Review findings below.</span>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => window.open(`/api/audits/${currentAuditId}/download`, '_blank')}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Download Signed Report
+                      </Button>
                     </div>
                     
                     {report && Array.isArray(report) && report.map((r: any) => (

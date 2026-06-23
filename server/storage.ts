@@ -73,6 +73,7 @@ export interface IStorage {
   updateAudit(id: string, data: Partial<InsertAudit> & { completedAt?: Date | null, reportId?: string | null }): Promise<Audit | undefined>;
   getAudit(id: string): Promise<Audit | undefined>;
   createAuditReport(report: InsertAuditReport): Promise<AuditReport>;
+  getAuditReport(id: string): Promise<AuditReport | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -476,6 +477,11 @@ export class DatabaseStorage implements IStorage {
   async createAuditReport(report: InsertAuditReport): Promise<AuditReport> {
     const [created] = await db.insert(auditReports).values(report).returning();
     return created;
+  }
+
+  async getAuditReport(id: string): Promise<AuditReport | undefined> {
+    const [report] = await db.select().from(auditReports).where(eq(auditReports.id, id));
+    return report || undefined;
   }
 
   // Visitors

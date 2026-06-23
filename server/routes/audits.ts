@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { storage } from "../storage.js";
 import { runComplianceAudit } from "../compliance/orchestrator.js";
+import { generateAndSignReport } from "../compliance/report-generator.js";
 import simpleGit from "simple-git";
 import path from "path";
 import fs from "fs/promises";
@@ -61,16 +62,36 @@ router.get("/:id/report", async (req, res) => {
   
   try {
     const audit = await storage.getAudit(req.params.id);
-    if (!audit) return res.status(404).json({ error: "Audit not found" });
+    if (!audit || !audit.reportId) return res.status(404).json({ error: "Report not found" });
     if (audit.userId !== req.user!.id) return res.status(403).json({ error: "Unauthorized" });
     
-    const resultsPath = path.join(process.cwd(), ".local", "audits", audit.id, "results.json");
-    try {
-      const results = await fs.readFile(resultsPath, "utf-8");
-      res.json(JSON.parse(results));
-    } catch {
-      res.status(404).json({ error: "Report not ready or missing." });
-    }
+    const report = await storage.getAuditReport(audit.reportId);
+    if (!report) return res.status(404).json({ error: "Report data missing" });
+    
+    res.json((report.reportJson as any).results);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/:id/download", async (req, res) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+  
+  try {
+    const audit = await storage.getAudit(req.params.id);
+    if (!audit || !audit.reportId) return res.status(404).json({ error: "Report not found" });
+    if (audit.userId !== req.user!.id) return res.status(403).json({ error: "Unauthorized" });
+    
+    const report = await storage.getAuditReport(audit.reportId);
+    if (!report) return res.status(404).json({ error: "Report data missing" });
+    
+    res.setHeader('Content-disposition', `attachment; filename=CodeGuard-Audit-${audit.id}.json`);
+    res.setHeader('Content-type', 'application/json');
+    res.send(JSON.stringify({
+      report: report.reportJson,
+      hash: report.reportHash,
+      signature: report.signature
+    }, null, 2));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -90,11 +111,12 @@ async function runAuditAsync(auditId: string, repoUrl: string, branch: string) {
     
     const results = await runComplianceAudit(cloneDir);
     
-    await fs.writeFile(path.join(cloneDir, "results.json"), JSON.stringify(results, null, 2));
+    const report = await generateAndSignReport(auditId, results);
     
-    await storage.updateAudit(auditId, { status: "complete", completedAt: new Date() });
+    await storage.updateAudit(auditId, { status: "complete", completedAt: new Date(), reportId: report.id });
     console.log(`[Audit] Completed ${auditId}`);
     
+    await fs.rm(cloneDir, { recursive: true, force: true });
   } catch (error: any) {
     console.error(`[Audit] Failed ${auditId}:`, error);
     await storage.updateAudit(auditId, { status: "failed", completedAt: new Date() });
