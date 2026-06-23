@@ -5,6 +5,7 @@ import {
   Settings,
   FolderGit2,
   BarChart3,
+  ShieldCheck,
   LogOut,
 } from "lucide-react";
 import {
@@ -46,6 +47,11 @@ const navItems = [
     title: "Analytics",
     url: "/analytics",
     icon: BarChart3,
+  },
+  {
+    title: "Audits",
+    url: "/audit",
+    icon: ShieldCheck,
   },
   {
     title: "Settings",
