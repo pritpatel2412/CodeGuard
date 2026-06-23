@@ -1,0 +1,11 @@
+diff --git a/server/middleware/session.ts b/server/middleware/session.ts
+--- a/server/middleware/session.ts
++++ b/server/middleware/session.ts
+@@ -1,5 +1,5 @@
++import { verifyToken } from "../utils/crypto";
+ export function sessionMiddleware(req, res, next) {
+-  const token = req.cookies.token;
++  const token = req.headers.authorization?.split(" ")[1];
+   req.user = verifyToken(token);
+   next();
+ }

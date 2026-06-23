@@ -2,15 +2,18 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { insertRepositorySchema, insertReviewSchema, insertReviewCommentSchema, policyViolations, reviews, repositories } from "../shared/schema.js";
-import { getUncachableGitHubClient, getPullRequestDiff, getPullRequestDetails, postReviewComment, postReview, createBranch, updateFile, createPullRequest, getFileContent } from "./github.js";
+import { getUncachableGitHubClient, getPullRequestDiff, getPullRequestDetails, postReviewComment, postReview, createBranch, updateFile, createPullRequest, getFileContent, setCommitGateStatus } from "./github.js";
 import { getMergeRequestDetails, getGitLabFileContent, createGitLabBranch, updateGitLabFile, createMergeRequest, postMergeRequestComment } from "./gitlab.js";
 import { analyzeCodeDiff, generateFix } from "./openai.js";
+import { isSensitiveFile } from "./policy/safety-guard.js";
 import { runCrossFileTaintAnalysis } from "./taint/taint-orchestrator.js";
 import { runPolicyEnforcement } from "./policy/policy-orchestrator.js";
 import policyRouter from "./routes/policy.js";
+import auditsRouter from "./routes/audits.js";
 import { db } from "./db.js";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { toPublicUser } from "./user-public.js";
+import { triggerWorkflowIntegrations } from "./integrations/workflow.js";
 
 import { z } from "zod";
 import crypto from "crypto";
@@ -30,6 +33,41 @@ const updateRepositorySchema = z.object({
     z.string().min(8, "Webhook secret must be at least 8 characters").optional(),
   ),
 });
+
+type ReviewPreferences = {
+  bugDetection: boolean;
+  securityAnalysis: boolean;
+  performanceIssues: boolean;
+  maintainability: boolean;
+  skipStyleIssues: boolean;
+  postComments: boolean;
+  autoFixStrictMode: boolean;
+  autoFixSafetyGuards: boolean;
+};
+
+const DEFAULT_REVIEW_PREFERENCES: ReviewPreferences = {
+  bugDetection: true,
+  securityAnalysis: true,
+  performanceIssues: true,
+  maintainability: true,
+  skipStyleIssues: true,
+  postComments: true,
+  autoFixStrictMode: true,
+  autoFixSafetyGuards: true,
+};
+
+function resolveReviewPreferences(user: any): ReviewPreferences {
+  return {
+    bugDetection: user?.bugDetection ?? true,
+    securityAnalysis: user?.securityAnalysis ?? true,
+    performanceIssues: user?.performanceIssues ?? true,
+    maintainability: user?.maintainability ?? true,
+    skipStyleIssues: user?.skipStyleIssues ?? true,
+    postComments: user?.postComments ?? true,
+    autoFixStrictMode: user?.autoFixStrictMode ?? true,
+    autoFixSafetyGuards: user?.autoFixSafetyGuards ?? true,
+  };
+}
 
 // Verify GitHub webhook signature
 function verifyWebhookSignature(payload: string, signature: string | undefined, secret: string): boolean {
@@ -100,6 +138,7 @@ export async function registerRoutes(
 ): Promise<Server> {
 
   app.use("/api/policy", policyRouter);
+  app.use("/api/audits", auditsRouter);
 
   // ============= REPOSITORIES =============
 
@@ -139,6 +178,34 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: System Health
+  app.get("/api/admin/system-health", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { providerStats, getCircuitStatus } = await import("./ai/provider.js");
+      const { apiUsageLog } = await import("../shared/schema.js");
+      const { gte } = await import("drizzle-orm");
+
+      // Get last 24h logs
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recentLogs = await db.select().from(apiUsageLog).where(gte(apiUsageLog.createdAt, oneDayAgo));
+
+      const costsByProvider: Record<string, number> = {};
+      recentLogs.forEach(log => {
+        costsByProvider[log.provider] = (costsByProvider[log.provider] || 0) + parseFloat(log.costUsd);
+      });
+
+      res.json({
+        circuitBreaker: getCircuitStatus(),
+        stats: providerStats,
+        costsLast24h: costsByProvider
+      });
+    } catch (error: any) {
+      console.error("[Admin API] Error fetching system health:", error);
+      res.status(500).json({ error: "Failed to fetch system health" });
+    }
+  });
+
   // Get all repositories
   app.get("/api/repositories", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
@@ -167,6 +234,42 @@ export async function registerRoutes(
       res.json(repo);
     } catch (error: any) {
       console.error(`[API] Error fetching repository ${req.params.id}:`, error);
+      res.status(500).json({ error: "An internal server error occurred" });
+    }
+  });
+
+  // Get taint history for a repository
+  app.get("/api/repositories/:id/taint-history", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { taintPaths } = await import("../shared/schema.js");
+      const { eq, desc } = await import("drizzle-orm");
+
+      const repo = await storage.getRepository(req.params.id);
+      if (!repo) return res.status(404).json({ error: "Repository not found" });
+      if (repo.userId !== req.user!.id) return res.status(403).json({ error: "Unauthorized access to repository" });
+
+      // In a real query we'd join taintPaths to reviews to filter by repo.
+      // But we can just use the storage layer if it has a method, or do it directly.
+      // Wait, taintPaths is linked to reviewId. Let's join reviews to get paths for this repo.
+      const { reviews } = await import("../shared/schema.js");
+      const results = await db.select({
+        id: taintPaths.id,
+        title: taintPaths.title,
+        severity: taintPaths.severity,
+        sourceFile: taintPaths.sourceFile,
+        sinkFile: taintPaths.sinkFile,
+        createdAt: taintPaths.createdAt,
+      })
+      .from(taintPaths)
+      .innerJoin(reviews, eq(taintPaths.reviewId, reviews.id))
+      .where(eq(reviews.repositoryId, repo.id))
+      .orderBy(desc(taintPaths.createdAt))
+      .limit(5);
+
+      res.json(results);
+    } catch (error: any) {
+      console.error(`[API] Error fetching taint history for ${req.params.id}:`, error);
       res.status(500).json({ error: "An internal server error occurred" });
     }
   });
@@ -364,6 +467,12 @@ export async function registerRoutes(
           high: stats.riskDistribution?.high || 0,
         },
         recentActivity: Array.isArray(stats.recentActivity) ? stats.recentActivity : [],
+        operationalMetrics: {
+          mttrHours: stats.operationalMetrics?.mttrHours || 0,
+          reopenRate: stats.operationalMetrics?.reopenRate || 0,
+          fixAdoptionRate: stats.operationalMetrics?.fixAdoptionRate || 0,
+          riskBurndownPercent: stats.operationalMetrics?.riskBurndownPercent || 0,
+        },
       };
 
       const policyTotals = await db
@@ -536,7 +645,25 @@ export async function registerRoutes(
         securityScore >= 85 ? colors.success : securityScore >= 70 ? colors.warning : colors.danger
       );
 
-      doc.y = row2Y + cardHeight + 30;
+      doc.y = row2Y + cardHeight + 24;
+
+      // ── Operational Metrics ──
+      doc.fillColor(colors.text)
+        .fontSize(19)
+        .font("Helvetica-Bold")
+        .text("Operational Metrics", 50, doc.y);
+      doc.moveDown(0.7);
+      doc.fillColor(colors.textLight)
+        .fontSize(10.5)
+        .font("Helvetica")
+        .text(
+          `MTTR: ${safeStats.operationalMetrics.mttrHours.toFixed(2)}h   •   Reopen Rate: ${safeStats.operationalMetrics.reopenRate.toFixed(1)}%`
+        )
+        .text(
+          `Fix Adoption: ${safeStats.operationalMetrics.fixAdoptionRate.toFixed(1)}%   •   Risk Burn-down: ${safeStats.operationalMetrics.riskBurndownPercent.toFixed(1)}%`
+        );
+
+      doc.y += 20;
 
       // ── Risk Distribution ──
       doc.fillColor(colors.text)
@@ -753,6 +880,8 @@ export async function registerRoutes(
         : JSON.stringify(payload);
 
       const webhookSecret = repo.webhookSecret || repo.id;
+      const repositoryUser = repo.userId ? await storage.getUser(repo.userId) : undefined;
+      const reviewPreferences = resolveReviewPreferences(repositoryUser ?? DEFAULT_REVIEW_PREFERENCES);
 
       if (!webhookSecret || !String(webhookSecret).trim()) {
         console.error("Webhook rejected: repository has no secret/id configured:", repositoryId);
@@ -833,6 +962,19 @@ export async function registerRoutes(
       // Check if we already have a review for this PR
       let review = await storage.getReviewByPR(repositoryId, prNumber);
 
+      try {
+        await setCommitGateStatus(
+          owner,
+          repoName,
+          headSha,
+          "pending",
+          "CodeGuard review in progress",
+          prUrl,
+        );
+      } catch (statusError: any) {
+        console.warn("[Gate] Unable to set pending status:", statusError?.message || statusError);
+      }
+
       if (review && action === "synchronize") {
         // Update existing review status to pending for re-analysis
         await storage.updateReview(review.id, { status: "pending" });
@@ -860,6 +1002,9 @@ export async function registerRoutes(
         diff = await getPullRequestDiff(owner, repoName, prNumber);
       } catch (error: any) {
         console.error("Failed to get PR diff:", error.message);
+        try {
+          await setCommitGateStatus(owner, repoName, headSha, "error", "CodeGuard failed to fetch PR diff", prUrl);
+        } catch {}
         await storage.updateReview(review.id, {
           status: "failed",
           summary: "Failed to fetch PR diff: " + error.message
@@ -878,9 +1023,18 @@ export async function registerRoutes(
       // Analyze the diff with OpenAI
       let analysis;
       try {
-        analysis = await analyzeCodeDiff(diff, prTitle);
+        analysis = await analyzeCodeDiff(diff, prTitle, "github", {
+          bugDetection: reviewPreferences.bugDetection,
+          securityAnalysis: reviewPreferences.securityAnalysis,
+          performanceIssues: reviewPreferences.performanceIssues,
+          maintainability: reviewPreferences.maintainability,
+          skipStyleIssues: reviewPreferences.skipStyleIssues,
+        }, repo.id);
       } catch (error: any) {
         console.error("OpenAI analysis failed:", error.message);
+        try {
+          await setCommitGateStatus(owner, repoName, headSha, "error", "CodeGuard analysis failed", prUrl);
+        } catch {}
         await storage.updateReview(review.id, {
           status: "failed",
           summary: "AI analysis failed: " + error.message
@@ -918,27 +1072,29 @@ export async function registerRoutes(
         });
 
         // Try to post the comment to GitHub
-        try {
-          const commentBody = `**[${typeEmoji[comment.type] || comment.type}]** ${comment.comment}`;
+        if (reviewPreferences.postComments) {
+          try {
+            const commentBody = `**[${typeEmoji[comment.type] || comment.type}]** ${comment.comment}`;
 
-          await postReviewComment(
-            owner,
-            repoName,
-            prNumber,
-            headSha,
-            comment.path,
-            comment.line,
-            commentBody
-          );
+            await postReviewComment(
+              owner,
+              repoName,
+              prNumber,
+              headSha,
+              comment.path,
+              comment.line,
+              commentBody
+            );
 
-          await storage.updateReviewComment(savedComment.id, { isPosted: true });
-        } catch (error: any) {
-          console.error(`Failed to post comment on ${comment.path}:${comment.line}:`, error.message);
+            await storage.updateReviewComment(savedComment.id, { isPosted: true });
+          } catch (error: any) {
+            console.error(`Failed to post comment on ${comment.path}:${comment.line}:`, error.message);
+          }
         }
       }));
 
       // Post a summary review
-      if (analysis.comments.length > 0) {
+      if (analysis.comments.length > 0 && reviewPreferences.postComments) {
         const riskEmoji: Record<string, string> = {
           low: "Low Risk",
           medium: "Medium Risk",
@@ -1008,27 +1164,54 @@ It analyzes your changes for potential bugs, security risks, performance issues,
       }
 
       // Run custom policy analysis asynchronously
-      setImmediate(async () => {
-        try {
-          const octokit = await getUncachableGitHubClient();
-          const violationCount = await runPolicyEnforcement({
-            octokit,
-            owner,
-            repo: repoName,
-            ref: headSha,
-            repositoryId: repo.id,
-            reviewId: review!.id,
-            codeDiff: diff,
-            changedFiles: fileContents,
-          });
+      let violationCount = 0;
+      try {
+        const octokit = await getUncachableGitHubClient();
+        violationCount = await runPolicyEnforcement({
+          octokit,
+          owner,
+          repo: repoName,
+          ref: headSha,
+          repositoryId: repo.id,
+          reviewId: review!.id,
+          codeDiff: diff,
+          changedFiles: fileContents,
+        });
 
-          if (violationCount > 0) {
-            await postReview(owner, repoName, prNumber, buildPolicyComment(violationCount), "COMMENT");
-          }
-        } catch (err) {
-          console.error("[Policy] Enforcement failed:", err);
+        if (violationCount > 0 && reviewPreferences.postComments) {
+          await postReview(owner, repoName, prNumber, buildPolicyComment(violationCount), "COMMENT");
         }
-      });
+      } catch (err) {
+        console.error("[Policy] Enforcement failed:", err);
+      }
+
+      const isGateFail = analysis.risk_level === "high" || violationCount > 0;
+      try {
+        await setCommitGateStatus(
+          owner,
+          repoName,
+          headSha,
+          isGateFail ? "failure" : "success",
+          isGateFail
+            ? `Blocked: ${analysis.risk_level === "high" ? "high risk findings" : "policy violations"}`
+            : "CodeGuard security gate passed",
+          prUrl,
+        );
+      } catch (statusError: any) {
+        console.warn("[Gate] Unable to set final status:", statusError?.message || statusError);
+      }
+
+      if (isGateFail) {
+        await triggerWorkflowIntegrations({
+          owner,
+          repo: repoName,
+          prNumber,
+          prUrl,
+          riskLevel: analysis.risk_level,
+          policyViolationCount: violationCount,
+          summary: analysis.summary,
+        });
+      }
 
       res.status(200).json({
         message: "Review completed",
@@ -1078,26 +1261,21 @@ It analyzes your changes for potential bugs, security risks, performance issues,
         return res.status(403).json({ error: "Unauthorized access to repository" });
       }
 
-      // 1. Safety Guards (User Spec)
-      const restrictedTerms = ['auth', 'login', 'payment', 'billing', '.env', 'config'];
-      if (restrictedTerms.some(term => comment.path.toLowerCase().includes(term))) {
-        return res.status(400).json({
-          error: "Safety Block: Cannot automatically fix sensitive files (Auth/Payment/Config). Manual review required."
-        });
-      }
-
       // 2. Determine Platform and Get Context
       let headSha: string;
       let baseBranch: string;
       let fileContent: string;
       let targetPlatform = repo.platform;
       const tokenUser = await storage.getUser(req.user!.id);
+      const reviewPreferences = resolveReviewPreferences(tokenUser ?? DEFAULT_REVIEW_PREFERENCES);
       const accessToken = tokenUser?.accessToken ?? undefined;
       if (!accessToken) {
         return res.status(403).json({
           error: "GitHub access token not available; please sign out and sign in again to refresh permissions.",
         });
       }
+
+      // (Safety Guard will run after we fetch file content)
 
       // Smart Fallback Logic:
       // If configured for specific platform, try it.
@@ -1156,8 +1334,22 @@ It analyzes your changes for potential bugs, security risks, performance issues,
         }
       }
 
+      // 1. Safety Guards (User Spec) - Content Aware
+      if (reviewPreferences.autoFixSafetyGuards) {
+        if (isSensitiveFile(comment.path, fileContent)) {
+          return res.status(400).json({
+            error: "Safety Block: Cannot automatically fix sensitive files (Auth/Payment/Config). Manual review required."
+          });
+        }
+      }
+
       // 4. Generate Fix (OpenAI - "Senior App Sec Engineer" persona)
-      const fixedContent = await generateFix(fileContent, comment.comment, comment.line);
+      const fixedContent = await generateFix(
+        fileContent,
+        comment.comment,
+        comment.line,
+        reviewPreferences.autoFixStrictMode
+      );
 
       // 5. Validation (User Spec)
       if (!fixedContent || fixedContent.trim().length === 0) {
@@ -1165,6 +1357,11 @@ It analyzes your changes for potential bugs, security risks, performance issues,
       }
       if (fixedContent.includes("rm -rf") || fixedContent.includes("sudo ")) {
         throw new Error("Safety Block: AI generated potentially dangerous command");
+      }
+      if (reviewPreferences.autoFixStrictMode) {
+        if (fixedContent.includes("TODO") || fixedContent.includes("FIXME")) {
+          throw new Error("Strict mode rejected fix with TODO/FIXME placeholders");
+        }
       }
 
       // 6. Create new branch with specific naming convention
@@ -1210,18 +1407,20 @@ Original MR: #${review.prNumber}
         prNumber = newMr.iid;
 
         // 9. Comment on Original MR
-        try {
-          await postMergeRequestComment(
-            repo.owner,
-            repo.name,
-            review.prNumber,
-            headSha,
-            comment.path,
-            comment.line,
-            `**[CodeGuard] High-risk security issue detected.**\n\nA security-fix MR has been created:\n> ${prUrl}\n\nPlease review and merge the fix.`
-          );
-        } catch (commentError: any) {
-          console.error("Failed to post link on original MR:", commentError.message);
+        if (reviewPreferences.postComments) {
+          try {
+            await postMergeRequestComment(
+              repo.owner,
+              repo.name,
+              review.prNumber,
+              headSha,
+              comment.path,
+              comment.line,
+              `**[CodeGuard] High-risk security issue detected.**\n\nA security-fix MR has been created:\n> ${prUrl}\n\nPlease review and merge the fix.`
+            );
+          } catch (commentError: any) {
+            console.error("Failed to post link on original MR:", commentError.message);
+          }
         }
 
       } else {
@@ -1264,18 +1463,20 @@ Original PR: #${review.prNumber}
         prNumber = newPr.number;
 
         // 9. Comment on Original PR
-        try {
-          await postReviewComment(
-            repo.owner,
-            repo.name,
-            review.prNumber,
-            headSha,
-            comment.path,
-            comment.line,
-            `**[CodeGuard] High-risk security issue detected.**\n\nA security-fix PR has been created:\n> #${newPr.number}\n\nPlease review and merge the fix.`
-          );
-        } catch (commentError: any) {
-          console.error("Failed to post link on original PR:", commentError.message);
+        if (reviewPreferences.postComments) {
+          try {
+            await postReviewComment(
+              repo.owner,
+              repo.name,
+              review.prNumber,
+              headSha,
+              comment.path,
+              comment.line,
+              `**[CodeGuard] High-risk security issue detected.**\n\nA security-fix PR has been created:\n> #${newPr.number}\n\nPlease review and merge the fix.`
+            );
+          } catch (commentError: any) {
+            console.error("Failed to post link on original PR:", commentError.message);
+          }
         }
       }
 

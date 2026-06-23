@@ -1,0 +1,69 @@
+version: "1"
+policy_name: "CodeGuard Semester Demo Policy"
+compliance:
+  - OWASP-Top10
+  - Internal-Security-Standards
+
+rules:
+  # ── RULE 1: Logging Middleware ────────────────────────────────────────────────
+  - id: "DEMO-001"
+    name: "All API routes must use the auditLogger middleware"
+    severity: HIGH
+    description: >
+      Every Express route handler must call `auditLogger` middleware before any
+      business logic. This ensures all requests are logged for audit trails and
+      compliance. Routes that skip auditLogger create blind spots in monitoring.
+    examples:
+      violation: "router.post('/users', createUser)"
+      compliant: "router.post('/users', auditLogger, createUser)"
+
+  # ── RULE 2: No Hardcoded Secrets ─────────────────────────────────────────────
+  - id: "DEMO-002"
+    name: "No hardcoded secrets, API keys, or passwords in source code"
+    severity: CRITICAL
+    description: >
+      Hardcoded credentials such as API keys, passwords, tokens, or connection
+      strings must never appear in source code. All secrets must be read from
+      environment variables (process.env) or a secrets manager.
+    examples:
+      violation: "const SECRET = 'super-secret-key-123'"
+      compliant: "const SECRET = process.env.SECRET_KEY"
+
+  # ── RULE 3: SQL Injection Prevention ─────────────────────────────────────────
+  - id: "DEMO-003"
+    name: "Raw SQL queries must never use string interpolation or concatenation"
+    severity: CRITICAL
+    description: >
+      Direct interpolation of user-supplied data into SQL strings creates SQL
+      Injection vulnerabilities (OWASP A03). Always use parameterized queries
+      or an ORM query builder. No template literals or string concatenation
+      allowed when constructing SQL.
+    examples:
+      violation: "db.query(`SELECT * FROM users WHERE id = ${req.params.id}`)"
+      compliant: "db.query('SELECT * FROM users WHERE id = $1', [req.params.id])"
+
+  # ── RULE 4: PII Hashing ───────────────────────────────────────────────────────
+  - id: "DEMO-004"
+    name: "PII fields (email, phone, SSN) must be hashed before database storage"
+    severity: HIGH
+    description: >
+      Personally Identifiable Information must never be stored in plaintext.
+      Fields like email, phone number, and SSN must be hashed using bcrypt or
+      SHA-256 before being written to the database. This is required for GDPR
+      and PDPA compliance.
+    examples:
+      violation: "await db.users.create({ email: user.email })"
+      compliant: "await db.users.create({ email: sha256(user.email) })"
+
+  # ── RULE 5: Input Validation ──────────────────────────────────────────────────
+  - id: "DEMO-005"
+    name: "All request body inputs must be validated before processing"
+    severity: HIGH
+    description: >
+      Every route that accepts req.body, req.query, or req.params must validate
+      those inputs using a schema validator (zod, joi, express-validator) before
+      passing them to business logic. Unvalidated inputs are the root cause of
+      injection, overflow, and prototype pollution attacks.
+    examples:
+      violation: "const { username } = req.body; await createUser(username);"
+      compliant: "const { username } = UserSchema.parse(req.body); await createUser(username);"

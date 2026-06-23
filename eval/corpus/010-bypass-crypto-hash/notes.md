@@ -1,0 +1,1 @@
+Bypass test: touches crypto logic but filename is 'hashing.ts'. Expected to bypass old guard, block in new guard.

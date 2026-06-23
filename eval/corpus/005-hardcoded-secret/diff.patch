@@ -1,0 +1,8 @@
+diff --git a/server/services/stripe.ts b/server/services/stripe.ts
+--- a/server/services/stripe.ts
++++ b/server/services/stripe.ts
+@@ -1,2 +1,3 @@
+ import Stripe from "stripe";
+-const stripe = new Stripe(process.env.STRIPE_KEY);
++const stripe = new Stripe("fake_stripe_key_1234567890abcdefGHIJKLMN");
++export default stripe;

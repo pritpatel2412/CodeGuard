@@ -109,6 +109,41 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Operational Metrics */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Operational Metrics</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-xs text-muted-foreground">MTTR</p>
+              <p className="text-2xl font-semibold">
+                {(stats?.operationalMetrics?.mttrHours ?? 0).toFixed(2)}h
+              </p>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-xs text-muted-foreground">Reopen Rate</p>
+              <p className="text-2xl font-semibold">
+                {(stats?.operationalMetrics?.reopenRate ?? 0).toFixed(1)}%
+              </p>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-xs text-muted-foreground">Fix Adoption</p>
+              <p className="text-2xl font-semibold">
+                {(stats?.operationalMetrics?.fixAdoptionRate ?? 0).toFixed(1)}%
+              </p>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-xs text-muted-foreground">Risk Burn-down</p>
+              <p className="text-2xl font-semibold">
+                {(stats?.operationalMetrics?.riskBurndownPercent ?? 0).toFixed(1)}%
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Charts and Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Reviews */}

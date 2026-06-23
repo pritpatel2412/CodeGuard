@@ -1,0 +1,8 @@
+diff --git a/client/src/pages/Profile.tsx b/client/src/pages/Profile.tsx
+--- a/client/src/pages/Profile.tsx
++++ b/client/src/pages/Profile.tsx
+@@ -15,5 +15,5 @@
+ export function Profile({ user }) {
+-  return <div>{user.bio}</div>;
++  return <div dangerouslySetInnerHTML={{ __html: user.bio }} />;
+ }

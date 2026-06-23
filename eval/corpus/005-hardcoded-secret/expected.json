@@ -1,0 +1,10 @@
+{
+  "risk_level": "high",
+  "comments": [
+    {
+      "path": "server/services/stripe.ts",
+      "line": 2,
+      "type": "security"
+    }
+  ]
+}

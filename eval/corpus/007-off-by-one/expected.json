@@ -1,0 +1,9 @@
+{
+  "risk_level": "low",
+  "comments": [
+    {
+      "path": "client/src/utils/pagination.ts",
+      "type": "bug"
+    }
+  ]
+}

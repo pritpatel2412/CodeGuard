@@ -1,0 +1,9 @@
+{
+  "risk_level": "medium",
+  "comments": [
+    {
+      "path": "server/routes/posts.ts",
+      "type": "performance"
+    }
+  ]
+}

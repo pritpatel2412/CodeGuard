@@ -1,0 +1,1 @@
+SQL Injection via string concatenation. Must be flagged as security/high.

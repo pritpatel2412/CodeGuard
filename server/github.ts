@@ -45,10 +45,27 @@ async function getAccessToken() {
 // Access tokens expire, so a new client must be created each time.
 export async function getUncachableGitHubClient(accessToken?: string) {
   const token = accessToken || await getAccessToken();
-
-  console.log("GitHub token loaded, length:", token?.length);
-
   return new Octokit({ auth: token });
+}
+
+export async function setCommitGateStatus(
+  owner: string,
+  repo: string,
+  sha: string,
+  state: "pending" | "success" | "failure" | "error",
+  description: string,
+  targetUrl?: string,
+) {
+  const octokit = await getUncachableGitHubClient();
+  await octokit.repos.createCommitStatus({
+    owner,
+    repo,
+    sha,
+    state,
+    context: "codeguard/security-gate",
+    description: description.slice(0, 140),
+    target_url: targetUrl,
+  });
 }
 
 // Fetch PR diff from GitHub

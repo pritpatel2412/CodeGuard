@@ -72,6 +72,14 @@ function isCircuitOpen(): boolean {
   return true;
 }
 
+export function getCircuitStatus() {
+  return {
+    isOpen: isCircuitOpen(),
+    failures: circuit.failures,
+    openedAt: circuit.openedAt,
+  };
+}
+
 function recordNIMSuccess(): void {
   circuit.failures = 0;
   circuit.isOpen = false;

@@ -1,0 +1,1 @@
+Bypass test: touches auth (authorization header, crypto import) but filename is 'session.ts'. Expected to bypass old guard, block in new guard.
