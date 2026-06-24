@@ -14,6 +14,20 @@ type ChangelogEntry = {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "v1.5.0",
+    date: "2026-06-24",
+    title: "Audit Mode, Auto-Fix, & Multi-LLM Orchestration",
+    summary: "Massive capabilities upgrade introducing enterprise compliance audits, autonomous fixes, and resilient AI infrastructure.",
+    category: "feature",
+    highlights: [
+      "OWASP ASVS compliance Audit Mode with signed PDF & JSON report generation",
+      "Multi-provider AI orchestration (NVIDIA NIM + Groq + OpenAI fallback)",
+      "Automated Security PR Auto-fix with one-click branch & commit generation",
+      "Traction Snapshot tooling and advanced repository stats",
+      "Resolved multiple PR webhook fetching, token auth, and git clone timeout bugs"
+    ],
+  },
+  {
     version: "v1.4.0",
     date: "2026-04-26",
     title: "Security and Policy Hardening Release",

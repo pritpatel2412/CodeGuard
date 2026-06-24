@@ -9,7 +9,8 @@ const MAX_CONTENT_LENGTH = 100000;
 
 export async function runStaticAnalysis(
   repoPath: string,
-  controls: ASVSControl[]
+  controls: ASVSControl[],
+  onProgress?: (msg: string, pct: number) => void
 ): Promise<ControlResult[]> {
   const results: ControlResult[] = [];
   const targetControls = controls.filter(c => c.evidenceType === "static_analysis");
@@ -17,6 +18,7 @@ export async function runStaticAnalysis(
   if (targetControls.length === 0) return results;
 
   // Gather source files
+  onProgress?.("Discovering source files...", 0);
   const files = await glob("**/*.{ts,js,tsx,jsx,py,go,java}", {
     cwd: repoPath,
     ignore: ["**/node_modules/**", "**/dist/**", "**/build/**", "**/*.test.*"],
@@ -25,11 +27,15 @@ export async function runStaticAnalysis(
 
   let combinedContent = "";
   let processedCount = 0;
+  const totalFiles = Math.min(files.length, MAX_FILES_TO_PROCESS);
 
   for (const file of files) {
     if (processedCount >= MAX_FILES_TO_PROCESS) break;
-    const content = await fs.readFile(file, "utf-8");
+    
     const relativePath = path.relative(repoPath, file);
+    onProgress?.(`Parsing ${relativePath}...`, Math.floor((processedCount / totalFiles) * 50));
+    
+    const content = await fs.readFile(file, "utf-8");
     const fileHeader = `\n--- FILE: ${relativePath} ---\n`;
     
     if (combinedContent.length + fileHeader.length + content.length > MAX_CONTENT_LENGTH) {
@@ -39,6 +45,8 @@ export async function runStaticAnalysis(
     combinedContent += fileHeader + content;
     processedCount++;
   }
+
+  onProgress?.(`Found ${processedCount} relevant files. Evaluating against ASVS controls...`, 50);
 
   const prompt = `You are an expert Security Auditor evaluating an application against the OWASP ASVS 5.0 framework.
   
@@ -63,11 +71,19 @@ ${combinedContent}
 `;
 
   try {
-    const aiResponse = await callAI({
-      task: "analysis",
-      messages: [{ role: "user", content: prompt }],
-      responseFormat: { type: "json_object" }
-    });
+    onProgress?.("Running AI static analysis engine...", 60);
+    
+    // Wrap callAI in a Promise.race to prevent infinite hangs
+    const aiResponse = await Promise.race([
+      callAI({
+        task: "analysis",
+        messages: [{ role: "user", content: prompt }],
+        responseFormat: { type: "json_object" }
+      }),
+      new Promise<any>((_, reject) => setTimeout(() => reject(new Error("AI analysis timed out after 3 minutes")), 180000))
+    ]);
+
+    onProgress?.("Processing evaluation results...", 90);
 
     const parsed = JSON.parse(aiResponse.content);
     const evals = parsed.evaluations || [];

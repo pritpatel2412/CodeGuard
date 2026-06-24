@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -15,7 +15,10 @@ export default function AuditPage() {
   const [selectedRepoId, setSelectedRepoId] = useState("");
   const [branch, setBranch] = useState("");
   const [currentAuditId, setCurrentAuditId] = useState<string | null>(null);
+  const [logs, setLogs] = useState<{log: string, progress: number, timestamp: string}[]>([]);
+  const [progress, setProgress] = useState(0);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: repositories, isLoading: isLoadingRepos } = useQuery<any[]>({
     queryKey: ["/api/repositories"],
@@ -97,6 +100,34 @@ export default function AuditPage() {
       return (status === "pending" || status === "running") ? 3000 : false;
     }
   });
+
+  useEffect(() => {
+    if (!currentAuditId) return;
+    if (audit?.status !== "pending" && audit?.status !== "running") return;
+    
+    const evtSource = new EventSource(`/api/audits/${currentAuditId}/stream`);
+    
+    evtSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.log) {
+          setLogs(prev => [...prev.slice(-15), data]);
+        }
+        if (data.progress !== undefined) {
+          setProgress(data.progress);
+        }
+        if (data.status === "complete" || data.status === "failed") {
+          queryClient.invalidateQueries({ queryKey: ["/api/audits", currentAuditId] });
+        }
+      } catch (e) {
+        console.error("Failed to parse SSE", e);
+      }
+    };
+    
+    return () => {
+      evtSource.close();
+    };
+  }, [currentAuditId, audit?.status, queryClient]);
 
   const { data: report } = useQuery<any[]>({
     queryKey: ["/api/audits", currentAuditId, "report"],
@@ -226,9 +257,24 @@ export default function AuditPage() {
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                     <p className="text-muted-foreground">Analyzing source code against ASVS 5.0 controls...</p>
                     <div className="w-full max-w-md space-y-2 text-xs font-mono text-muted-foreground bg-muted p-4 rounded-md overflow-hidden">
-                      <div>[system] Fetching repository contents...</div>
-                      <div>[scanner] Running static analysis engine...</div>
-                      <div>[ai] Evaluating access control logic...</div>
+                      {logs.length > 0 ? (
+                        logs.map((l, idx) => (
+                          <div key={idx} className="truncate">
+                            <span className="opacity-50">[{new Date(l.timestamp).toLocaleTimeString()}]</span> {l.log}
+                          </div>
+                        ))
+                      ) : (
+                        <div>[system] Connecting to real-time audit stream...</div>
+                      )}
+                    </div>
+                    <div className="w-full max-w-md mt-4">
+                      <div className="flex justify-between text-xs mb-1">
+                        <span>Progress</span>
+                        <span>{progress}%</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-primary transition-all duration-300" style={{ width: `${progress}%` }} />
+                      </div>
                     </div>
                   </div>
                 ) : audit?.status === "failed" ? (
