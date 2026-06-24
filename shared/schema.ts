@@ -469,3 +469,46 @@ export const adminActionLog = pgTable("admin_action_log", {
   afterState: jsonb("after_state"),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });
+
+// Promo Offers for Free Audit Runs
+export const promoOffers = pgTable("promo_offers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  startsAt: timestamp("starts_at").notNull().defaultNow(),
+  endsAt: timestamp("ends_at").notNull(),
+  maxGrants: integer("max_grants"),
+  grantsUsed: integer("grants_used").notNull().default(0),
+  status: text("status").notNull().default("active"), // "active" | "ended" | "paused"
+  createdByAdminId: varchar("created_by_admin_id").references(() => users.id),
+});
+
+export const insertPromoOfferSchema = createInsertSchema(promoOffers);
+export type PromoOffer = typeof promoOffers.$inferSelect;
+export type InsertPromoOffer = z.infer<typeof insertPromoOfferSchema>;
+
+// Free Audit Requests
+export const freeAuditRequests = pgTable("free_audit_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  promoOfferId: varchar("promo_offer_id").notNull().references(() => promoOffers.id),
+  repoUrl: text("repo_url").notNull(),
+  contactName: text("contact_name").notNull(),
+  contactEmail: text("contact_email").notNull(),
+  motivationText: text("motivation_text").notNull(),
+  status: text("status").notNull().default("pending"), // "pending" | "approved" | "rejected" | "completed" | "expired"
+  submittedAt: timestamp("submitted_at").notNull().defaultNow(),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedByAdminId: varchar("reviewed_by_admin_id").references(() => users.id),
+  auditId: varchar("audit_id").references(() => audits.id),
+});
+
+export const insertFreeAuditRequestSchema = createInsertSchema(freeAuditRequests).omit({
+  id: true,
+  submittedAt: true,
+  reviewedAt: true,
+  reviewedByAdminId: true,
+  auditId: true,
+  status: true,
+});
+export type FreeAuditRequest = typeof freeAuditRequests.$inferSelect;
+export type InsertFreeAuditRequest = z.infer<typeof insertFreeAuditRequestSchema>;

@@ -146,6 +146,59 @@ export async function registerRoutes(
   app.use("/api/admin", adminRouter);
   app.use("/api/ai", aiStatusRouter);
 
+  // ============= PUBLIC PROMO OFFERS =============
+  app.get("/api/public/promo-offer", async (req, res) => {
+    try {
+      const offer = await storage.getActivePromoOffer();
+      if (!offer) {
+        return res.json({ active: false });
+      }
+      const pendingRequests = await storage.getPendingFreeAuditRequests();
+      res.json({
+        active: true,
+        pendingCount: pendingRequests.length,
+        offer: {
+          id: offer.id,
+          name: offer.name,
+          description: offer.description,
+          startsAt: offer.startsAt,
+          endsAt: offer.endsAt,
+        }
+      });
+    } catch (error: any) {
+      console.error("[API] Error fetching promo offer:", error);
+      res.status(500).json({ error: "Failed to fetch promo offer" });
+    }
+  });
+
+  app.post("/api/public/free-audit-request", async (req, res) => {
+    try {
+      const offer = await storage.getActivePromoOffer();
+      if (!offer) {
+        return res.status(400).json({ error: "No active free audit offer at this time." });
+      }
+
+      const { repoUrl, contactName, contactEmail, motivationText } = req.body;
+      if (!repoUrl || !contactName || !contactEmail || !motivationText) {
+        return res.status(400).json({ error: "Missing required fields." });
+      }
+
+      const newRequest = await storage.createFreeAuditRequest({
+        promoOfferId: offer.id,
+        repoUrl,
+        contactName,
+        contactEmail,
+        motivationText,
+        status: "pending"
+      });
+
+      res.status(201).json(newRequest);
+    } catch (error: any) {
+      console.error("[API] Error submitting free audit request:", error);
+      res.status(500).json({ error: "Failed to submit request" });
+    }
+  });
+
   // ============= REPOSITORIES =============
 
   // Update user preferences

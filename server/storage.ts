@@ -24,7 +24,13 @@ import {
   auditOrders,
   type AuditOrder,
   type InsertAuditOrder,
-  policyViolations
+  policyViolations,
+  promoOffers,
+  freeAuditRequests,
+  type PromoOffer,
+  type InsertPromoOffer,
+  type FreeAuditRequest,
+  type InsertFreeAuditRequest
 } from "../shared/schema.js";
 import { db } from "./db.js";
 import { eq, desc, sql, and, gte, lt } from "drizzle-orm";
@@ -86,6 +92,13 @@ export interface IStorage {
   getAuditOrderByAuditId(auditId: string): Promise<AuditOrder | undefined>;
   getAllAuditOrders(): Promise<any[]>;
   updateAuditOrder(id: string, data: Partial<InsertAuditOrder>): Promise<AuditOrder | undefined>;
+
+  // Promo Offers & Free Audits
+  getActivePromoOffer(): Promise<PromoOffer | undefined>;
+  createFreeAuditRequest(request: InsertFreeAuditRequest): Promise<FreeAuditRequest>;
+  getPendingFreeAuditRequests(): Promise<FreeAuditRequest[]>;
+  getFreeAuditRequest(id: string): Promise<FreeAuditRequest | undefined>;
+  updateFreeAuditRequestStatus(id: string, status: string, adminId?: string, auditId?: string): Promise<FreeAuditRequest | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -629,6 +642,54 @@ export class DatabaseStorage implements IStorage {
       .where(gte(visitors.lastSeen, oneMinuteAgo));
       
     return Number(result[0]?.count) || 0;
+  }
+
+  // Promo Offers
+  async getActivePromoOffer(): Promise<PromoOffer | undefined> {
+    const now = new Date();
+    
+    // First, automatically expire any active offers that have passed their endsAt date
+    await db.update(promoOffers)
+      .set({ status: "ended" })
+      .where(and(eq(promoOffers.status, "active"), lt(promoOffers.endsAt, now)));
+
+    const [offer] = await db.select().from(promoOffers).where(eq(promoOffers.status, "active")).limit(1);
+    return offer || undefined;
+  }
+
+  async createFreeAuditRequest(request: InsertFreeAuditRequest): Promise<FreeAuditRequest> {
+    const [created] = await db.insert(freeAuditRequests).values(request).returning();
+    return created;
+  }
+
+  async getPendingFreeAuditRequests(): Promise<FreeAuditRequest[]> {
+    return await db.select()
+      .from(freeAuditRequests)
+      .where(eq(freeAuditRequests.status, "pending"))
+      .orderBy(desc(freeAuditRequests.submittedAt));
+  }
+
+  async getFreeAuditRequest(id: string): Promise<FreeAuditRequest | undefined> {
+    const [request] = await db.select().from(freeAuditRequests).where(eq(freeAuditRequests.id, id));
+    return request || undefined;
+  }
+
+  async updateFreeAuditRequestStatus(id: string, status: string, adminId?: string, auditId?: string): Promise<FreeAuditRequest | undefined> {
+    const updateData: any = { status };
+    if (adminId) {
+      updateData.reviewedByAdminId = adminId;
+      updateData.reviewedAt = new Date();
+    }
+    if (auditId) {
+      updateData.auditId = auditId;
+    }
+
+    const [updated] = await db.update(freeAuditRequests)
+      .set(updateData)
+      .where(eq(freeAuditRequests.id, id))
+      .returning();
+      
+    return updated || undefined;
   }
 }
 

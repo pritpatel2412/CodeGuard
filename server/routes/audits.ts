@@ -250,7 +250,7 @@ router.post("/:id/cancel", async (req, res) => {
   res.json({ success: true, message: "Audit cancelled successfully" });
 });
 
-async function runAuditAsync(auditId: string, repoUrl: string, branch: string, userId: string) {
+export async function runAuditAsync(auditId: string, repoUrl: string, branch: string, userId: string) {
   const cloneDir = path.join(os.tmpdir(), "codeguard-audits", auditId);
   const abortController = new AbortController();
   activeAuditAbortControllers.set(auditId, abortController);

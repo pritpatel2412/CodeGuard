@@ -2,6 +2,8 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { users, audits, requestLogs, apiUsageLog, adminActionLog, auditOrders } from "../../shared/schema.js";
 import { desc, sql, eq } from "drizzle-orm";
+import { storage } from "../storage.js";
+import { runAuditAsync } from "./audits.js";
 
 const router = Router();
 
@@ -26,6 +28,95 @@ async function logAdminAction(adminUserId: string, actionType: string, targetId:
     afterState,
   });
 }
+
+router.get("/free-audits", async (req, res) => {
+  try {
+    const requests = await storage.getPendingFreeAuditRequests();
+    
+    // Calculate today's API cost
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const [{ totalCost }] = await db
+      .select({ totalCost: sql<number>`sum(CAST(cost_usd AS float))` })
+      .from(apiUsageLog)
+      .where(sql`${apiUsageLog.createdAt} >= ${today}`);
+      
+    res.json({
+      requests,
+      todayCost: Number(totalCost || 0)
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/free-audits/:id/approve", async (req, res) => {
+  try {
+    const adminId = req.user!.id;
+    const request = await storage.getFreeAuditRequest(req.params.id);
+    if (!request) return res.status(404).json({ error: "Request not found" });
+    if (request.status !== "pending") return res.status(400).json({ error: "Request is not pending" });
+
+    // Enforce Cost Ceiling
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const [{ totalCost }] = await db
+      .select({ totalCost: sql<number>`sum(CAST(cost_usd AS float))` })
+      .from(apiUsageLog)
+      .where(sql`${apiUsageLog.createdAt} >= ${today}`);
+      
+    if (Number(totalCost || 0) >= 100) {
+      return res.status(403).json({ error: "Daily cost ceiling ($100) reached. Cannot approve new free audits until tomorrow." });
+    }
+
+    // Create Audit
+    const audit = await storage.createAudit({
+      repositoryUrl: request.repoUrl,
+      branch: "main",
+      framework: "asvs-5.0",
+      status: "pending",
+      userId: adminId, // Attributed to admin
+    });
+
+    // Create Audit Order marked as 'comped'
+    await storage.createAuditOrder({
+      auditId: audit.id,
+      userId: adminId,
+      tierId: "medium", // Standard free audit tier
+      priceUsd: 0,
+      status: "comped",
+    });
+
+    // Update free audit request status
+    await storage.updateFreeAuditRequestStatus(request.id, "approved", adminId, audit.id);
+
+    res.json({ success: true, message: "Audit approved and started" });
+
+    // Kick off async
+    runAuditAsync(audit.id, request.repoUrl, "main", adminId).catch(console.error);
+
+    await logAdminAction(adminId, "approve_free_audit", request.id);
+  } catch (error: any) {
+    console.error("[Admin] Error approving free audit:", error);
+    res.status(500).json({ error: "Failed to approve audit request" });
+  }
+});
+
+router.post("/free-audits/:id/reject", async (req, res) => {
+  try {
+    const adminId = req.user!.id;
+    const request = await storage.getFreeAuditRequest(req.params.id);
+    if (!request) return res.status(404).json({ error: "Request not found" });
+    if (request.status !== "pending") return res.status(400).json({ error: "Request is not pending" });
+
+    await storage.updateFreeAuditRequestStatus(request.id, "rejected", adminId);
+    
+    res.json({ success: true, message: "Request rejected" });
+    await logAdminAction(adminId, "reject_free_audit", request.id);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 router.get("/overview", async (req, res) => {
   try {
