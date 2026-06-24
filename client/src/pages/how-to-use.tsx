@@ -80,6 +80,19 @@ const STEPS = [
       "Automatically create a fix-branch and commit",
       "Merge with confidence knowing the fix is verified"
     ]
+  },
+  {
+    title: "6. Run Compliance Audits",
+    description: "Generate deep repository-wide OWASP ASVS compliance reports.",
+    icon: ShieldCheck,
+    color: "text-emerald-500",
+    bgColor: "bg-emerald-500/10",
+    details: [
+      "Go to the Compliance Audit Mode dashboard",
+      "Trigger an OWASP ASVS compliance scan",
+      "CodeGuard clones and statically analyzes the full repo",
+      "Download cryptographically signed PDF or JSON reports"
+    ]
   }
 ];
 

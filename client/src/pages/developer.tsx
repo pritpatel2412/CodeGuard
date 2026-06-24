@@ -78,8 +78,7 @@ export default function Developer() {
                                 security vulnerabilities, and architectural issues that truly matter.
                             </p>
                             <p className="mt-4 text-muted-foreground leading-relaxed">
-                                By leveraging advanced AI models, CodeGuard acts as a tireless senior engineer,
-                                providing deep, contextual code analysis instantly on every pull request.
+                                By leveraging advanced multi-provider AI orchestration (NVIDIA NIM, Groq, and OpenAI fallback), CodeGuard acts as a tireless senior engineer. It provides deep, contextual code analysis and autonomous PR fixes instantly on every pull request, alongside rigorous OWASP ASVS compliance audits across the entire codebase.
                             </p>
                         </CardContent>
                     </Card>
