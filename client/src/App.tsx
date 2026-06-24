@@ -21,6 +21,7 @@ import HowToUsePage from "@/pages/how-to-use";
 import AuthPage from "@/pages/auth-page";
 import DemoAiFixPage from "@/pages/demo-ai-fix";
 import AuditPage from "@/pages/audit";
+import PricingPage from "@/pages/pricing";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { ProtectedRoute } from "@/lib/protected-route";
@@ -54,6 +55,7 @@ function App() {
             <Route path="/terms" component={withLayout(Terms)} />
             <Route path="/privacy" component={withLayout(Privacy)} />
             <Route path="/demo-ai-fix" component={withLayout(DemoAiFixPage)} />
+            <Route path="/pricing" component={withLayout(PricingPage)} />
             
             {/* Catch-all: Truly Full Screen 404 */}
             <Route component={NotFound} />
