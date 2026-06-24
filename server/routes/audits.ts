@@ -4,7 +4,7 @@ import { runComplianceAudit } from "../compliance/orchestrator.js";
 import { generateAndSignReport } from "../compliance/report-generator.js";
 import { generateAuditPdf } from "../compliance/pdf-generator.js";
 import git from "isomorphic-git";
-import http from "isomorphic-git/http/node/index.js";
+import http from "isomorphic-git/http/node";
 import os from "os";
 import path from "path";
 import fs from "fs/promises";
