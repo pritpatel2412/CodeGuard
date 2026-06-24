@@ -47,7 +47,7 @@ export type AITask = "analysis" | "fix" | "enrich";
 
 const NIM_MODEL_MAP: Record<AITask, string> = {
   analysis: process.env.NVIDIA_NIM_MODEL_ANALYSIS ?? "meta/llama-3.3-70b-instruct",
-  fix:      process.env.NVIDIA_NIM_MODEL_FIX      ?? "meta/llama-3.1-405b-instruct",
+  fix:      process.env.NVIDIA_NIM_MODEL_FIX      ?? "meta/llama-3.3-70b-instruct",
   enrich:   process.env.NVIDIA_NIM_MODEL_ANALYSIS ?? "meta/llama-3.3-70b-instruct",
 };
 
