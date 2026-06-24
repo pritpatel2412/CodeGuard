@@ -171,139 +171,6 @@ export default function AuditPage() {
             </CardContent>
           </Card>
 
-          {auditHistory && auditHistory.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center text-lg">
-                  <History className="w-4 h-4 mr-2" />
-                  Audit History
-                </CardTitle>
-                <CardDescription>Trend for {selectedRepo?.name}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {chartData.length > 1 && (
-                  <div className="h-12 w-full mb-4 opacity-70">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={chartData}>
-                        <Line type="monotone" dataKey="value" stroke="#ef4444" strokeWidth={2} dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {auditHistory.slice(0, 5).map(h => (
-                      <TableRow key={h.id}>
-                        <TableCell className="py-2 text-sm">{new Date(h.startedAt).toLocaleDateString()}</TableCell>
-                        <TableCell className="py-2">
-                          <Badge variant={h.status === 'complete' ? 'default' : h.status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px] px-1 py-0 h-4">
-                            {h.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="py-2 text-right">
-                           <Button variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={() => setCurrentAuditId(h.id)}>
-                             View
-                           </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
-        <div className="md:col-span-2">
-          {currentAuditId ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex justify-between items-center">
-                  <span>Audit Status</span>
-                  {audit && (
-                    <Badge variant={
-                      audit.status === 'complete' ? 'default' : 
-                      audit.status === 'failed' ? 'destructive' : 
-                      'secondary'
-                    }>
-                      {audit.status.toUpperCase()}
-                    </Badge>
-                  )}
-                </CardTitle>
-                <CardDescription>ID: {currentAuditId}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {audit?.status === "running" || audit?.status === "pending" ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-                    <h3 className="text-lg font-medium">Cloning and Analyzing...</h3>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      This may take a few minutes as we run static analysis, code review, and config checks.
-                    </p>
-                  </div>
-                ) : audit?.status === "complete" ? (
-                  <div className="space-y-6">
-                    <div className="flex flex-wrap gap-2 items-center justify-between mb-4">
-                      <div className="flex items-center text-green-600">
-                        <ShieldCheck className="mr-2 h-5 w-5" />
-                        <span className="font-medium">Audit complete. Review findings below.</span>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" size="sm" onClick={() => verifySignatureMutation.mutate()} disabled={verifySignatureMutation.isPending}>
-                          {verifySignatureMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                          Verify Signature
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => window.open(`/api/audits/${currentAuditId}/download`, '_blank')}>
-                          <Download className="mr-2 h-4 w-4" />
-                          JSON
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => window.open(`/api/audits/${currentAuditId}/pdf`, '_blank')}>
-                          <FileText className="mr-2 h-4 w-4" />
-                          PDF
-                        </Button>
-                      </div>
-                    </div>
-                    
-                    {report && Array.isArray(report) && report.map((r: any) => (
-                      <div key={r.controlId} className="border rounded-md p-4 bg-muted/20">
-                        <div className="flex justify-between items-start mb-2">
-                          <h4 className="font-semibold">{r.controlId}</h4>
-                          <Badge variant={
-                            r.verdict === 'pass' ? 'default' :
-                            r.verdict === 'fail' ? 'destructive' :
-                            'outline'
-                          }>{r.verdict}</Badge>
-                        </div>
-                        {r.evidence && r.evidence.length > 0 && (
-                          <div className="mt-2 text-sm bg-background border rounded p-2 overflow-x-auto text-muted-foreground whitespace-pre-wrap">
-                            <span className="font-medium text-foreground block mb-1">Evidence ({r.evidence[0].collector}):</span>
-                            {r.evidence[0].raw_evidence_snippet}
-                            {r.evidence[0].source_file && (
-                              <div className="mt-1 text-xs text-blue-500">Source: {r.evidence[0].source_file}</div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : audit?.status === "failed" ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center text-destructive">
-                    <AlertTriangle className="h-8 w-8 mb-4" />
-                    <h3 className="text-lg font-medium">Audit Failed</h3>
-                    <p className="text-sm mt-2">Please check the server logs for details.</p>
-                  </div>
-                ) : (
-                  <div className="text-muted-foreground text-center py-12">Waiting to start...</div>
-                )}
-              </CardContent>
-            </Card>
           ) : (
             <div className="h-full flex items-center justify-center border-2 border-dashed rounded-lg p-12 text-muted-foreground text-center bg-muted/10">
               Select a repository and branch to start a new compliance audit.
@@ -311,6 +178,55 @@ export default function AuditPage() {
           )}
         </div>
       </div>
+
+      {auditHistory && auditHistory.length > 0 && (
+        <Card className="mt-8">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center text-lg">
+              <History className="w-4 h-4 mr-2" />
+              Audit History
+            </CardTitle>
+            <CardDescription>Trend for {selectedRepo?.name}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {chartData.length > 1 && (
+              <div className="h-24 w-full mb-6 opacity-70">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <Line type="monotone" dataKey="value" stroke="#ef4444" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {auditHistory.map(h => (
+                  <TableRow key={h.id}>
+                    <TableCell className="py-2 text-sm">{new Date(h.startedAt).toLocaleDateString()} {new Date(h.startedAt).toLocaleTimeString()}</TableCell>
+                    <TableCell className="py-2">
+                      <Badge variant={h.status === 'complete' ? 'default' : h.status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px] px-2 py-0.5 h-5">
+                        {h.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="py-2 text-right">
+                       <Button variant="ghost" size="sm" className="h-8 text-xs px-3" onClick={() => setCurrentAuditId(h.id)}>
+                         View Report
+                       </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
