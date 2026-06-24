@@ -43,8 +43,24 @@ router.post("/", async (req, res) => {
     
     res.status(201).json(audit);
     
-    runAuditAsync(audit.id, repositoryUrl, branch).catch(console.error);
+    runAuditAsync(audit.id, repositoryUrl, branch, req.user!.id).catch(console.error);
     
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/history", async (req, res) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+  
+  try {
+    const { repositoryUrl } = req.query;
+    if (!repositoryUrl || typeof repositoryUrl !== "string") {
+      return res.status(400).json({ error: "repositoryUrl query parameter is required" });
+    }
+    
+    const audits = await storage.getAuditsByRepository(repositoryUrl, req.user!.id);
+    res.json(audits);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -151,13 +167,17 @@ router.post("/:id/verify", async (req, res) => {
   }
 });
 
-async function runAuditAsync(auditId: string, repoUrl: string, branch: string) {
+async function runAuditAsync(auditId: string, repoUrl: string, branch: string, userId: string) {
   const cloneDir = path.join(os.tmpdir(), "codeguard-audits", auditId);
   
   try {
     await storage.updateAudit(auditId, { status: "running" });
     
     await fs.mkdir(cloneDir, { recursive: true });
+    
+    // Fetch user for access token
+    const user = await storage.getUser(userId);
+    const onAuth = user?.accessToken ? () => ({ username: user.accessToken, password: "" }) : undefined;
     
     console.log(`[Audit] Cloning ${repoUrl}#${branch} to ${cloneDir}`);
     await git.clone({
@@ -167,7 +187,8 @@ async function runAuditAsync(auditId: string, repoUrl: string, branch: string) {
       url: repoUrl,
       ref: branch,
       singleBranch: true,
-      depth: 1
+      depth: 1,
+      onAuth
     });
     
     const results = await runComplianceAudit(cloneDir);

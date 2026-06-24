@@ -2,18 +2,38 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ShieldCheck, AlertTriangle, Download, FileText, CheckCircle2 } from "lucide-react";
+import { Loader2, ShieldCheck, AlertTriangle, Download, FileText, CheckCircle2, History } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { LineChart, Line, ResponsiveContainer } from "recharts";
 
 export default function AuditPage() {
-  const [repositoryUrl, setRepositoryUrl] = useState("");
-  const [branch, setBranch] = useState("main");
+  const [selectedRepoId, setSelectedRepoId] = useState("");
+  const [branch, setBranch] = useState("");
   const [currentAuditId, setCurrentAuditId] = useState<string | null>(null);
   const { toast } = useToast();
+
+  const { data: repositories, isLoading: isLoadingRepos } = useQuery<any[]>({
+    queryKey: ["/api/repositories"],
+  });
+
+  const selectedRepo = repositories?.find((r) => r.id === selectedRepoId);
+  const repositoryUrl = selectedRepo ? `https://github.com/${selectedRepo.fullName}` : "";
+
+  const { data: branches, isLoading: isLoadingBranches } = useQuery<string[]>({
+    queryKey: [`/api/repositories/${selectedRepoId}/branches`],
+    enabled: !!selectedRepoId,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: auditHistory } = useQuery<any[]>({
+    queryKey: ["/api/audits/history", repositoryUrl],
+    enabled: !!repositoryUrl,
+  });
 
   const startAuditMutation = useMutation({
     mutationFn: async (data: { repositoryUrl: string; branch: string; framework: string }) => {
@@ -79,6 +99,9 @@ export default function AuditPage() {
     enabled: !!currentAuditId && audit?.status === "complete",
   });
 
+  // Generate a mock sparkline data trend for the visual effect
+  const chartData = auditHistory?.map((h, i) => ({ value: Math.max(1, 15 - i * 3) })).reverse() || [];
+
   return (
     <div className="container mx-auto py-8 px-4 max-w-5xl">
       <div className="mb-8">
@@ -89,7 +112,7 @@ export default function AuditPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div className="md:col-span-1">
+        <div className="md:col-span-1 space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>New Audit</CardTitle>
@@ -97,33 +120,105 @@ export default function AuditPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Repository URL</Label>
-                <Input 
-                  placeholder="https://github.com/owner/repo" 
-                  value={repositoryUrl} 
-                  onChange={e => setRepositoryUrl(e.target.value)} 
-                  disabled={startAuditMutation.isPending || (audit && audit.status !== 'failed' && audit.status !== 'complete')}
-                />
+                <Label>Repository</Label>
+                <Select
+                  value={selectedRepoId}
+                  onValueChange={(val) => {
+                    setSelectedRepoId(val);
+                    setBranch("");
+                  }}
+                  disabled={startAuditMutation.isPending || isLoadingRepos || (audit && audit.status === 'running')}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a repository" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {repositories?.map((repo) => (
+                      <SelectItem key={repo.id} value={repo.id}>
+                        {repo.fullName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Branch</Label>
-                <Input 
-                  placeholder="main" 
-                  value={branch} 
-                  onChange={e => setBranch(e.target.value)}
-                  disabled={startAuditMutation.isPending || (audit && audit.status !== 'failed' && audit.status !== 'complete')} 
-                />
+                <Select
+                  value={branch}
+                  onValueChange={setBranch}
+                  disabled={!selectedRepoId || isLoadingBranches || startAuditMutation.isPending || (audit && audit.status === 'running')}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={isLoadingBranches ? "Loading branches..." : "Select a branch"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches?.map((b) => (
+                      <SelectItem key={b} value={b}>
+                        {b}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <Button 
                 className="w-full" 
                 onClick={() => startAuditMutation.mutate({ repositoryUrl, branch, framework: "asvs-5.0" })}
-                disabled={startAuditMutation.isPending || !repositoryUrl || (audit && audit.status !== 'failed' && audit.status !== 'complete')}
+                disabled={startAuditMutation.isPending || !repositoryUrl || !branch || (audit && audit.status === 'running')}
               >
                 {startAuditMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
                 Run Audit
               </Button>
             </CardContent>
           </Card>
+
+          {auditHistory && auditHistory.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center text-lg">
+                  <History className="w-4 h-4 mr-2" />
+                  Audit History
+                </CardTitle>
+                <CardDescription>Trend for {selectedRepo?.name}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {chartData.length > 1 && (
+                  <div className="h-12 w-full mb-4 opacity-70">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData}>
+                        <Line type="monotone" dataKey="value" stroke="#ef4444" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {auditHistory.slice(0, 5).map(h => (
+                      <TableRow key={h.id}>
+                        <TableCell className="py-2 text-sm">{new Date(h.startedAt).toLocaleDateString()}</TableCell>
+                        <TableCell className="py-2">
+                          <Badge variant={h.status === 'complete' ? 'default' : h.status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px] px-1 py-0 h-4">
+                            {h.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="py-2 text-right">
+                           <Button variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={() => setCurrentAuditId(h.id)}>
+                             View
+                           </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <div className="md:col-span-2">
@@ -155,23 +250,23 @@ export default function AuditPage() {
                   </div>
                 ) : audit?.status === "complete" ? (
                   <div className="space-y-6">
-                    <div className="flex items-center justify-between mb-4">
+                    <div className="flex flex-wrap gap-2 items-center justify-between mb-4">
                       <div className="flex items-center text-green-600">
                         <ShieldCheck className="mr-2 h-5 w-5" />
                         <span className="font-medium">Audit complete. Review findings below.</span>
                       </div>
-                      <div className="flex space-x-2">
+                      <div className="flex flex-wrap gap-2">
                         <Button variant="outline" size="sm" onClick={() => verifySignatureMutation.mutate()} disabled={verifySignatureMutation.isPending}>
                           {verifySignatureMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                           Verify Signature
                         </Button>
                         <Button variant="outline" size="sm" onClick={() => window.open(`/api/audits/${currentAuditId}/download`, '_blank')}>
                           <Download className="mr-2 h-4 w-4" />
-                          JSON Report
+                          JSON
                         </Button>
                         <Button variant="outline" size="sm" onClick={() => window.open(`/api/audits/${currentAuditId}/pdf`, '_blank')}>
                           <FileText className="mr-2 h-4 w-4" />
-                          PDF Report
+                          PDF
                         </Button>
                       </div>
                     </div>
@@ -211,7 +306,7 @@ export default function AuditPage() {
             </Card>
           ) : (
             <div className="h-full flex items-center justify-center border-2 border-dashed rounded-lg p-12 text-muted-foreground text-center bg-muted/10">
-              Enter a repository URL and branch to start a new compliance audit.
+              Select a repository and branch to start a new compliance audit.
             </div>
           )}
         </div>

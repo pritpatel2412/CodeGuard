@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { insertRepositorySchema, insertReviewSchema, insertReviewCommentSchema, policyViolations, reviews, repositories } from "../shared/schema.js";
-import { getUncachableGitHubClient, getPullRequestDiff, getPullRequestDetails, postReviewComment, postReview, createBranch, updateFile, createPullRequest, getFileContent, setCommitGateStatus } from "./github.js";
+import { getUncachableGitHubClient, getPullRequestDiff, getPullRequestDetails, postReviewComment, postReview, createBranch, updateFile, createPullRequest, getFileContent, setCommitGateStatus, getBranches } from "./github.js";
 import { getMergeRequestDetails, getGitLabFileContent, createGitLabBranch, updateGitLabFile, createMergeRequest, postMergeRequestComment } from "./gitlab.js";
 import { analyzeCodeDiff, generateFix } from "./openai.js";
 import { isSensitiveFile } from "./policy/safety-guard.js";
@@ -235,6 +235,36 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error(`[API] Error fetching repository ${req.params.id}:`, error);
       res.status(500).json({ error: "An internal server error occurred" });
+    }
+  });
+
+  // Get branches for a repository
+  app.get("/api/repositories/:id/branches", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const repo = await storage.getRepository(req.params.id);
+      if (!repo) {
+        return res.status(404).json({ error: "Repository not found" });
+      }
+      
+      if (repo.userId !== req.user!.id) {
+        return res.status(403).json({ error: "Unauthorized access to repository" });
+      }
+      
+      const user = await storage.getUser(req.user!.id);
+      if (!user?.accessToken) {
+        return res.status(400).json({ error: "GitHub account not connected properly" });
+      }
+
+      if (repo.platform === "github") {
+        const branches = await getBranches(repo.owner, repo.name, user.accessToken);
+        res.json(branches);
+      } else {
+        res.json(["main", "master"]);
+      }
+    } catch (error: any) {
+      console.error(`[API] Error fetching branches for ${req.params.id}:`, error);
+      res.status(500).json({ error: "Failed to fetch branches" });
     }
   });
 

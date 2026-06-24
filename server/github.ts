@@ -240,3 +240,14 @@ export async function createPullRequest(
 
   return data;
 }
+
+// Fetch branches for a repository
+export async function getBranches(owner: string, repo: string, accessToken?: string) {
+  const octokit = await getUncachableGitHubClient(accessToken);
+  const response = await octokit.repos.listBranches({
+    owner,
+    repo,
+    per_page: 100
+  });
+  return response.data.map(branch => branch.name);
+}
