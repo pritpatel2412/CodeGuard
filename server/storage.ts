@@ -23,7 +23,8 @@ import {
   type InsertAuditReport,
   auditOrders,
   type AuditOrder,
-  type InsertAuditOrder
+  type InsertAuditOrder,
+  policyViolations
 } from "../shared/schema.js";
 import { db } from "./db.js";
 import { eq, desc, sql, and, gte, lt } from "drizzle-orm";
@@ -369,10 +370,61 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
+    // Advanced Security Metrics (CodeGuard extended functionality)
+    const auditsResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(audits)
+      .where(and(eq(audits.userId, userId), gte(audits.startedAt, start), lt(audits.startedAt, end)));
+
+    const policyResult = await db
+      .select({ 
+        severity: policyViolations.severity,
+        ruleName: policyViolations.ruleName,
+        count: sql<number>`count(*)`
+      })
+      .from(policyViolations)
+      .innerJoin(repositories, eq(policyViolations.repositoryId, repositories.id))
+      .where(and(eq(repositories.userId, userId), gte(policyViolations.createdAt, start), lt(policyViolations.createdAt, end)))
+      .groupBy(policyViolations.severity, policyViolations.ruleName);
+
+    const taintResult = await db
+      .select({ severity: taintPaths.severity, count: sql<number>`count(*)` })
+      .from(taintPaths)
+      .innerJoin(reviews, eq(taintPaths.reviewId, reviews.id))
+      .innerJoin(repositories, eq(reviews.repositoryId, repositories.id))
+      .where(and(eq(repositories.userId, userId), gte(taintPaths.createdAt, start), lt(taintPaths.createdAt, end)))
+      .groupBy(taintPaths.severity);
+
+    const totalAudits = auditsResult[0]?.count ? Number(auditsResult[0].count) : 0;
+    
+    let totalPolicyViolations = 0;
+    const policyViolationDistribution: Record<string, number> = {};
+    policyResult.forEach((row) => {
+      const count = Number(row.count);
+      totalPolicyViolations += count;
+      policyViolationDistribution[row.ruleName] = (policyViolationDistribution[row.ruleName] || 0) + count;
+    });
+
+    let totalTaintPaths = 0;
+    const taintVulnerabilities = { critical: 0, high: 0, medium: 0, low: 0 };
+    taintResult.forEach((row) => {
+      const count = Number(row.count);
+      totalTaintPaths += count;
+      if (row.severity === "CRITICAL") taintVulnerabilities.critical += count;
+      else if (row.severity === "HIGH") taintVulnerabilities.high += count;
+      else if (row.severity === "MEDIUM") taintVulnerabilities.medium += count;
+      else if (row.severity === "LOW") taintVulnerabilities.low += count;
+    });
+
     return {
       totalReviews,
       totalComments,
       avgCommentsPerReview,
+      totalAudits,
+      totalPolicyViolations,
+      totalTaintPaths,
+      taintVulnerabilities,
+      policyViolationDistribution,
       riskDistribution,
       commentTypeDistribution,
       recentActivity,

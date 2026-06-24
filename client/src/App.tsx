@@ -28,6 +28,7 @@ import AdminOrders from "@/pages/admin/orders";
 import AdminRequests from "@/pages/admin/requests";
 import AdminSystem from "@/pages/admin/system";
 import AdminAuditLog from "@/pages/admin/audit-log";
+import AdminExport from "@/pages/admin/export";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { ProtectedRoute, AdminProtectedRoute } from "@/lib/protected-route";
@@ -70,6 +71,7 @@ function App() {
             <AdminProtectedRoute path="/admin/requests" component={withLayout(AdminRequests)} />
             <AdminProtectedRoute path="/admin/system" component={withLayout(AdminSystem)} />
             <AdminProtectedRoute path="/admin/audit-log" component={withLayout(AdminAuditLog)} />
+            <AdminProtectedRoute path="/admin/export" component={withLayout(AdminExport)} />
 
             {/* Catch-all: Truly Full Screen 404 */}
             <Route component={NotFound} />

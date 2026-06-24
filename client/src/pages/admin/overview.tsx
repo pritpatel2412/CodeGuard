@@ -2,10 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, ShieldCheck, DollarSign, Activity, Loader2 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useState } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function AdminOverview() {
+  const [range, setRange] = useState("7d");
+
   const { data: metrics, isLoading } = useQuery<any>({
-    queryKey: ["/api/admin/overview"],
+    queryKey: ["/api/admin/overview", { range }],
     refetchInterval: 2000,
   });
 
@@ -21,9 +25,24 @@ export default function AdminOverview() {
 
   return (
     <div className="container mx-auto py-8 px-4 max-w-6xl space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Admin Overview</h1>
-        <p className="text-muted-foreground">High-level metrics for CodeGuard.</p>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Admin Overview</h1>
+          <p className="text-muted-foreground">High-level metrics for CodeGuard.</p>
+        </div>
+        <div className="w-[180px]">
+          <Select value={range} onValueChange={setRange}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select Time Range" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7d">Last 7 Days</SelectItem>
+              <SelectItem value="15d">Last 15 Days</SelectItem>
+              <SelectItem value="30d">Last 30 Days</SelectItem>
+              <SelectItem value="all">All Time</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -68,7 +87,7 @@ export default function AdminOverview() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="col-span-1">
           <CardHeader>
-            <CardTitle>User Growth (Last 7 Days)</CardTitle>
+            <CardTitle>User Growth</CardTitle>
             <CardDescription>New user registrations over time</CardDescription>
           </CardHeader>
           <CardContent>
@@ -94,7 +113,7 @@ export default function AdminOverview() {
 
         <Card className="col-span-1">
           <CardHeader>
-            <CardTitle>Orders Volume (Last 7 Days)</CardTitle>
+            <CardTitle>Orders Volume</CardTitle>
             <CardDescription>New audit orders placed over time</CardDescription>
           </CardHeader>
           <CardContent>
