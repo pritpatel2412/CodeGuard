@@ -12,6 +12,7 @@ import policyRouter from "./routes/policy.js";
 import auditsRouter from "./routes/audits.js";
 import ordersRouter from "./routes/orders.js";
 import adminRouter from "./routes/admin.js";
+import aiStatusRouter from "./routes/ai-status.js";
 import { db } from "./db.js";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { toPublicUser } from "./user-public.js";
@@ -143,6 +144,7 @@ export async function registerRoutes(
   app.use("/api/audits", auditsRouter);
   app.use("/api/orders", ordersRouter);
   app.use("/api/admin", adminRouter);
+  app.use("/api/ai", aiStatusRouter);
 
   // ============= REPOSITORIES =============
 
@@ -1338,7 +1340,7 @@ It analyzes your changes for potential bugs, security risks, performance issues,
           fileContent = await getGitLabFileContent(repo.owner, repo.name, comment.path, headSha);
         } else {
           // GitHub Enforced
-          const prDetails = await getPullRequestDetails(repo.owner, repo.name, review.prNumber);
+          const prDetails = await getPullRequestDetails(repo.owner, repo.name, review.prNumber, accessToken);
           headSha = prDetails.head.sha;
           baseBranch = prDetails.head.ref;
           fileContent = await getFileContent(repo.owner, repo.name, comment.path, headSha, accessToken);
@@ -1363,7 +1365,7 @@ It analyzes your changes for potential bugs, security risks, performance issues,
               await storage.updateRepository(repo.id, { platform: "gitlab" });
               console.log(`Successfully auto-corrected repository platform to GitLab for ${repo.fullName}`);
             } else {
-              const prDetails = await getPullRequestDetails(repo.owner, repo.name, review.prNumber);
+              const prDetails = await getPullRequestDetails(repo.owner, repo.name, review.prNumber, accessToken);
               headSha = prDetails.head.sha;
               baseBranch = prDetails.head.ref;
               fileContent = await getFileContent(repo.owner, repo.name, comment.path, headSha, accessToken);
