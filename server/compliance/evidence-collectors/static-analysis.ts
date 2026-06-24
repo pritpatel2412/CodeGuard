@@ -10,7 +10,8 @@ const MAX_CONTENT_LENGTH = 100000;
 export async function runStaticAnalysis(
   repoPath: string,
   controls: ASVSControl[],
-  onProgress?: (msg: string, pct: number) => void
+  onProgress?: (msg: string, pct: number) => void,
+  abortSignal?: AbortSignal
 ): Promise<ControlResult[]> {
   const results: ControlResult[] = [];
   const targetControls = controls.filter(c => c.evidenceType === "static_analysis");
@@ -30,6 +31,7 @@ export async function runStaticAnalysis(
   const totalFiles = Math.min(files.length, MAX_FILES_TO_PROCESS);
 
   for (const file of files) {
+    if (abortSignal?.aborted) throw new Error("Audit was manually cancelled by the user");
     if (processedCount >= MAX_FILES_TO_PROCESS) break;
     
     const relativePath = path.relative(repoPath, file);
@@ -71,6 +73,8 @@ ${combinedContent}
 `;
 
   try {
+    if (abortSignal?.aborted) throw new Error("Audit was manually cancelled by the user");
+    
     onProgress?.("Running AI static analysis engine...", 60);
     
     // Wrap callAI in a Promise.race to prevent infinite hangs
@@ -78,7 +82,8 @@ ${combinedContent}
       callAI({
         task: "analysis",
         messages: [{ role: "user", content: prompt }],
-        responseFormat: { type: "json_object" }
+        responseFormat: { type: "json_object" },
+        signal: abortSignal
       }),
       new Promise<any>((_, reject) => setTimeout(() => reject(new Error("AI analysis timed out after 3 minutes")), 180000))
     ]);

@@ -63,6 +63,27 @@ export default function AuditPage() {
     }
   });
 
+  const cancelAuditMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/audits/${currentAuditId}/cancel`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Audit Cancelled",
+        description: "The background audit process has been stopped.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/audits", currentAuditId] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Cancellation Failed",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  });
+
   const verifySignatureMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/audits/${currentAuditId}/verify`);
@@ -274,6 +295,17 @@ export default function AuditPage() {
                       </div>
                       <div className="h-2 bg-muted rounded-full overflow-hidden">
                         <div className="h-full bg-primary transition-all duration-300" style={{ width: `${progress}%` }} />
+                      </div>
+                      <div className="mt-6 flex justify-center">
+                        <Button 
+                          variant="destructive" 
+                          size="sm" 
+                          onClick={() => cancelAuditMutation.mutate()} 
+                          disabled={cancelAuditMutation.isPending}
+                        >
+                          {cancelAuditMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          Cancel Audit
+                        </Button>
                       </div>
                     </div>
                   </div>

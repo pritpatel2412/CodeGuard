@@ -6,13 +6,14 @@ import { runIaCCollector } from "./evidence-collectors/iac-collector.js";
 
 export async function runComplianceAudit(
   repoPath: string,
-  onProgress?: (msg: string, percentage: number) => void
+  onProgress?: (msg: string, percentage: number) => void,
+  abortSignal?: AbortSignal
 ): Promise<ControlResult[]> {
   console.log(`[Audit] Starting ASVS 5.0 Audit on ${repoPath}`);
   
   const results: ControlResult[] = [];
   
-  const staticResults = await runStaticAnalysis(repoPath, ASVS_CONTROLS, onProgress);
+  const staticResults = await runStaticAnalysis(repoPath, ASVS_CONTROLS, onProgress, abortSignal);
   const codeReviewResults = await runCodeReview(repoPath, ASVS_CONTROLS);
   const configResults = await runConfigCollector(repoPath, ASVS_CONTROLS);
   const iacResults = await runIaCCollector(repoPath, ASVS_CONTROLS);
