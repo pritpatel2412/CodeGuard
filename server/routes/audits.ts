@@ -5,7 +5,7 @@ import { generateAndSignReport } from "../compliance/report-generator.js";
 import { generateAuditPdf } from "../compliance/pdf-generator.js";
 import git from "isomorphic-git";
 // @ts-ignore
-import http from "isomorphic-git/http/node/index.js";
+import http from "isomorphic-git/http/node";
 import fsSync from "graceful-fs";
 import fs from "fs/promises";
 import os from "os";
