@@ -23,12 +23,24 @@ const requestSchema = z.object({
   }),
 });
 
+type PromoOfferData = {
+  active: boolean;
+  pendingCount?: number;
+  offer?: {
+    id: string;
+    name: string;
+    description: string;
+    startsAt: string;
+    endsAt: string;
+  };
+};
+
 export default function FreeAuditRequest() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [submitted, setSubmitted] = useState(false);
 
-  const { data: offerData, isLoading } = useQuery({
+  const { data: offerData, isLoading } = useQuery<PromoOfferData>({
     queryKey: ["/api/public/promo-offer"],
   });
 
@@ -114,16 +126,16 @@ export default function FreeAuditRequest() {
     <div className="container mx-auto px-4 py-16 max-w-2xl">
       <div className="text-center space-y-4 mb-10">
         <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl">
-          {offerData.offer.name === "linkedin-launch-week" 
+          {offerData?.offer?.name === "linkedin-launch-week" 
             ? "Free CodeGuard Audit" 
             : "Free CodeGuard Audit"}
         </h1>
         <p className="text-lg text-muted-foreground">
-          {offerData.offer.description || "Drop your repo, and I'll run an Audit Mode pass on it personally."}
+          {offerData?.offer?.description || "Drop your repo, and I'll run an Audit Mode pass on it personally."}
         </p>
       </div>
 
-      {offerData?.pendingCount > 50 && (
+      {(offerData?.pendingCount ?? 0) > 50 && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-md p-4 mb-6 flex items-start gap-3 text-left">
           <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5 text-amber-600" />
           <p className="text-sm">

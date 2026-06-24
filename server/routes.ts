@@ -188,8 +188,7 @@ export async function registerRoutes(
         repoUrl,
         contactName,
         contactEmail,
-        motivationText,
-        status: "pending"
+        motivationText
       });
 
       res.status(201).json(newRequest);
