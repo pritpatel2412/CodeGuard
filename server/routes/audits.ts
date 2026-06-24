@@ -4,6 +4,7 @@ import { runComplianceAudit } from "../compliance/orchestrator.js";
 import { generateAndSignReport } from "../compliance/report-generator.js";
 import { generateAuditPdf } from "../compliance/pdf-generator.js";
 import simpleGit from "simple-git";
+import os from "os";
 import path from "path";
 import fs from "fs/promises";
 import { z } from "zod";
@@ -149,7 +150,7 @@ router.post("/:id/verify", async (req, res) => {
 });
 
 async function runAuditAsync(auditId: string, repoUrl: string, branch: string) {
-  const cloneDir = path.join(process.cwd(), ".local", "audits", auditId);
+  const cloneDir = path.join(os.tmpdir(), "codeguard-audits", auditId);
   
   try {
     await storage.updateAudit(auditId, { status: "running" });
