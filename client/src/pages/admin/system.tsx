@@ -6,6 +6,7 @@ import { Loader2, Server } from "lucide-react";
 export default function AdminSystem() {
   const { data: usageLogs, isLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/system"],
+    refetchInterval: 2000,
   });
 
   if (isLoading) {

@@ -5,6 +5,7 @@ import { Users, ShieldCheck, DollarSign, Activity, Loader2 } from "lucide-react"
 export default function AdminOverview() {
   const { data: metrics, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/overview"],
+    refetchInterval: 2000,
   });
 
   if (isLoading) {

@@ -12,6 +12,7 @@ export default function AdminUsers() {
   
   const { data: users, isLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/users"],
+    refetchInterval: 2000,
   });
 
   const changeRoleMutation = useMutation({
