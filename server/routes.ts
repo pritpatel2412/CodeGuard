@@ -11,6 +11,7 @@ import { runPolicyEnforcement } from "./policy/policy-orchestrator.js";
 import policyRouter from "./routes/policy.js";
 import auditsRouter from "./routes/audits.js";
 import ordersRouter from "./routes/orders.js";
+import adminRouter from "./routes/admin.js";
 import { db } from "./db.js";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { toPublicUser } from "./user-public.js";
@@ -141,6 +142,7 @@ export async function registerRoutes(
   app.use("/api/policy", policyRouter);
   app.use("/api/audits", auditsRouter);
   app.use("/api/orders", ordersRouter);
+  app.use("/api/admin", adminRouter);
 
   // ============= REPOSITORIES =============
 
