@@ -166,9 +166,6 @@ export interface AICallResult {
   promptTokens: number;
   completionTokens: number;
 }
-  promptTokens: number;
-  completionTokens: number;
-}
 
 /**
  * THE MAIN FUNCTION — call this everywhere instead of openai.chat.completions.create()
