@@ -55,8 +55,9 @@ export async function setCommitGateStatus(
   state: "pending" | "success" | "failure" | "error",
   description: string,
   targetUrl?: string,
+  accessToken?: string
 ) {
-  const octokit = await getUncachableGitHubClient();
+  const octokit = await getUncachableGitHubClient(accessToken);
   await octokit.repos.createCommitStatus({
     owner,
     repo,
@@ -69,8 +70,8 @@ export async function setCommitGateStatus(
 }
 
 // Fetch PR diff from GitHub
-export async function getPullRequestDiff(owner: string, repo: string, prNumber: number): Promise<string> {
-  const octokit = await getUncachableGitHubClient();
+export async function getPullRequestDiff(owner: string, repo: string, prNumber: number, accessToken?: string): Promise<string> {
+  const octokit = await getUncachableGitHubClient(accessToken);
 
   const response = await octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', {
     owner,
@@ -85,8 +86,8 @@ export async function getPullRequestDiff(owner: string, repo: string, prNumber: 
 }
 
 // Get PR details
-export async function getPullRequestDetails(owner: string, repo: string, prNumber: number) {
-  const octokit = await getUncachableGitHubClient();
+export async function getPullRequestDetails(owner: string, repo: string, prNumber: number, accessToken?: string) {
+  const octokit = await getUncachableGitHubClient(accessToken);
 
   const { data } = await octokit.pulls.get({
     owner,
@@ -105,9 +106,10 @@ export async function postReviewComment(
   commitId: string,
   path: string,
   line: number,
-  body: string
+  body: string,
+  accessToken?: string
 ) {
-  const octokit = await getUncachableGitHubClient();
+  const octokit = await getUncachableGitHubClient(accessToken);
 
   try {
     await octokit.pulls.createReviewComment({
@@ -131,9 +133,10 @@ export async function postReview(
   repo: string,
   prNumber: number,
   body: string,
-  event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES' = 'COMMENT'
+  event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES' = 'COMMENT',
+  accessToken?: string
 ) {
-  const octokit = await getUncachableGitHubClient();
+  const octokit = await getUncachableGitHubClient(accessToken);
 
   await octokit.pulls.createReview({
     owner,
