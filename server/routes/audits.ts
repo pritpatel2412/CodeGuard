@@ -3,10 +3,12 @@ import { storage } from "../storage.js";
 import { runComplianceAudit } from "../compliance/orchestrator.js";
 import { generateAndSignReport } from "../compliance/report-generator.js";
 import { generateAuditPdf } from "../compliance/pdf-generator.js";
-import simpleGit from "simple-git";
+import git from "isomorphic-git";
+import http from "isomorphic-git/http/node/index.js";
 import os from "os";
 import path from "path";
 import fs from "fs/promises";
+import fsSync from "fs";
 import { z } from "zod";
 import crypto from "crypto";
 
@@ -157,9 +159,16 @@ async function runAuditAsync(auditId: string, repoUrl: string, branch: string) {
     
     await fs.mkdir(cloneDir, { recursive: true });
     
-    const git = simpleGit();
     console.log(`[Audit] Cloning ${repoUrl}#${branch} to ${cloneDir}`);
-    await git.clone(repoUrl, cloneDir, ["--branch", branch, "--depth", "1", "--single-branch"]);
+    await git.clone({
+      fs: fsSync,
+      http,
+      dir: cloneDir,
+      url: repoUrl,
+      ref: branch,
+      singleBranch: true,
+      depth: 1
+    });
     
     const results = await runComplianceAudit(cloneDir);
     
