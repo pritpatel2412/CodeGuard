@@ -4,11 +4,12 @@ import { runComplianceAudit } from "../compliance/orchestrator.js";
 import { generateAndSignReport } from "../compliance/report-generator.js";
 import { generateAuditPdf } from "../compliance/pdf-generator.js";
 import git from "isomorphic-git";
-import http from "isomorphic-git/http/node";
+// @ts-ignore
+import http from "isomorphic-git/http/node/index.js";
+import fsSync from "graceful-fs";
+import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import fs from "fs/promises";
-import fsSync from "fs";
 import { z } from "zod";
 import crypto from "crypto";
 import { db } from "../db.js";
