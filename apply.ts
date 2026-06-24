@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { pool } from "./server/db.ts";
 
 async function main() {
@@ -54,6 +55,45 @@ async function main() {
         "status" text DEFAULT 'pending_payment' NOT NULL,
         "created_at" timestamp DEFAULT now(),
         "updated_at" timestamp DEFAULT now()
+      );
+    `);
+
+    await pool.query(`
+      ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "role" text DEFAULT 'user' NOT NULL;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS "request_logs" (
+        "id" serial PRIMARY KEY NOT NULL,
+        "user_id" varchar,
+        "session_id" text,
+        "method" text NOT NULL,
+        "path" text NOT NULL,
+        "status_code" integer NOT NULL,
+        "response_time_ms" integer NOT NULL,
+        "ip_address" varchar,
+        "user_agent" text,
+        "device" text,
+        "browser" text,
+        "os" text,
+        "geo_country" text,
+        "geo_region" text,
+        "geo_city" text,
+        "geo_lat" text,
+        "geo_lng" text,
+        "timestamp" timestamp DEFAULT now() NOT NULL
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS "admin_action_log" (
+        "id" serial PRIMARY KEY NOT NULL,
+        "admin_user_id" varchar NOT NULL,
+        "action_type" text NOT NULL,
+        "target_id" text,
+        "before_state" jsonb,
+        "after_state" jsonb,
+        "timestamp" timestamp DEFAULT now() NOT NULL
       );
     `);
 

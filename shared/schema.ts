@@ -400,6 +400,9 @@ export const users = pgTable("users", {
   // Auto-Fix Preferences
   autoFixStrictMode: boolean("auto_fix_strict_mode").default(true),
   autoFixSafetyGuards: boolean("auto_fix_safety_guards").default(true),
+
+  // Role Base Access Control
+  role: text("role").notNull().default("user"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
@@ -417,7 +420,41 @@ export const insertUserSchema = createInsertSchema(users).pick({
   highRiskAlerts: true,
   autoFixStrictMode: true,
   autoFixSafetyGuards: true,
+  role: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+
+// Request Logs for Admin Panel
+export const requestLogs = pgTable("request_logs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").references(() => users.id),
+  sessionId: text("session_id"),
+  method: text("method").notNull(),
+  path: text("path").notNull(),
+  statusCode: integer("status_code").notNull(),
+  responseTimeMs: integer("response_time_ms").notNull(),
+  ipAddress: varchar("ip_address"),
+  userAgent: text("user_agent"),
+  device: text("device"),
+  browser: text("browser"),
+  os: text("os"),
+  geoCountry: text("geo_country"),
+  geoRegion: text("geo_region"),
+  geoCity: text("geo_city"),
+  geoLat: text("geo_lat"),
+  geoLng: text("geo_lng"),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+});
+
+// Admin Action Log for Audit Trail
+export const adminActionLog = pgTable("admin_action_log", {
+  id: serial("id").primaryKey(),
+  adminUserId: varchar("admin_user_id").notNull().references(() => users.id),
+  actionType: text("action_type").notNull(),
+  targetId: text("target_id"),
+  beforeState: jsonb("before_state"),
+  afterState: jsonb("after_state"),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+});

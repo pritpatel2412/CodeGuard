@@ -9,11 +9,21 @@ import taintRouter from "./routes/taint";
 import aiStatusRouter from "./routes/ai-status.js";
 
 import { setupSocketIO } from "./socket";
+import { requestLogger } from "./middleware/request-logger";
+import { startRetentionJob } from "./jobs/retention";
 
 (async () => {
   const httpServer = createServer(app);
   setupSocketIO(httpServer);
   setupAuth(app);
+  
+  // Mount the admin request logger after auth so we have req.user, 
+  // but before routes so we capture API traffic
+  app.use(requestLogger);
+  
+  // Start the background job for purging old request logs
+  startRetentionJob();
+
   await registerRoutes(httpServer, app);
   
   app.use("/api/taint", taintRouter);
