@@ -495,6 +495,16 @@ export async function registerRoutes(
         totalReviews: stats.totalReviews || 0,
         totalComments: stats.totalComments || 0,
         avgCommentsPerReview: stats.avgCommentsPerReview || 0,
+        totalAudits: stats.totalAudits || 0,
+        totalPolicyViolations: stats.totalPolicyViolations || 0,
+        totalTaintPaths: stats.totalTaintPaths || 0,
+        taintVulnerabilities: {
+          critical: stats.taintVulnerabilities?.critical || 0,
+          high: stats.taintVulnerabilities?.high || 0,
+          medium: stats.taintVulnerabilities?.medium || 0,
+          low: stats.taintVulnerabilities?.low || 0,
+        },
+        policyViolationDistribution: stats.policyViolationDistribution || {},
         riskDistribution: {
           low: stats.riskDistribution?.low || 0,
           medium: stats.riskDistribution?.medium || 0,

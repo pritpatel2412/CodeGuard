@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Search,
   ShoppingCart,
+  Download,
 } from "lucide-react";
 import {
   Sidebar,
@@ -97,6 +98,11 @@ const adminNavItems = [
     title: "Audit Log",
     url: "/admin/audit-log",
     icon: FileText,
+  },
+  {
+    title: "Export Data",
+    url: "/admin/export",
+    icon: Download,
   },
 ];
 

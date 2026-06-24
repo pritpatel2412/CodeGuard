@@ -36,29 +36,53 @@ router.get("/overview", async (req, res) => {
     // Calculate total API cost
     const [{ totalCost }] = await db.select({ totalCost: sql<number>`sum(CAST(cost_usd AS float))` }).from(apiUsageLog);
 
-    // Get simple growth metrics (mocking daily data based on last 7 days of signups/orders)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const rangeParam = req.query.range as string || "7d";
+    const startDate = new Date();
+    let daysToInit = 7;
+    if (rangeParam === "all") {
+      startDate.setFullYear(2020); // effectively all time
+      daysToInit = 30; // limit chart to 30 days or dynamic
+    } else if (rangeParam === "30d") {
+      startDate.setDate(startDate.getDate() - 30);
+      daysToInit = 30;
+    } else if (rangeParam === "15d") {
+      startDate.setDate(startDate.getDate() - 15);
+      daysToInit = 15;
+    } else { // 7d
+      startDate.setDate(startDate.getDate() - 7);
+      daysToInit = 7;
+    }
 
-    const recentOrders = await db.select({ createdAt: auditOrders.createdAt }).from(auditOrders).where(sql`${auditOrders.createdAt} >= ${sevenDaysAgo}`);
+    const recentOrders = await db.select({ createdAt: auditOrders.createdAt }).from(auditOrders).where(sql`${auditOrders.createdAt} >= ${startDate}`);
+    const recentUsers = await db.select({ createdAt: users.createdAt }).from(users).where(sql`${users.createdAt} >= ${startDate}`);
 
     const growthMap: Record<string, { date: string; users: number; orders: number }> = {};
     
-    // Initialize last 7 days
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-      growthMap[dateStr] = { date: dateStr, users: Math.floor(Math.random() * 5), orders: 0 }; // Mock user growth for visual effect since users table lacks createdAt
+    // Initialize days
+    if (rangeParam !== "all") {
+      for (let i = daysToInit - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        growthMap[dateStr] = { date: dateStr, users: 0, orders: 0 };
+      }
     }
 
     recentOrders.forEach(o => {
       if (!o.createdAt) return;
       const dateStr = o.createdAt.toISOString().split('T')[0];
-      if (growthMap[dateStr]) growthMap[dateStr].orders++;
+      if (!growthMap[dateStr]) growthMap[dateStr] = { date: dateStr, users: 0, orders: 0 };
+      growthMap[dateStr].orders++;
     });
 
-    const growthMetrics = Object.values(growthMap);
+    recentUsers.forEach(u => {
+      if (!u.createdAt) return;
+      const dateStr = u.createdAt.toISOString().split('T')[0];
+      if (!growthMap[dateStr]) growthMap[dateStr] = { date: dateStr, users: 0, orders: 0 };
+      growthMap[dateStr].users++;
+    });
+
+    const growthMetrics = Object.values(growthMap).sort((a, b) => a.date.localeCompare(b.date));
 
     res.json({
       totalUsers: Number(totalUsers),
@@ -211,6 +235,66 @@ router.get("/audit-log", async (req, res) => {
     res.json(logs);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ... existing request logs route
+
+// Data Export Center
+import PDFDocument from "pdfkit";
+import { reviews } from "../../shared/schema.js";
+
+router.get("/export/:entity", async (req, res) => {
+  const { entity } = req.params;
+  const rangeParam = req.query.range as string || "7d";
+  
+  const startDate = new Date();
+  if (rangeParam === "all") startDate.setFullYear(2020);
+  else if (rangeParam === "30d") startDate.setDate(startDate.getDate() - 30);
+  else if (rangeParam === "15d") startDate.setDate(startDate.getDate() - 15);
+  else startDate.setDate(startDate.getDate() - 7);
+
+  try {
+    let data: any[] = [];
+    if (entity === "users") {
+      data = await db.select().from(users).where(sql`${users.createdAt} >= ${startDate}`);
+    } else if (entity === "logs") {
+      data = await db.select().from(requestLogs).where(sql`${requestLogs.timestamp} >= ${startDate}`);
+    } else if (entity === "orders") {
+      data = await db.select().from(auditOrders).where(sql`${auditOrders.createdAt} >= ${startDate}`);
+    } else if (entity === "reviews") {
+      data = await db.select().from(reviews).where(sql`${reviews.createdAt} >= ${startDate}`);
+    } else {
+      return res.status(400).json({ error: "Invalid entity" });
+    }
+    
+    // If PDF requested
+    if (req.query.format === "pdf") {
+      const doc = new PDFDocument({ margin: 50 });
+      const chunks: Buffer[] = [];
+      doc.on("data", (c) => chunks.push(c));
+      doc.on("end", () => {
+        const pdfData = Buffer.concat(chunks);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename=export_${entity}_${rangeParam}.pdf`);
+        res.send(pdfData);
+      });
+      
+      doc.fontSize(20).text(`Export Data: ${entity.toUpperCase()}`, { align: "center" }).moveDown(1.5);
+      doc.fontSize(12).text(`Date Range: ${rangeParam}`).moveDown(1);
+      
+      data.forEach((item, index) => {
+        doc.fontSize(10).text(`${index + 1}. ${JSON.stringify(item)}`).moveDown(0.5);
+      });
+      
+      doc.end();
+      return;
+    }
+
+    // Default to JSON
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

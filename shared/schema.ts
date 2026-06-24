@@ -289,6 +289,16 @@ export const statsSchema = z.object({
   totalReviews: z.number(),
   totalComments: z.number(),
   avgCommentsPerReview: z.number(),
+  totalAudits: z.number().optional(),
+  totalPolicyViolations: z.number().optional(),
+  totalTaintPaths: z.number().optional(),
+  taintVulnerabilities: z.object({
+    critical: z.number(),
+    high: z.number(),
+    medium: z.number(),
+    low: z.number(),
+  }).optional(),
+  policyViolationDistribution: z.record(z.number()).optional(),
   riskDistribution: z.object({
     low: z.number(),
     medium: z.number(),
@@ -403,6 +413,7 @@ export const users = pgTable("users", {
 
   // Role Base Access Control
   role: text("role").notNull().default("user"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

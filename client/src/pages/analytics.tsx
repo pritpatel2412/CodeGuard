@@ -36,6 +36,13 @@ const RISK_COLORS = {
   high: "hsl(var(--chart-5))",
 };
 
+const TAINT_COLORS = {
+  critical: "hsl(var(--destructive))",
+  high: "hsl(var(--chart-5))",
+  medium: "hsl(var(--chart-3))",
+  low: "hsl(var(--chart-2))",
+};
+
 const TYPE_COLORS = [
   "hsl(var(--chart-1))",
   "hsl(var(--chart-2))",
@@ -113,6 +120,26 @@ export default function Analytics() {
     }))
     : [];
 
+  const taintData = stats?.taintVulnerabilities
+    ? [
+      { name: "Critical", value: stats.taintVulnerabilities.critical, fill: TAINT_COLORS.critical },
+      { name: "High", value: stats.taintVulnerabilities.high, fill: TAINT_COLORS.high },
+      { name: "Medium", value: stats.taintVulnerabilities.medium, fill: TAINT_COLORS.medium },
+      { name: "Low", value: stats.taintVulnerabilities.low, fill: TAINT_COLORS.low },
+    ]
+    : [];
+
+  const policyData = stats?.policyViolationDistribution
+    ? Object.entries(stats.policyViolationDistribution)
+        .map(([name, value], i) => ({
+          name,
+          value: value as number,
+          fill: TYPE_COLORS[i % TYPE_COLORS.length],
+        }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 5) // Top 5
+    : [];
+
   const activityData = stats?.recentActivity || [];
 
   return (
@@ -153,7 +180,7 @@ export default function Analytics() {
       </div>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -162,7 +189,6 @@ export default function Analytics() {
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-semibold">{stats?.totalReviews || 0}</p>
-            <p className="text-xs text-muted-foreground mt-1">All time</p>
           </CardContent>
         </Card>
         <Card>
@@ -173,20 +199,48 @@ export default function Analytics() {
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-semibold">{stats?.totalComments || 0}</p>
-            <p className="text-xs text-muted-foreground mt-1">Issues identified</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Avg Comments / Review
+              Avg Comments
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-semibold">
               {stats?.avgCommentsPerReview?.toFixed(1) || "0"}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">Per pull request</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total Audits
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold">{stats?.totalAudits || 0}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Policy Violations
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold text-orange-500">{stats?.totalPolicyViolations || 0}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Taint Paths Detected
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold text-destructive">{stats?.totalTaintPaths || 0}</p>
           </CardContent>
         </Card>
       </div>
@@ -395,6 +449,105 @@ export default function Analytics() {
           )}
         </CardContent>
       </Card>
+      {/* Advanced Security Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
+        {/* Taint Vulnerabilities */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Taint Path Vulnerabilities</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {taintData.some(d => d.value > 0) ? (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={taintData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={90}
+                      paddingAngle={2}
+                      dataKey="value"
+                      label={({ name, percent }) =>
+                        `${name}: ${(percent * 100).toFixed(0)}%`
+                      }
+                      labelLine={false}
+                    >
+                      {taintData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        borderColor: 'hsl(var(--border))',
+                        borderRadius: '8px'
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-64 flex items-center justify-center text-muted-foreground">
+                No taint paths detected. Great job!
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Top Policy Violations */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Top Policy Violations</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {policyData.length > 0 ? (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={policyData} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis
+                      type="number"
+                      tick={{ fontSize: 12 }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      tick={{ fontSize: 12 }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={120}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        borderColor: 'hsl(var(--border))',
+                        borderRadius: '8px'
+                      }}
+                    />
+                    <Bar
+                      dataKey="value"
+                      name="Violations"
+                      radius={[0, 4, 4, 0]}
+                    >
+                      {policyData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-64 flex items-center justify-center text-muted-foreground">
+                No policy violations detected
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
