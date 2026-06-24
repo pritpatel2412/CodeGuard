@@ -4,12 +4,15 @@ import { runCodeReview } from "./evidence-collectors/code-review.js";
 import { runConfigCollector } from "./evidence-collectors/config-collector.js";
 import { runIaCCollector } from "./evidence-collectors/iac-collector.js";
 
-export async function runComplianceAudit(repoPath: string): Promise<ControlResult[]> {
+export async function runComplianceAudit(
+  repoPath: string,
+  onProgress?: (msg: string, percentage: number) => void
+): Promise<ControlResult[]> {
   console.log(`[Audit] Starting ASVS 5.0 Audit on ${repoPath}`);
   
   const results: ControlResult[] = [];
   
-  const staticResults = await runStaticAnalysis(repoPath, ASVS_CONTROLS);
+  const staticResults = await runStaticAnalysis(repoPath, ASVS_CONTROLS, onProgress);
   const codeReviewResults = await runCodeReview(repoPath, ASVS_CONTROLS);
   const configResults = await runConfigCollector(repoPath, ASVS_CONTROLS);
   const iacResults = await runIaCCollector(repoPath, ASVS_CONTROLS);

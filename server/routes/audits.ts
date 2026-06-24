@@ -19,6 +19,19 @@ const AUDIT_SECRET = process.env.AUDIT_SECRET || "default_dev_audit_secret_key_1
 
 const router = Router();
 
+// Track active SSE connections per audit ID
+const auditStreams = new Map<string, Set<any>>();
+
+export function broadcastAuditProgress(auditId: string, status: string, progress: number, log?: string) {
+  const clients = auditStreams.get(auditId);
+  if (!clients) return;
+  
+  const payload = JSON.stringify({ status, progress, log, timestamp: new Date().toISOString() });
+  for (const client of clients) {
+    client.write(`data: ${payload}\n\n`);
+  }
+}
+
 const createAuditSchema = z.object({
   repositoryUrl: z.string().url(),
   branch: z.string().min(1).default("main"),
@@ -178,6 +191,38 @@ router.post("/:id/verify", async (req, res) => {
   }
 });
 
+router.get("/:id/stream", (req, res) => {
+  // We use URL query param or rely on cookie session for auth, 
+  // but SSE with cookies usually works automatically if same-origin
+  if (!req.isAuthenticated()) {
+    return res.status(401).end();
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  const auditId = req.params.id;
+  if (!auditStreams.has(auditId)) {
+    auditStreams.set(auditId, new Set());
+  }
+  
+  auditStreams.get(auditId)!.add(res);
+
+  // Send initial connected event
+  res.write(`data: ${JSON.stringify({ status: "connected", progress: 0, log: "Connected to audit log stream..." })}\n\n`);
+
+  req.on("close", () => {
+    const clients = auditStreams.get(auditId);
+    if (clients) {
+      clients.delete(res);
+      if (clients.size === 0) {
+        auditStreams.delete(auditId);
+      }
+    }
+  });
+});
+
 async function runAuditAsync(auditId: string, repoUrl: string, branch: string, userId: string) {
   const cloneDir = path.join(os.tmpdir(), "codeguard-audits", auditId);
   
@@ -195,28 +240,48 @@ async function runAuditAsync(auditId: string, repoUrl: string, branch: string, u
     } : undefined;
     
     console.log(`[Audit] Cloning ${repoUrl}#${branch} to ${cloneDir}`);
-    await git.clone({
-      fs: fsSync,
-      http,
-      dir: cloneDir,
-      url: repoUrl,
-      ref: branch,
-      singleBranch: true,
-      depth: 1,
-      onAuth
+    broadcastAuditProgress(auditId, "running", 5, `Cloning repository ${repoUrl}...`);
+    
+    // Add a race condition timeout to git.clone to prevent infinite hangs
+    await Promise.race([
+      git.clone({
+        fs: fsSync,
+        http,
+        dir: cloneDir,
+        url: repoUrl,
+        ref: branch,
+        singleBranch: true,
+        depth: 1,
+        onAuth
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Git clone timed out after 2 minutes")), 120000))
+    ]);
+    
+    broadcastAuditProgress(auditId, "running", 15, `Repository cloned successfully. Starting analysis...`);
+    
+    const results = await runComplianceAudit(cloneDir, (logMsg, pct) => {
+      // Map inner percentages (0-100) to the analysis phase (15% to 85%)
+      const overallProgress = 15 + Math.floor(pct * 0.70);
+      broadcastAuditProgress(auditId, "running", overallProgress, logMsg);
     });
     
-    const results = await runComplianceAudit(cloneDir);
-    
+    broadcastAuditProgress(auditId, "running", 90, `Generating cryptographic signature and PDF report...`);
     const report = await generateAndSignReport(auditId, results);
     
     await storage.updateAudit(auditId, { status: "complete", completedAt: new Date(), reportId: report.id });
     console.log(`[Audit] Completed ${auditId}`);
+    broadcastAuditProgress(auditId, "complete", 100, `Audit completed successfully.`);
     
     await fs.rm(cloneDir, { recursive: true, force: true });
   } catch (error: any) {
     console.error(`[Audit] Failed ${auditId}:`, error);
     await storage.updateAudit(auditId, { status: "failed", completedAt: new Date() });
+    broadcastAuditProgress(auditId, "failed", 100, `Audit failed: ${error.message || "Unknown error"}`);
+    
+    // Cleanup on failure
+    try {
+      await fs.rm(cloneDir, { recursive: true, force: true });
+    } catch(e) {}
   }
 }
 
