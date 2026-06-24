@@ -7,6 +7,7 @@ import { Loader2, FileText } from "lucide-react";
 export default function AdminAuditLog() {
   const { data: logs, isLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/audit-log"],
+    refetchInterval: 2000,
   });
 
   if (isLoading) {
