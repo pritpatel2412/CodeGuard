@@ -7,6 +7,7 @@ import {
   BarChart3,
   ShieldCheck,
   LogOut,
+  FileText,
 } from "lucide-react";
 import {
   Sidebar,
@@ -47,6 +48,11 @@ const navItems = [
     title: "Analytics",
     url: "/analytics",
     icon: BarChart3,
+  },
+  {
+    title: "Admin Orders",
+    url: "/admin/orders",
+    icon: FileText,
   },
   {
     title: "Audits",

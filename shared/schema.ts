@@ -177,6 +177,18 @@ export const auditReports = pgTable("audit_reports", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Audit Orders (Paywall Gate)
+export const auditOrders = pgTable("audit_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  auditId: varchar("audit_id").notNull().references(() => audits.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  tierId: text("tier_id").notNull(),
+  priceUsd: integer("price_usd").notNull(),
+  status: text("status").notNull().default("pending_payment"), // pending_payment, marked_paid_manually, comped
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // API Usage Log (Cost Observability)
 export const apiUsageLog = pgTable("api_usage_log", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -254,6 +266,14 @@ export const insertAuditReportSchema = createInsertSchema(auditReports).omit({
 });
 export type AuditReport = typeof auditReports.$inferSelect;
 export type InsertAuditReport = z.infer<typeof insertAuditReportSchema>;
+
+export const insertAuditOrderSchema = createInsertSchema(auditOrders).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type AuditOrder = typeof auditOrders.$inferSelect;
+export type InsertAuditOrder = z.infer<typeof insertAuditOrderSchema>;
 
 // API Response Types
 export const reviewWithCommentsSchema = z.object({

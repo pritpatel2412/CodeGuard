@@ -21,6 +21,8 @@ import HowToUsePage from "@/pages/how-to-use";
 import AuthPage from "@/pages/auth-page";
 import DemoAiFixPage from "@/pages/demo-ai-fix";
 import AuditPage from "@/pages/audit";
+import PricingPage from "@/pages/pricing";
+import AdminOrdersPage from "@/pages/admin-orders";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { ProtectedRoute } from "@/lib/protected-route";
@@ -46,6 +48,7 @@ function App() {
             <ProtectedRoute path="/analytics" component={withLayout(Analytics)} />
             <ProtectedRoute path="/settings" component={withLayout(Settings)} />
             <ProtectedRoute path="/audit" component={withLayout(AuditPage)} />
+            <ProtectedRoute path="/admin/orders" component={withLayout(AdminOrdersPage)} />
             
             {/* Public Routes with Sidebar */}
             <Route path="/how-to-use" component={withLayout(HowToUsePage)} />
@@ -54,6 +57,7 @@ function App() {
             <Route path="/terms" component={withLayout(Terms)} />
             <Route path="/privacy" component={withLayout(Privacy)} />
             <Route path="/demo-ai-fix" component={withLayout(DemoAiFixPage)} />
+            <Route path="/pricing" component={withLayout(PricingPage)} />
             
             {/* Catch-all: Truly Full Screen 404 */}
             <Route component={NotFound} />
