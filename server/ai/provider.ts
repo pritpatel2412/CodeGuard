@@ -157,6 +157,7 @@ export interface AICallOptions {
   maxTokens?: number;
   temperature?: number;
   responseFormat?: { type: "json_object" } | { type: "text" };
+  signal?: AbortSignal;
 }
 
 export interface AICallResult {
@@ -181,6 +182,7 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
     maxTokens = 1500,
     temperature = 0,
     responseFormat,
+    signal,
   } = options;
 
   const forceFallback = process.env.FORCE_OPENAI_FALLBACK === "true";
@@ -218,7 +220,7 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
         params.response_format = { type: "json_object" };
       }
 
-      const response = await currentGroqClient.chat.completions.create(params);
+      const response = await currentGroqClient.chat.completions.create(params, { signal });
       const content = response.choices[0]?.message?.content ?? "";
 
       providerStats.groqSuccesses++;
@@ -262,7 +264,7 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
           params.response_format = { type: "json_object" };
         }
 
-        const response = await nimClient.chat.completions.create(params);
+        const response = await nimClient.chat.completions.create(params, { signal });
         const content = response.choices[0]?.message?.content ?? "";
 
         recordNIMSuccess();
@@ -371,7 +373,7 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
       params.response_format = responseFormat;
     }
 
-    const response = await openaiClient.chat.completions.create(params);
+    const response = await openaiClient.chat.completions.create(params, { signal });
     const content = response.choices[0]?.message?.content ?? "";
 
     providerStats.openaiSuccesses++;

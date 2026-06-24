@@ -23,6 +23,9 @@ const router = Router();
 // Track active SSE connections per audit ID
 const auditStreams = new Map<string, Set<any>>();
 
+// Track active AbortControllers for cancellation
+const activeAuditAbortControllers = new Map<string, AbortController>();
+
 export function broadcastAuditProgress(auditId: string, status: string, progress: number, log?: string) {
   const clients = auditStreams.get(auditId);
   if (!clients) return;
@@ -224,8 +227,33 @@ router.get("/:id/stream", (req, res) => {
   });
 });
 
+router.post("/:id/cancel", async (req, res) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+  
+  const auditId = req.params.id;
+  const audit = await storage.getAudit(auditId);
+  
+  if (!audit) return res.status(404).json({ error: "Audit not found" });
+  if (audit.status !== "pending" && audit.status !== "running") {
+    return res.status(400).json({ error: "Audit is not running" });
+  }
+
+  const abortController = activeAuditAbortControllers.get(auditId);
+  if (abortController) {
+    abortController.abort();
+    activeAuditAbortControllers.delete(auditId);
+  }
+
+  await storage.updateAudit(auditId, { status: "failed", completedAt: new Date() });
+  broadcastAuditProgress(auditId, "failed", 100, "Audit was manually cancelled by the user.");
+  
+  res.json({ success: true, message: "Audit cancelled successfully" });
+});
+
 async function runAuditAsync(auditId: string, repoUrl: string, branch: string, userId: string) {
   const cloneDir = path.join(os.tmpdir(), "codeguard-audits", auditId);
+  const abortController = new AbortController();
+  activeAuditAbortControllers.set(auditId, abortController);
   
   try {
     await storage.updateAudit(auditId, { status: "running" });
@@ -260,11 +288,15 @@ async function runAuditAsync(auditId: string, repoUrl: string, branch: string, u
     
     broadcastAuditProgress(auditId, "running", 15, `Repository cloned successfully. Starting analysis...`);
     
+    if (abortController.signal.aborted) throw new Error("Audit was manually cancelled by the user");
+    
     const results = await runComplianceAudit(cloneDir, (logMsg, pct) => {
       // Map inner percentages (0-100) to the analysis phase (15% to 85%)
       const overallProgress = 15 + Math.floor(pct * 0.70);
       broadcastAuditProgress(auditId, "running", overallProgress, logMsg);
-    });
+    }, abortController.signal);
+    
+    if (abortController.signal.aborted) throw new Error("Audit was manually cancelled by the user");
     
     broadcastAuditProgress(auditId, "running", 90, `Generating cryptographic signature and PDF report...`);
     const report = await generateAndSignReport(auditId, results);
@@ -275,14 +307,21 @@ async function runAuditAsync(auditId: string, repoUrl: string, branch: string, u
     
     await fs.rm(cloneDir, { recursive: true, force: true });
   } catch (error: any) {
-    console.error(`[Audit] Failed ${auditId}:`, error);
-    await storage.updateAudit(auditId, { status: "failed", completedAt: new Date() });
-    broadcastAuditProgress(auditId, "failed", 100, `Audit failed: ${error.message || "Unknown error"}`);
+    if (error.name === 'AbortError' || error.message.includes('cancelled')) {
+      console.log(`[Audit] Cancelled ${auditId}`);
+      // Status update is already handled by the cancel route
+    } else {
+      console.error(`[Audit] Failed ${auditId}:`, error);
+      await storage.updateAudit(auditId, { status: "failed", completedAt: new Date() });
+      broadcastAuditProgress(auditId, "failed", 100, `Audit failed: ${error.message || "Unknown error"}`);
+    }
     
     // Cleanup on failure
     try {
       await fs.rm(cloneDir, { recursive: true, force: true });
     } catch(e) {}
+  } finally {
+    activeAuditAbortControllers.delete(auditId);
   }
 }
 
