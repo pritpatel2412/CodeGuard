@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import geoip from "geoip-lite";
-import UAParser from "ua-parser-js";
+import { UAParser } from "ua-parser-js";
 import { db } from "../db";
 import { requestLogs } from "@shared/schema";
 

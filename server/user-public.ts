@@ -16,6 +16,7 @@ export type PublicUser = Pick<
   | "highRiskAlerts"
   | "autoFixStrictMode"
   | "autoFixSafetyGuards"
+  | "role"
 >;
 
 export function toPublicUser(user: User): PublicUser {
@@ -33,5 +34,6 @@ export function toPublicUser(user: User): PublicUser {
     highRiskAlerts: user.highRiskAlerts,
     autoFixStrictMode: user.autoFixStrictMode,
     autoFixSafetyGuards: user.autoFixSafetyGuards,
+    role: user.role,
   };
 }

@@ -54,8 +54,7 @@ router.get("/users", async (req, res) => {
       username: users.username,
       githubId: users.githubId,
       role: users.role,
-      createdAt: users.createdAt,
-    }).from(users).orderBy(desc(users.createdAt)).limit(100);
+    }).from(users).limit(100);
     
     res.json(allUsers);
   } catch (error: any) {
