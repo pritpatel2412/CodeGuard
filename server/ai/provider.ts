@@ -188,10 +188,22 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
   const nimAvailable = nimKey.length > 0 && nimKey.startsWith("nvapi-");
   const maxNIMRetries = parseInt(process.env.NVIDIA_NIM_MAX_RETRIES ?? "2");
 
-  // ── Try Groq for Analysis Tasks ────────────────────────────────────────────
-  if (task === "analysis" && process.env.GROQ_API_KEY) {
+  // ── Try Groq ──────────────────────────────────────────────────────────────
+  const groqKey = task === "analysis" 
+    ? (process.env.GROQ_API_KEY_AUDIT || process.env.GROQ_API_KEY)
+    : (process.env.GROQ_API_KEY_FIX || process.env.GROQ_API_KEY);
+
+  if (groqKey) {
     const groqModel = "llama-3.3-70b-versatile";
-    console.log(`[AI Provider] Routing 'analysis' task to Groq (${groqModel})`);
+    console.log(`[AI Provider] Routing '${task}' task to Groq (${groqModel})`);
+    
+    const currentGroqClient = groqKey === process.env.GROQ_API_KEY 
+      ? groqClient 
+      : new OpenAI({
+          baseURL: "https://api.groq.com/openai/v1",
+          apiKey: groqKey,
+          maxRetries: 2,
+        });
     
     try {
       providerStats.groqCalls++;
@@ -206,7 +218,7 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
         params.response_format = { type: "json_object" };
       }
 
-      const response = await groqClient.chat.completions.create(params);
+      const response = await currentGroqClient.chat.completions.create(params);
       const content = response.choices[0]?.message?.content ?? "";
 
       providerStats.groqSuccesses++;
