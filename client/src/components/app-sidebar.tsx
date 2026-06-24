@@ -10,6 +10,10 @@ import {
   FileText,
   Activity,
   Server,
+  Menu,
+  MessageSquare,
+  Search,
+  ShoppingCart,
 } from "lucide-react";
 import {
   Sidebar,
@@ -68,6 +72,11 @@ const adminNavItems = [
     title: "Overview",
     url: "/admin/overview",
     icon: LayoutDashboard,
+  },
+  {
+    title: "Orders",
+    url: "/admin/orders",
+    icon: ShoppingCart, // Assuming ShoppingCart icon is imported, let's check
   },
   {
     title: "Users",
