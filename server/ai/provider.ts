@@ -26,6 +26,15 @@ const openaiClient = new OpenAI({
   maxRetries: 2,
 });
 
+/**
+ * Groq client for ultra-fast analysis.
+ */
+const groqClient = new OpenAI({
+  baseURL: "https://api.groq.com/openai/v1",
+  apiKey: process.env.GROQ_API_KEY ?? "",
+  maxRetries: 2,
+});
+
 // ── Task types → Model mapping ────────────────────────────────────────────────
 
 /**
@@ -103,7 +112,10 @@ export const providerStats = {
   openaiCalls: 0,
   openaiSuccesses: 0,
   openaiFailures: 0,
-  lastProvider: "none" as "nim" | "openai" | "none",
+  groqCalls: 0,
+  groqSuccesses: 0,
+  groqFailures: 0,
+  lastProvider: "none" as "nim" | "openai" | "groq" | "none",
   lastFailureReason: "" as string,
 };
 
@@ -149,8 +161,11 @@ export interface AICallOptions {
 
 export interface AICallResult {
   content: string;
-  provider: "nim" | "openai";
+  provider: "nim" | "openai" | "groq";
   model: string;
+  promptTokens: number;
+  completionTokens: number;
+}
   promptTokens: number;
   completionTokens: number;
 }
@@ -175,6 +190,43 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
   const nimKey = process.env.NVIDIA_NIM_API_KEY ?? "";
   const nimAvailable = nimKey.length > 0 && nimKey.startsWith("nvapi-");
   const maxNIMRetries = parseInt(process.env.NVIDIA_NIM_MAX_RETRIES ?? "2");
+
+  // ── Try Groq for Analysis Tasks ────────────────────────────────────────────
+  if (task === "analysis" && process.env.GROQ_API_KEY) {
+    const groqModel = "llama-3.3-70b-versatile";
+    console.log(`[AI Provider] Routing 'analysis' task to Groq (${groqModel})`);
+    
+    try {
+      providerStats.groqCalls++;
+      const params: ChatCompletionCreateParamsNonStreaming = {
+        model: groqModel,
+        messages,
+        max_tokens: maxTokens,
+        temperature,
+      };
+
+      if (responseFormat?.type === "json_object") {
+        params.response_format = { type: "json_object" };
+      }
+
+      const response = await groqClient.chat.completions.create(params);
+      const content = response.choices[0]?.message?.content ?? "";
+
+      providerStats.groqSuccesses++;
+      providerStats.lastProvider = "groq";
+
+      return {
+        content,
+        provider: "groq",
+        model: groqModel,
+        promptTokens: response.usage?.prompt_tokens ?? 0,
+        completionTokens: response.usage?.completion_tokens ?? 0,
+      };
+    } catch (error: any) {
+      providerStats.groqFailures++;
+      console.warn(`[AI Provider] Groq failed: ${error.message}. Falling back to NIM/OpenAI...`);
+    }
+  }
 
   // ── Try NVIDIA NIM ─────────────────────────────────────────────────────────
   if (nimAvailable && !forceFallback && !isCircuitOpen()) {
