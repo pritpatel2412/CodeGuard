@@ -8,6 +8,8 @@ import {
   ShieldCheck,
   LogOut,
   FileText,
+  Activity,
+  Server,
 } from "lucide-react";
 import {
   Sidebar,
@@ -50,11 +52,6 @@ const navItems = [
     icon: BarChart3,
   },
   {
-    title: "Admin Orders",
-    url: "/admin/orders",
-    icon: FileText,
-  },
-  {
     title: "Audits",
     url: "/audit",
     icon: ShieldCheck,
@@ -63,6 +60,34 @@ const navItems = [
     title: "Settings",
     url: "/settings",
     icon: Settings,
+  },
+];
+
+const adminNavItems = [
+  {
+    title: "Overview",
+    url: "/admin/overview",
+    icon: LayoutDashboard,
+  },
+  {
+    title: "Users",
+    url: "/admin/users",
+    icon: ShieldCheck, // or another appropriate icon
+  },
+  {
+    title: "Live Requests",
+    url: "/admin/requests",
+    icon: Activity, // need to import
+  },
+  {
+    title: "System Health",
+    url: "/admin/system",
+    icon: Server, // need to import
+  },
+  {
+    title: "Audit Log",
+    url: "/admin/audit-log",
+    icon: FileText,
   },
 ];
 
@@ -94,8 +119,6 @@ export function AppSidebar() {
             />
           </div>
 
-
-
           <div className="flex flex-col">
             <span className="text-base font-semibold">CodeGuard</span>
             <span className="text-xs text-muted-foreground">signal over noise</span>
@@ -108,7 +131,8 @@ export function AppSidebar() {
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) => {
+              {navItems
+                .map((item) => {
                 const isActive = location === item.url ||
                   (item.url !== "/" && location.startsWith(item.url));
                 return (
@@ -125,6 +149,29 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {user?.role === "admin" && (
+          <SidebarGroup>
+            <SidebarGroupLabel>System Admin</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {adminNavItems.map((item) => {
+                  const isActive = location === item.url || location.startsWith(item.url);
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild isActive={isActive}>
+                        <Link href={item.url} data-testid={`nav-admin-${item.title.toLowerCase().replace(" ", "-")}`}>
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         <SidebarGroup>
           <SidebarGroupLabel>About</SidebarGroupLabel>
