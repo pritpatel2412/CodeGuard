@@ -24,6 +24,7 @@ import AuditPage from "@/pages/audit";
 import PricingPage from "@/pages/pricing";
 import AdminOverview from "@/pages/admin/overview";
 import AdminUsers from "@/pages/admin/users";
+import AdminOrders from "@/pages/admin/orders";
 import AdminRequests from "@/pages/admin/requests";
 import AdminSystem from "@/pages/admin/system";
 import AdminAuditLog from "@/pages/admin/audit-log";
@@ -65,6 +66,7 @@ function App() {
             {/* Admin Routes with Sidebar */}
             <AdminProtectedRoute path="/admin/overview" component={withLayout(AdminOverview)} />
             <AdminProtectedRoute path="/admin/users" component={withLayout(AdminUsers)} />
+            <AdminProtectedRoute path="/admin/orders" component={withLayout(AdminOrders)} />
             <AdminProtectedRoute path="/admin/requests" component={withLayout(AdminRequests)} />
             <AdminProtectedRoute path="/admin/system" component={withLayout(AdminSystem)} />
             <AdminProtectedRoute path="/admin/audit-log" component={withLayout(AdminAuditLog)} />
