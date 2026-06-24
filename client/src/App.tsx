@@ -22,9 +22,11 @@ import AuthPage from "@/pages/auth-page";
 import DemoAiFixPage from "@/pages/demo-ai-fix";
 import AuditPage from "@/pages/audit";
 import PricingPage from "@/pages/pricing";
+import FreeAuditRequest from "@/pages/free-audit-request";
 import AdminOverview from "@/pages/admin/overview";
 import AdminUsers from "@/pages/admin/users";
 import AdminOrders from "@/pages/admin/orders";
+import AdminFreeAuditQueue from "@/pages/admin/free-audit-queue";
 import AdminRequests from "@/pages/admin/requests";
 import AdminSystem from "@/pages/admin/system";
 import AdminAuditLog from "@/pages/admin/audit-log";
@@ -63,11 +65,13 @@ function App() {
             <Route path="/privacy" component={withLayout(Privacy)} />
             <Route path="/demo-ai-fix" component={withLayout(DemoAiFixPage)} />
             <Route path="/pricing" component={withLayout(PricingPage)} />
+            <Route path="/free-audit-request" component={withLayout(FreeAuditRequest)} />
             
             {/* Admin Routes with Sidebar */}
             <AdminProtectedRoute path="/admin/overview" component={withLayout(AdminOverview)} />
             <AdminProtectedRoute path="/admin/users" component={withLayout(AdminUsers)} />
             <AdminProtectedRoute path="/admin/orders" component={withLayout(AdminOrders)} />
+            <AdminProtectedRoute path="/admin/free-audit-queue" component={withLayout(AdminFreeAuditQueue)} />
             <AdminProtectedRoute path="/admin/requests" component={withLayout(AdminRequests)} />
             <AdminProtectedRoute path="/admin/system" component={withLayout(AdminSystem)} />
             <AdminProtectedRoute path="/admin/audit-log" component={withLayout(AdminAuditLog)} />

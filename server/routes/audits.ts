@@ -5,7 +5,7 @@ import { generateAndSignReport } from "../compliance/report-generator.js";
 import { generateAuditPdf } from "../compliance/pdf-generator.js";
 import git from "isomorphic-git";
 // @ts-ignore
-import http from "isomorphic-git/http/node/index.js";
+import http from "isomorphic-git/http/node";
 import fsSync from "graceful-fs";
 import fs from "fs/promises";
 import os from "os";
@@ -250,7 +250,7 @@ router.post("/:id/cancel", async (req, res) => {
   res.json({ success: true, message: "Audit cancelled successfully" });
 });
 
-async function runAuditAsync(auditId: string, repoUrl: string, branch: string, userId: string) {
+export async function runAuditAsync(auditId: string, repoUrl: string, branch: string, userId: string) {
   const cloneDir = path.join(os.tmpdir(), "codeguard-audits", auditId);
   const abortController = new AbortController();
   activeAuditAbortControllers.set(auditId, abortController);
