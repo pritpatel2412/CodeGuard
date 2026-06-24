@@ -32,7 +32,11 @@ export default function AuditPage() {
 
   const { data: auditHistory } = useQuery<any[]>({
     queryKey: ["/api/audits/history", repositoryUrl],
-    enabled: !!repositoryUrl,
+    queryFn: async () => {
+      const url = repositoryUrl ? `/api/audits/history?repositoryUrl=${encodeURIComponent(repositoryUrl)}` : "/api/audits/history";
+      const res = await apiRequest("GET", url);
+      return res.json();
+    }
   });
 
   const startAuditMutation = useMutation({
@@ -106,7 +110,11 @@ export default function AuditPage() {
 
   const createOrderMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/orders", { auditId: currentAuditId });
+      const res = await apiRequest("POST", "/api/orders", { 
+        auditId: currentAuditId,
+        tierId: "enterprise",
+        priceUsd: 999
+      });
       return res.json();
     },
     onSuccess: () => {
@@ -330,7 +338,7 @@ export default function AuditPage() {
               <History className="w-4 h-4 mr-2" />
               Audit History
             </CardTitle>
-            <CardDescription>Trend for {selectedRepo?.name}</CardDescription>
+            <CardDescription>{selectedRepo?.name ? `Trend for ${selectedRepo.name}` : "Trend for all repositories"}</CardDescription>
           </CardHeader>
           <CardContent>
             {chartData.length > 1 && (

@@ -7,6 +7,7 @@ import { createServer } from "http";
 import type { Request, Response, NextFunction } from "express";
 import taintRouter from "./routes/taint";
 import aiStatusRouter from "./routes/ai-status.js";
+import adminRouter from "./routes/admin.js";
 
 import { setupSocketIO } from "./socket";
 import { requestLogger } from "./middleware/request-logger";
@@ -28,6 +29,7 @@ import { startRetentionJob } from "./jobs/retention";
   
   app.use("/api/taint", taintRouter);
   app.use("/api/ai", aiStatusRouter);
+  app.use("/api/admin", adminRouter);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

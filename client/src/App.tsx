@@ -22,10 +22,14 @@ import AuthPage from "@/pages/auth-page";
 import DemoAiFixPage from "@/pages/demo-ai-fix";
 import AuditPage from "@/pages/audit";
 import PricingPage from "@/pages/pricing";
-import AdminOrdersPage from "@/pages/admin-orders";
+import AdminOverview from "@/pages/admin/overview";
+import AdminUsers from "@/pages/admin/users";
+import AdminRequests from "@/pages/admin/requests";
+import AdminSystem from "@/pages/admin/system";
+import AdminAuditLog from "@/pages/admin/audit-log";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ThemeProvider } from "@/hooks/use-theme";
-import { ProtectedRoute } from "@/lib/protected-route";
+import { ProtectedRoute, AdminProtectedRoute } from "@/lib/protected-route";
 import { withLayout } from "@/components/layout";
 import { SocketManager } from "@/components/SocketManager";
 
@@ -48,7 +52,6 @@ function App() {
             <ProtectedRoute path="/analytics" component={withLayout(Analytics)} />
             <ProtectedRoute path="/settings" component={withLayout(Settings)} />
             <ProtectedRoute path="/audit" component={withLayout(AuditPage)} />
-            <ProtectedRoute path="/admin/orders" component={withLayout(AdminOrdersPage)} />
             
             {/* Public Routes with Sidebar */}
             <Route path="/how-to-use" component={withLayout(HowToUsePage)} />
@@ -59,6 +62,13 @@ function App() {
             <Route path="/demo-ai-fix" component={withLayout(DemoAiFixPage)} />
             <Route path="/pricing" component={withLayout(PricingPage)} />
             
+            {/* Admin Routes with Sidebar */}
+            <AdminProtectedRoute path="/admin/overview" component={withLayout(AdminOverview)} />
+            <AdminProtectedRoute path="/admin/users" component={withLayout(AdminUsers)} />
+            <AdminProtectedRoute path="/admin/requests" component={withLayout(AdminRequests)} />
+            <AdminProtectedRoute path="/admin/system" component={withLayout(AdminSystem)} />
+            <AdminProtectedRoute path="/admin/audit-log" component={withLayout(AdminAuditLog)} />
+
             {/* Catch-all: Truly Full Screen 404 */}
             <Route component={NotFound} />
           </Switch>

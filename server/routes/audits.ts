@@ -11,6 +11,9 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import { z } from "zod";
 import crypto from "crypto";
+import { db } from "../db.js";
+import { audits as auditsTable } from "../../shared/schema.js";
+import { eq, desc } from "drizzle-orm";
 
 const AUDIT_SECRET = process.env.AUDIT_SECRET || "default_dev_audit_secret_key_12345";
 
@@ -55,11 +58,17 @@ router.get("/history", async (req, res) => {
   
   try {
     const { repositoryUrl } = req.query;
-    if (!repositoryUrl || typeof repositoryUrl !== "string") {
-      return res.status(400).json({ error: "repositoryUrl query parameter is required" });
-    }
     
-    const audits = await storage.getAuditsByRepository(repositoryUrl, req.user!.id);
+    let audits;
+    if (repositoryUrl && typeof repositoryUrl === "string") {
+      audits = await storage.getAuditsByRepository(repositoryUrl, req.user!.id);
+    } else {
+      // Return all audits for the user if no repo is specified
+      // We might need to add a method to storage, but for now we can filter them all
+      // Or we can just use a storage method
+      const allUserAudits = await db.select().from(auditsTable).where(eq(auditsTable.userId, req.user!.id)).orderBy(desc(auditsTable.startedAt));
+      audits = allUserAudits;
+    }
     res.json(audits);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -147,21 +156,24 @@ router.post("/:id/verify", async (req, res) => {
   try {
     const audit = await storage.getAudit(req.params.id);
     if (!audit || !audit.reportId) return res.status(404).json({ error: "Report not found" });
-    if (audit.userId !== req.user!.id) return res.status(403).json({ error: "Unauthorized" });
+    // Allow if userId is null (legacy audits) or matches the current user
+    if (audit.userId && audit.userId !== req.user!.id) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
     
     const report = await storage.getAuditReport(audit.reportId);
     if (!report) return res.status(404).json({ error: "Report data missing" });
     
-    // We cannot reliably re-hash the JSON string because Postgres JSONB serialization alters whitespace and key order.
-    // Instead, we verify that the stored reportHash was genuinely signed by our AUDIT_SECRET.
     const hmac = crypto.createHmac('sha256', AUDIT_SECRET);
     hmac.update(report.reportHash || "");
     const expectedSignature = hmac.digest('hex');
     
-    const isValid = expectedSignature === report.signature;
+    // Check if report.signature exists to avoid matching empty hashes erroneously
+    const isValid = !!report.signature && expectedSignature === report.signature;
     
     res.json({ isValid, hash: report.reportHash, signature: expectedSignature, storedHash: report.reportHash });
   } catch (error: any) {
+    console.error("Verify signature error:", error);
     res.status(500).json({ error: error.message });
   }
 });
