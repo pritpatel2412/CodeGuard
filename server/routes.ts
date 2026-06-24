@@ -926,6 +926,7 @@ export async function registerRoutes(
       const webhookSecret = repo.webhookSecret || repo.id;
       const repositoryUser = repo.userId ? await storage.getUser(repo.userId) : undefined;
       const reviewPreferences = resolveReviewPreferences(repositoryUser ?? DEFAULT_REVIEW_PREFERENCES);
+      const userToken = repositoryUser?.accessToken ?? undefined;
 
       if (!webhookSecret || !String(webhookSecret).trim()) {
         console.error("Webhook rejected: repository has no secret/id configured:", repositoryId);
@@ -1014,6 +1015,7 @@ export async function registerRoutes(
           "pending",
           "CodeGuard review in progress",
           prUrl,
+          userToken
         );
       } catch (statusError: any) {
         console.warn("[Gate] Unable to set pending status:", statusError?.message || statusError);
@@ -1043,11 +1045,11 @@ export async function registerRoutes(
       // Get the PR diff
       let diff: string;
       try {
-        diff = await getPullRequestDiff(owner, repoName, prNumber);
+        diff = await getPullRequestDiff(owner, repoName, prNumber, userToken);
       } catch (error: any) {
         console.error("Failed to get PR diff:", error.message);
         try {
-          await setCommitGateStatus(owner, repoName, headSha, "error", "CodeGuard failed to fetch PR diff", prUrl);
+          await setCommitGateStatus(owner, repoName, headSha, "error", "CodeGuard failed to fetch PR diff", prUrl, userToken);
         } catch {}
         await storage.updateReview(review.id, {
           status: "failed",
@@ -1077,7 +1079,7 @@ export async function registerRoutes(
       } catch (error: any) {
         console.error("OpenAI analysis failed:", error.message);
         try {
-          await setCommitGateStatus(owner, repoName, headSha, "error", "CodeGuard analysis failed", prUrl);
+          await setCommitGateStatus(owner, repoName, headSha, "error", "CodeGuard analysis failed", prUrl, userToken);
         } catch {}
         await storage.updateReview(review.id, {
           status: "failed",
@@ -1127,7 +1129,8 @@ export async function registerRoutes(
               headSha,
               comment.path,
               comment.line,
-              commentBody
+              commentBody,
+              userToken
             );
 
             await storage.updateReviewComment(savedComment.id, { isPosted: true });
@@ -1181,7 +1184,7 @@ It analyzes your changes for potential bugs, security risks, performance issues,
 
 
         try {
-          await postReview(owner, repoName, prNumber, summaryBody, "COMMENT");
+          await postReview(owner, repoName, prNumber, summaryBody, "COMMENT", userToken);
         } catch (error: any) {
           console.error("Failed to post review summary:", error.message);
         }
@@ -1192,7 +1195,7 @@ It analyzes your changes for potential bugs, security risks, performance issues,
         setImmediate(async () => {
           try {
             await runCrossFileTaintAnalysis({
-              octokit: await getUncachableGitHubClient(),
+              octokit: await getUncachableGitHubClient(userToken),
               owner,
               repo: repoName,
               ref: headSha,
@@ -1210,7 +1213,7 @@ It analyzes your changes for potential bugs, security risks, performance issues,
       // Run custom policy analysis asynchronously
       let violationCount = 0;
       try {
-        const octokit = await getUncachableGitHubClient();
+        const octokit = await getUncachableGitHubClient(userToken);
         violationCount = await runPolicyEnforcement({
           octokit,
           owner,
@@ -1223,7 +1226,7 @@ It analyzes your changes for potential bugs, security risks, performance issues,
         });
 
         if (violationCount > 0 && reviewPreferences.postComments) {
-          await postReview(owner, repoName, prNumber, buildPolicyComment(violationCount), "COMMENT");
+          await postReview(owner, repoName, prNumber, buildPolicyComment(violationCount), "COMMENT", userToken);
         }
       } catch (err) {
         console.error("[Policy] Enforcement failed:", err);
@@ -1240,6 +1243,7 @@ It analyzes your changes for potential bugs, security risks, performance issues,
             ? `Blocked: ${analysis.risk_level === "high" ? "high risk findings" : "policy violations"}`
             : "CodeGuard security gate passed",
           prUrl,
+          userToken
         );
       } catch (statusError: any) {
         console.warn("[Gate] Unable to set final status:", statusError?.message || statusError);
