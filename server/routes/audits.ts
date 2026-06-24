@@ -176,7 +176,7 @@ async function runAuditAsync(auditId: string, repoUrl: string, branch: string, u
     
     // Fetch user for access token
     const user = await storage.getUser(userId);
-    const onAuth = user?.accessToken ? () => ({ username: user.accessToken, password: "" }) : undefined;
+    const onAuth = user?.accessToken ? () => ({ username: user.accessToken ?? undefined, password: "" }) : undefined;
     
     console.log(`[Audit] Cloning ${repoUrl}#${branch} to ${cloneDir}`);
     await git.clone({

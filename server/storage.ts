@@ -20,7 +20,10 @@ import {
   type Audit,
   type InsertAudit,
   type AuditReport,
-  type InsertAuditReport
+  type InsertAuditReport,
+  auditOrders,
+  type AuditOrder,
+  type InsertAuditOrder
 } from "../shared/schema.js";
 import { db } from "./db.js";
 import { eq, desc, sql, and, gte, lt } from "drizzle-orm";
@@ -75,6 +78,13 @@ export interface IStorage {
   createAuditReport(report: InsertAuditReport): Promise<AuditReport>;
   getAuditReport(id: string): Promise<AuditReport | undefined>;
   getAuditsByRepository(repositoryUrl: string, userId: string): Promise<Audit[]>;
+
+  // Audit Orders
+  createAuditOrder(order: InsertAuditOrder): Promise<AuditOrder>;
+  getAuditOrder(id: string): Promise<AuditOrder | undefined>;
+  getAuditOrderByAuditId(auditId: string): Promise<AuditOrder | undefined>;
+  getAllAuditOrders(): Promise<any[]>;
+  updateAuditOrder(id: string, data: Partial<InsertAuditOrder>): Promise<AuditOrder | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -491,6 +501,49 @@ export class DatabaseStorage implements IStorage {
       .from(audits)
       .where(and(eq(audits.repositoryUrl, repositoryUrl), eq(audits.userId, userId)))
       .orderBy(desc(audits.startedAt));
+  }
+
+  // Audit Orders
+  async createAuditOrder(order: InsertAuditOrder): Promise<AuditOrder> {
+    const [created] = await db.insert(auditOrders).values(order).returning();
+    return created;
+  }
+
+  async getAuditOrder(id: string): Promise<AuditOrder | undefined> {
+    const [order] = await db.select().from(auditOrders).where(eq(auditOrders.id, id));
+    return order || undefined;
+  }
+
+  async getAuditOrderByAuditId(auditId: string): Promise<AuditOrder | undefined> {
+    const [order] = await db.select().from(auditOrders).where(eq(auditOrders.auditId, auditId));
+    return order || undefined;
+  }
+
+  async getAllAuditOrders(): Promise<any[]> {
+    const result = await db
+      .select({
+        order: auditOrders,
+        audit: audits,
+        user: users
+      })
+      .from(auditOrders)
+      .innerJoin(audits, eq(auditOrders.auditId, audits.id))
+      .innerJoin(users, eq(auditOrders.userId, users.id))
+      .orderBy(desc(auditOrders.createdAt));
+      
+    return result.map(r => ({
+      ...r.order,
+      auditData: r.audit,
+      userData: {
+        username: r.user.username,
+        email: r.user.githubId, // Using githubId as email approximation since we don't store email
+      }
+    }));
+  }
+
+  async updateAuditOrder(id: string, data: Partial<InsertAuditOrder>): Promise<AuditOrder | undefined> {
+    const [updated] = await db.update(auditOrders).set({ ...data, updatedAt: new Date() }).where(eq(auditOrders.id, id)).returning();
+    return updated || undefined;
   }
 
   // Visitors

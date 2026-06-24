@@ -99,6 +99,34 @@ export default function AuditPage() {
     enabled: !!currentAuditId && audit?.status === "complete",
   });
 
+  const { data: order } = useQuery<any>({
+    queryKey: ["/api/orders/audit", currentAuditId],
+    enabled: !!currentAuditId && audit?.status === "complete",
+  });
+
+  const createOrderMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/orders", { auditId: currentAuditId });
+      return res.json();
+    },
+    onSuccess: () => {
+      // Assuming queryClient is available from lib/queryClient or we can just refetch
+      toast({
+        title: "Invoice Generated",
+        description: "Your invoice has been generated. Please review.",
+      });
+      // A quick reload is acceptable since we don't have queryClient in scope, or we can just window.location.reload()
+      window.location.reload();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to create invoice",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  });
+
   // Generate a mock sparkline data trend for the visual effect
   const chartData = auditHistory?.map((h, i) => ({ value: Math.max(1, 15 - i * 3) })).reverse() || [];
 
@@ -170,7 +198,123 @@ export default function AuditPage() {
               </Button>
             </CardContent>
           </Card>
+        </div>
 
+        <div className="md:col-span-2">
+          {currentAuditId ? (
+            <Card className="h-full">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  Audit Report
+                  {audit?.status === "running" && <Badge variant="secondary" className="ml-3">Scanning</Badge>}
+                  {audit?.status === "complete" && <Badge variant="default" className="ml-3 bg-green-600 hover:bg-green-700">Complete</Badge>}
+                  {audit?.status === "failed" && <Badge variant="destructive" className="ml-3">Failed</Badge>}
+                </CardTitle>
+                <CardDescription>ASVS 5.0 Compliance Status</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {audit?.status === "pending" || audit?.status === "running" ? (
+                  <div className="h-64 flex flex-col items-center justify-center space-y-4">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    <p className="text-muted-foreground">Analyzing source code against ASVS 5.0 controls...</p>
+                    <div className="w-full max-w-md space-y-2 text-xs font-mono text-muted-foreground bg-muted p-4 rounded-md overflow-hidden">
+                      <div>[system] Fetching repository contents...</div>
+                      <div>[scanner] Running static analysis engine...</div>
+                      <div>[ai] Evaluating access control logic...</div>
+                    </div>
+                  </div>
+                ) : audit?.status === "failed" ? (
+                  <div className="h-64 flex flex-col items-center justify-center space-y-4 text-destructive">
+                    <AlertTriangle className="h-12 w-12" />
+                    <p>The audit failed to complete. Please try again.</p>
+                  </div>
+                ) : audit?.status === "complete" ? (
+                  <div className="space-y-6">
+                    {order && (order.status === "marked_paid_manually" || order.status === "comped") ? (
+                      <>
+                        <div className="flex flex-wrap gap-2 items-center justify-between mb-4">
+                          <div className="flex items-center text-green-600">
+                            <ShieldCheck className="mr-2 h-5 w-5" />
+                            <span className="font-medium">Audit complete. Review findings below.</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button variant="outline" size="sm" onClick={() => verifySignatureMutation.mutate()} disabled={verifySignatureMutation.isPending}>
+                              {verifySignatureMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                              Verify Signature
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => window.open(`/api/audits/${currentAuditId}/download`, '_blank')}>
+                              <Download className="mr-2 h-4 w-4" />
+                              JSON
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => window.open(`/api/audits/${currentAuditId}/pdf`, '_blank')}>
+                              <FileText className="mr-2 h-4 w-4" />
+                              PDF
+                            </Button>
+                          </div>
+                        </div>
+                        
+                        {report && Array.isArray(report) && report.map((r: any) => (
+                          <div key={r.controlId} className="border rounded-md p-4 bg-muted/20">
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-semibold">{r.controlId}</h4>
+                              <Badge variant={
+                                r.verdict === 'pass' ? 'default' :
+                                r.verdict === 'fail' ? 'destructive' :
+                                'outline'
+                              }>{r.verdict}</Badge>
+                            </div>
+                            {r.evidence && r.evidence.length > 0 && (
+                              <div className="mt-2 text-sm bg-background border rounded p-2 overflow-x-auto text-muted-foreground whitespace-pre-wrap">
+                                <span className="font-medium text-foreground block mb-1">Evidence ({r.evidence[0].collector}):</span>
+                                {r.evidence[0].raw_evidence_snippet}
+                                {r.evidence[0].source_file && (
+                                  <div className="mt-1 text-xs text-blue-500">Source: {r.evidence[0].source_file}</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </>
+                    ) : (
+                      <div className="border border-primary/20 bg-primary/5 rounded-xl p-8 text-center space-y-6">
+                        <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+                          <ShieldCheck className="h-8 w-8 text-primary" />
+                        </div>
+                        <h3 className="text-2xl font-bold">Your Audit Report is Ready</h3>
+                        <p className="text-muted-foreground max-w-md mx-auto">
+                          CodeGuard has completed the ASVS 5.0 compliance scan for <strong>{selectedRepo?.name}</strong>. The cryptographically signed artifacts are ready to view.
+                        </p>
+                        
+                        {!order ? (
+                          <div className="pt-4">
+                            <Button 
+                              size="lg" 
+                              onClick={() => createOrderMutation.mutate()}
+                              disabled={createOrderMutation.isPending}
+                            >
+                              {createOrderMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                              Request Invoice & Unlock
+                            </Button>
+                            <p className="text-xs text-muted-foreground mt-3">
+                              You will be invoiced based on your repository size tier.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="pt-4">
+                            <Badge variant="outline" className="text-yellow-600 bg-yellow-50 border-yellow-200 px-3 py-1 mb-4 text-sm">
+                              Payment Pending
+                            </Badge>
+                            <p className="text-sm">
+                              Your order invoice has been generated. An administrator must mark it as paid to unlock the report.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
           ) : (
             <div className="h-full flex items-center justify-center border-2 border-dashed rounded-lg p-12 text-muted-foreground text-center bg-muted/10">
               Select a repository and branch to start a new compliance audit.
