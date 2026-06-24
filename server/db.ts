@@ -11,4 +11,8 @@ if (!process.env.DATABASE_URL) {
 }
 
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// Auto-migrate created_at for users to prevent Vercel crashes
+pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`).catch(console.error);
+
 export const db = drizzle(pool, { schema });
