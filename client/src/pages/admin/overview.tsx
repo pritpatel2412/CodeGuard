@@ -9,7 +9,7 @@ export default function AdminOverview() {
   const [range, setRange] = useState("7d");
 
   const { data: metrics, isLoading } = useQuery<any>({
-    queryKey: ["/api/admin/overview", { range }],
+    queryKey: [`/api/admin/overview?range=${range}`],
     refetchInterval: 2000,
   });
 
