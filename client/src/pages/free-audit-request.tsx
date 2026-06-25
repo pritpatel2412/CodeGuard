@@ -8,7 +8,7 @@ import { Loader2, CheckCircle2, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
@@ -21,6 +21,7 @@ const requestSchema = z.object({
   confirmAccess: z.literal(true, {
     errorMap: () => ({ message: "You must confirm you have the right to grant access" }),
   }),
+  website: z.string().optional(),
 });
 
 type PromoOfferData = {
@@ -51,6 +52,7 @@ export default function FreeAuditRequest() {
       contactName: "",
       contactEmail: "",
       motivationText: "",
+      website: "",
     },
   });
 
@@ -93,15 +95,15 @@ export default function FreeAuditRequest() {
 
   if (!offerData?.active) {
     return (
-      <div className="container mx-auto px-4 py-16 max-w-2xl text-center space-y-8">
-        <ShieldAlert className="w-16 h-16 text-muted-foreground mx-auto" />
-        <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl">
+      <div className="p-6 space-y-6 max-w-md mx-auto text-center py-16">
+        <ShieldAlert className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+        <h1 className="text-xl font-semibold tracking-tight">
           This week's free audit offer has ended
         </h1>
-        <p className="text-xl text-muted-foreground">
+        <p className="text-sm text-muted-foreground leading-relaxed mt-2">
           Thank you for your interest! We're currently processing the batch of requests we received.
         </p>
-        <Button size="lg" onClick={() => setLocation("/pricing")}>
+        <Button size="sm" onClick={() => setLocation("/pricing")} className="mt-4">
           View our Pricing Page instead
         </Button>
       </div>
@@ -110,12 +112,12 @@ export default function FreeAuditRequest() {
 
   if (submitted) {
     return (
-      <div className="container mx-auto px-4 py-16 max-w-2xl text-center space-y-8">
-        <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto" />
-        <h1 className="text-4xl font-extrabold tracking-tight lg:text-4xl">
+      <div className="p-6 space-y-6 max-w-md mx-auto text-center py-16">
+        <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-3" />
+        <h1 className="text-xl font-semibold tracking-tight">
           Request Received
         </h1>
-        <p className="text-xl text-muted-foreground">
+        <p className="text-sm text-muted-foreground leading-relaxed mt-2">
           Thanks — I'm reviewing these personally this week and will email you directly.
         </p>
       </div>
@@ -123,65 +125,67 @@ export default function FreeAuditRequest() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-16 max-w-2xl">
-      <div className="text-center space-y-4 mb-10">
-        <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl">
+    <div className="p-6 space-y-6 max-w-3xl mx-auto">
+      {/* Aligned Typography Header */}
+      <div className="flex flex-col gap-1 border-b pb-5">
+        <h1 className="text-2xl font-semibold tracking-tight">
           {offerData?.offer?.name === "linkedin-launch-week" 
             ? "Free CodeGuard Audit" 
             : "Free CodeGuard Audit"}
         </h1>
-        <p className="text-lg text-muted-foreground">
-          {offerData?.offer?.description || "Drop your repo, and I'll run an Audit Mode pass on it personally."}
+        <p className="text-sm text-muted-foreground mt-1">
+          {offerData?.offer?.description || "Submit your repository, and we'll run a complete compliance report on it."}
         </p>
       </div>
 
       {(offerData?.pendingCount ?? 0) > 50 && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-md p-4 mb-6 flex items-start gap-3 text-left">
-          <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5 text-amber-600" />
-          <p className="text-sm">
-            <strong>High volume:</strong> Due to the number of requests, new submissions may not be reviewed before the offer ends.
-          </p>
+        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-500 rounded-lg p-4 mb-2 flex items-start gap-3 text-left">
+          <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <p className="text-xs font-bold">High Request Volume</p>
+            <p className="text-[11px] opacity-95">Due to the number of pending requests, new submissions may not be reviewed before the offer ends.</p>
+          </div>
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Submit your repository</CardTitle>
-          <CardDescription>
-            No credit card required. I review every submission personally to ensure we can provide value.
+      <Card className="border border-border bg-card shadow-sm rounded-xl">
+        <CardHeader className="space-y-1.5">
+          <CardTitle className="text-base font-semibold">Submit your repository</CardTitle>
+          <CardDescription className="text-xs">
+            No credit card required. We review every submission manually to verify access.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <FormField
                 control={form.control}
                 name="repoUrl"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Repository URL</FormLabel>
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className="text-xs">Repository URL</FormLabel>
                     <FormControl>
-                      <Input placeholder="https://github.com/owner/repo" {...field} />
+                      <Input placeholder="https://github.com/owner/repo" {...field} className="h-8 text-xs" />
                     </FormControl>
-                    <FormDescription>
+                    <FormDescription className="text-[10px]">
                       Must be a public repository. If private, please include instructions to grant read access in the motivation field below.
                     </FormDescription>
-                    <FormMessage />
+                    <FormMessage className="text-[10px]" />
                   </FormItem>
                 )}
               />
 
-              <div className="grid md:grid-cols-2 gap-6">
+              <div className="grid md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="contactName"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Your Name</FormLabel>
+                    <FormItem className="space-y-1.5">
+                      <FormLabel className="text-xs">Your Name</FormLabel>
                       <FormControl>
-                        <Input placeholder="Jane Doe" {...field} />
+                        <Input placeholder="Jane Doe" {...field} className="h-8 text-xs" />
                       </FormControl>
-                      <FormMessage />
+                      <FormMessage className="text-[10px]" />
                     </FormItem>
                   )}
                 />
@@ -189,12 +193,12 @@ export default function FreeAuditRequest() {
                   control={form.control}
                   name="contactEmail"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email Address</FormLabel>
+                    <FormItem className="space-y-1.5">
+                      <FormLabel className="text-xs">Email Address</FormLabel>
                       <FormControl>
-                        <Input type="email" placeholder="jane@example.com" {...field} />
+                        <Input type="email" placeholder="jane@example.com" {...field} className="h-8 text-xs" />
                       </FormControl>
-                      <FormMessage />
+                      <FormMessage className="text-[10px]" />
                     </FormItem>
                   )}
                 />
@@ -204,16 +208,16 @@ export default function FreeAuditRequest() {
                 control={form.control}
                 name="motivationText"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>What are you hoping to learn from the report?</FormLabel>
+                  <FormItem className="space-y-1.5">
+                    <FormLabel className="text-xs">What are you hoping to learn from the report?</FormLabel>
                     <FormControl>
                       <Textarea 
                         placeholder="e.g. Preparing for SOC2 compliance, looking for critical security blind spots..." 
-                        className="min-h-[100px]"
+                        className="min-h-[80px] text-xs"
                         {...field} 
                       />
                     </FormControl>
-                    <FormMessage />
+                    <FormMessage className="text-[10px]" />
                   </FormItem>
                 )}
               />
@@ -222,7 +226,7 @@ export default function FreeAuditRequest() {
                 control={form.control}
                 name="confirmAccess"
                 render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-lg border border-border p-3.5 bg-muted/20">
                     <FormControl>
                       <Checkbox
                         checked={field.value}
@@ -230,7 +234,7 @@ export default function FreeAuditRequest() {
                       />
                     </FormControl>
                     <div className="space-y-1 leading-none">
-                      <FormLabel>
+                      <FormLabel className="text-xs font-normal">
                         I confirm I have the right to grant access to this repository for security auditing purposes.
                       </FormLabel>
                     </div>
@@ -238,7 +242,22 @@ export default function FreeAuditRequest() {
                 )}
               />
 
-              <Button type="submit" className="w-full" disabled={mutation.isPending}>
+              {/* Honeypot field for bot resistance */}
+              <div className="hidden" aria-hidden="true">
+                <FormField
+                  control={form.control}
+                  name="website"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <Input type="text" tabIndex={-1} autoComplete="off" {...field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <Button type="submit" className="w-full text-xs h-9 font-semibold" disabled={mutation.isPending}>
                 {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Submit Request
               </Button>

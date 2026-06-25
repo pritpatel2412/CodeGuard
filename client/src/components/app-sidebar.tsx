@@ -15,6 +15,8 @@ import {
   Search,
   ShoppingCart,
   Download,
+  CreditCard,
+  Megaphone,
 } from "lucide-react";
 import {
   Sidebar,
@@ -62,6 +64,11 @@ const navItems = [
     icon: ShieldCheck,
   },
   {
+    title: "Pricing Plans",
+    url: "/pricing",
+    icon: CreditCard,
+  },
+  {
     title: "Settings",
     url: "/settings",
     icon: Settings,
@@ -77,27 +84,32 @@ const adminNavItems = [
   {
     title: "Orders",
     url: "/admin/orders",
-    icon: ShoppingCart, // Assuming ShoppingCart icon is imported, let's check
+    icon: ShoppingCart,
   },
   {
     title: "Users",
     url: "/admin/users",
-    icon: ShieldCheck, // or another appropriate icon
+    icon: ShieldCheck,
   },
   {
     title: "Live Requests",
     url: "/admin/requests",
-    icon: Activity, // need to import
+    icon: Activity,
   },
   {
     title: "System Health",
     url: "/admin/system",
-    icon: Server, // need to import
+    icon: Server,
   },
   {
     title: "Free Audit Queue",
     url: "/admin/free-audit-queue",
     icon: ShieldCheck,
+  },
+  {
+    title: "Free Audit Campaign",
+    url: "/free-audit-request",
+    icon: Megaphone,
   },
   {
     title: "Audit Log",

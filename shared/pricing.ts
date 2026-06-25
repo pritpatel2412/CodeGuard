@@ -11,75 +11,64 @@ export interface PricingTier {
 
 export const AUDIT_PRICING_TIERS: PricingTier[] = [
   {
-    id: "small",
-    name: "Small",
+    id: "developer",
+    name: "Developer",
     targetRepoSize: "<10k LOC",
-    asvsLevelSupported: "L1 + L2",
-    /*
-     * PRICING RATIONALE:
-     * A traditional third-party CPA audit engagement costs between $8,000 and $50,000.
-     * CodeGuard is an automated readiness report, not a licensed CPA.
-     * $1,500 sits meaningfully below the $8k floor, making it an easy "yes" for startups
-     * preparing for an audit.
-     * The GPT-4o / NIM token cost for a small repo audit is roughly $5-$15 (from eval harness),
-     * so $1,500 offers excellent margins while remaining extremely competitive.
-     */
-    priceUsd: 1500,
-    turnaroundEstimate: "24-48 hours",
+    asvsLevelSupported: "Basic Scanning (No Audit)",
+    priceUsd: 29,
+    turnaroundEstimate: "Instant / PR Scan",
     included: [
-      "Automated ASVS Readiness Report",
-      "Cryptographically Signed Artifact",
-      "Actionable Remediation Guidance",
+      "Automated Code Quality Reviews",
+      "Basic Static Security Scanning",
+      "Standard Webhook Integration",
+      "Standard Email Support",
     ],
     notIncluded: [
-      "Does NOT replace a licensed CPA SOC2/ASVS certification",
-      "Manual Penetration Testing"
+      "Automated ASVS/SOC2 Readiness Reports",
+      "Cryptographically Signed Audit Artifacts",
+      "Custom Policy (.codeguard.yml) Enforcement",
+      "Priority SLA Support",
     ]
   },
   {
-    id: "medium",
-    name: "Medium",
+    id: "pro",
+    name: "Pro Compliance",
     targetRepoSize: "10k-100k LOC",
-    asvsLevelSupported: "L1 + L2",
-    /*
-     * PRICING RATIONALE:
-     * Priced at $2,500 to account for higher token usage (approx $30-$100) and increased
-     * complexity, but still a fraction of the traditional cost.
-     */
-    priceUsd: 2500,
+    asvsLevelSupported: "ASVS Level 1 & 2",
+    priceUsd: 199,
     turnaroundEstimate: "24-48 hours",
     included: [
-      "Automated ASVS Readiness Report",
-      "Cryptographically Signed Artifact",
-      "Actionable Remediation Guidance",
-      "Priority Email Support"
+      "Automated ASVS/SOC2 Readiness Reports",
+      "Deep Taint-Path Dataflow Analysis",
+      "Cryptographically Signed Audit Artifacts",
+      "Custom Policy (.codeguard.yml) Enforcement",
+      "Priority 24hr Email Support",
     ],
     notIncluded: [
-      "Does NOT replace a licensed CPA SOC2/ASVS certification",
-      "Manual Penetration Testing"
+      "ASVS Level 3 Certification Verification",
+      "Dedicated Slack Support Channel",
+      "Manual Penetration Testing",
     ]
   },
   {
-    id: "large",
-    name: "Large",
+    id: "enterprise",
+    name: "Enterprise Audit",
     targetRepoSize: "100k+ LOC",
-    asvsLevelSupported: "L1 + L2",
-    /*
-     * PRICING RATIONALE:
-     * Large repos require significant API limits and processing time. $5,000 reflects
-     * enterprise value while remaining well below a full $50k engagement.
-     */
-    priceUsd: 5000,
-    turnaroundEstimate: "48-72 hours",
+    asvsLevelSupported: "ASVS Levels 1, 2, & 3",
+    priceUsd: 499,
+    turnaroundEstimate: "12-24 hours (Priority)",
     included: [
-      "Automated ASVS Readiness Report",
-      "Cryptographically Signed Artifact",
-      "Actionable Remediation Guidance",
-      "Dedicated Slack Channel"
+      "ASVS Levels 1, 2, & 3 Audit Readiness",
+      "Cryptographically Signed Audit Artifacts",
+      "Dedicated Slack Channel Support",
+      "Custom Compliance Standard Mapping",
+      "High-Priority SLA (1hr Response)",
+      "Multi-repository compliance reports",
     ],
     notIncluded: [
       "Does NOT replace a licensed CPA SOC2/ASVS certification",
-      "Manual Penetration Testing"
+      "Manual Penetration Testing (Add-on)"
     ]
   }
 ];
+

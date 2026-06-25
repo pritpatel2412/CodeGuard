@@ -30,7 +30,10 @@ import {
   type PromoOffer,
   type InsertPromoOffer,
   type FreeAuditRequest,
-  type InsertFreeAuditRequest
+  type InsertFreeAuditRequest,
+  auditFeedback,
+  type AuditFeedback,
+  type InsertAuditFeedback
 } from "../shared/schema.js";
 import { db } from "./db.js";
 import { eq, desc, sql, and, gte, lt } from "drizzle-orm";
@@ -99,6 +102,11 @@ export interface IStorage {
   getPendingFreeAuditRequests(): Promise<FreeAuditRequest[]>;
   getFreeAuditRequest(id: string): Promise<FreeAuditRequest | undefined>;
   updateFreeAuditRequestStatus(id: string, status: string, adminId?: string, auditId?: string): Promise<FreeAuditRequest | undefined>;
+
+  // Audit Feedback
+  createAuditFeedback(auditId: string): Promise<AuditFeedback>;
+  getAuditFeedback(auditId: string): Promise<AuditFeedback | undefined>;
+  updateAuditFeedback(id: string, data: { responses?: any, freeText?: string }): Promise<AuditFeedback | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -165,30 +173,48 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Repositories
+  private hydrateRepository(repo: Repository | undefined): Repository | undefined {
+    if (!repo) return undefined;
+    let decryptedWebhookSecret = repo.webhookSecret;
+    if (decryptedWebhookSecret) {
+      try {
+        decryptedWebhookSecret = decryptAccessToken(decryptedWebhookSecret) ?? null;
+      } catch (err) {
+        console.warn(`[Security] Failed to decrypt webhookSecret for repo ${repo.id}`);
+      }
+    }
+    return { ...repo, webhookSecret: decryptedWebhookSecret };
+  }
+
   async getRepositories(userId: string): Promise<Repository[]> {
-    return db.select().from(repositories).where(eq(repositories.userId, userId)).orderBy(desc(repositories.createdAt));
+    const repos = await db.select().from(repositories).where(eq(repositories.userId, userId)).orderBy(desc(repositories.createdAt));
+    return repos.map(r => this.hydrateRepository(r)!);
   }
 
   async getRepository(id: string): Promise<Repository | undefined> {
     const [repo] = await db.select().from(repositories).where(eq(repositories.id, id));
-    return repo || undefined;
+    return this.hydrateRepository(repo);
   }
 
   async getRepositoryByFullName(fullName: string): Promise<Repository | undefined> {
     const [repo] = await db.select().from(repositories).where(eq(repositories.fullName, fullName));
-    return repo || undefined;
+    return this.hydrateRepository(repo);
   }
 
   async createRepository(repo: InsertRepository): Promise<Repository> {
-    const webhookSecret = randomUUID();
+    const webhookSecret = encryptAccessToken(randomUUID());
     const [created] = await db.insert(repositories).values({ ...repo, webhookSecret }).returning();
     emitReviewUpdate();
-    return created;
+    return this.hydrateRepository(created)!;
   }
 
   async updateRepository(id: string, data: Partial<InsertRepository>): Promise<Repository | undefined> {
-    const [updated] = await db.update(repositories).set(data).where(eq(repositories.id, id)).returning();
-    return updated || undefined;
+    const updateData = { ...data };
+    if (updateData.webhookSecret) {
+      updateData.webhookSecret = encryptAccessToken(updateData.webhookSecret);
+    }
+    const [updated] = await db.update(repositories).set(updateData).where(eq(repositories.id, id)).returning();
+    return this.hydrateRepository(updated);
   }
 
   async deleteRepository(id: string): Promise<void> {
@@ -689,6 +715,25 @@ export class DatabaseStorage implements IStorage {
       .where(eq(freeAuditRequests.id, id))
       .returning();
       
+    return updated || undefined;
+  }
+
+  // Audit Feedback
+  async createAuditFeedback(auditId: string): Promise<AuditFeedback> {
+    const [feedback] = await db.insert(auditFeedback).values({ auditId }).returning();
+    return feedback;
+  }
+
+  async getAuditFeedback(auditId: string): Promise<AuditFeedback | undefined> {
+    const [feedback] = await db.select().from(auditFeedback).where(eq(auditFeedback.auditId, auditId));
+    return feedback || undefined;
+  }
+
+  async updateAuditFeedback(id: string, data: { responses?: any, freeText?: string }): Promise<AuditFeedback | undefined> {
+    const [updated] = await db.update(auditFeedback)
+      .set({ ...data, respondedAt: new Date() })
+      .where(eq(auditFeedback.id, id))
+      .returning();
     return updated || undefined;
   }
 }
