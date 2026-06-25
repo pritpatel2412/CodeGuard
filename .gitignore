@@ -19,3 +19,6 @@ visitors.json
 debug-output.txt
 *.pem
 *.key
+scratch/
+test-output.pdf
+log.txt
