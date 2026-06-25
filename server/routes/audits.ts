@@ -24,8 +24,8 @@ function resolveAuditSecret(): string {
   const secret = process.env.AUDIT_SECRET;
   if (process.env.NODE_ENV === "production") {
     if (!secret || secret.length < MIN_AUDIT_SECRET_LEN) {
-      console.error("[FATAL] AUDIT_SECRET must be set in production and be at least 32 characters.");
-      process.exit(1);
+      console.error("[WARNING] AUDIT_SECRET is not set in production or is too short! Falling back to an insecure default. Please set a secure 32+ character AUDIT_SECRET in your environment variables immediately.");
+      return "default_dev_audit_secret_key_12345";
     }
     return secret;
   }

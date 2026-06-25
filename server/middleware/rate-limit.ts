@@ -18,8 +18,9 @@ export const publicIntakeLimiter = rateLimit({
   max: 3, // 3 requests
   keyGenerator: (req) => {
     // Limit by IP AND email
+    const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").toString();
     const email = req.body?.contactEmail || "no-email";
-    return `${req.ip}_${email}`;
+    return `${clientIp}_${email}`;
   },
   message: { error: "You have reached the maximum number of free audit requests (3 per 24 hours)." },
   handler,
@@ -34,7 +35,7 @@ export const auditIngestionLimiter = rateLimit({
       // @ts-ignore
       return req.user.id.toString();
     }
-    return req.ip || "unknown";
+    return (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").toString();
   },
   message: { error: "You have reached your daily limit of 5 audits." },
   handler,
