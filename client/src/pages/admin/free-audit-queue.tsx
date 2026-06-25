@@ -90,10 +90,10 @@ export default function AdminFreeAuditQueue() {
   const isCeilingReached = todayCost >= 100;
 
   return (
-    <div className="space-y-6">
+    <div className="container mx-auto py-8 px-4 max-w-6xl space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Free Audit Queue</h2>
+          <h1 className="text-3xl font-bold tracking-tight">Free Audit Queue</h1>
           <p className="text-muted-foreground">
             Review and approve requests submitted via the public free audit offer.
           </p>

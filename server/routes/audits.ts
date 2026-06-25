@@ -12,6 +12,7 @@ import os from "os";
 import path from "path";
 import { z } from "zod";
 import crypto from "crypto";
+import { promisify } from "util";
 import { db } from "../db.js";
 import { audits as auditsTable } from "../../shared/schema.js";
 import { eq, desc } from "drizzle-orm";
@@ -250,6 +251,25 @@ router.post("/:id/cancel", async (req, res) => {
   res.json({ success: true, message: "Audit cancelled successfully" });
 });
 
+// isomorphic-git uses fs.promises if available, which graceful-fs does NOT patch for EMFILE handling.
+// We must manually provide a promisified fs object using graceful-fs's callback methods.
+const gitFs = {
+  ...fsSync,
+  promises: {
+    readFile: promisify(fsSync.readFile),
+    writeFile: promisify(fsSync.writeFile),
+    mkdir: promisify(fsSync.mkdir),
+    rmdir: promisify(fsSync.rmdir),
+    unlink: promisify(fsSync.unlink),
+    stat: promisify(fsSync.stat),
+    lstat: promisify(fsSync.lstat),
+    readdir: promisify(fsSync.readdir),
+    readlink: promisify(fsSync.readlink),
+    symlink: promisify(fsSync.symlink),
+    chmod: promisify(fsSync.chmod),
+  }
+};
+
 export async function runAuditAsync(auditId: string, repoUrl: string, branch: string, userId: string) {
   const cloneDir = path.join(os.tmpdir(), "codeguard-audits", auditId);
   const abortController = new AbortController();
@@ -274,7 +294,7 @@ export async function runAuditAsync(auditId: string, repoUrl: string, branch: st
     // Add a race condition timeout to git.clone to prevent infinite hangs
     await Promise.race([
       git.clone({
-        fs: fsSync,
+        fs: gitFs,
         http,
         dir: cloneDir,
         url: repoUrl,

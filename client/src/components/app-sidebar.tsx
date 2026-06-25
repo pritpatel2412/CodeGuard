@@ -95,6 +95,11 @@ const adminNavItems = [
     icon: Server, // need to import
   },
   {
+    title: "Free Audit Queue",
+    url: "/admin/free-audit-queue",
+    icon: ShieldCheck,
+  },
+  {
     title: "Audit Log",
     url: "/admin/audit-log",
     icon: FileText,
