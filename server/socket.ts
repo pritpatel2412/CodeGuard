@@ -40,3 +40,17 @@ export function emitReviewUpdate() {
     ioInstance.emit("review_update");
   }
 }
+
+export function emitAdminRequestUpdate(log: any) {
+  const ioInstance = getIO();
+  if (ioInstance) {
+    ioInstance.emit("admin_request_update", log);
+  }
+}
+
+export function emitAdminSystemUpdate(log: any) {
+  const ioInstance = getIO();
+  if (ioInstance) {
+    ioInstance.emit("admin_system_update", log);
+  }
+}

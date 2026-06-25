@@ -96,9 +96,13 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
       geoCity,
       geoLat,
       geoLng,
-    }).catch(err => {
-      console.error("[RequestLogger] Failed to insert log:", err);
-    });
+    }).returning()
+      .then(([log]) => {
+        if (log) emitAdminRequestUpdate(log);
+      })
+      .catch(err => {
+        console.error("[RequestLogger] Failed to insert log:", err);
+      });
   });
 
   next();

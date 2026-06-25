@@ -13,6 +13,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { useState, useEffect } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Calendar, Save } from "lucide-react";
 
 type FreeAuditRequest = {
   id: string;
@@ -27,6 +31,14 @@ type FreeAuditRequest = {
 type FreeAuditsResponse = {
   requests: FreeAuditRequest[];
   todayCost: number;
+};
+
+type PromoOffer = {
+  id: string;
+  name: string;
+  startsAt: string;
+  endsAt: string;
+  status: string;
 };
 
 export default function AdminFreeAuditQueue() {
@@ -85,6 +97,61 @@ export default function AdminFreeAuditQueue() {
     );
   }
 
+  return <AdminFreeAuditQueueContent data={data!} approveMutation={approveMutation} rejectMutation={rejectMutation} />;
+}
+
+function AdminFreeAuditQueueContent({ 
+  data, 
+  approveMutation, 
+  rejectMutation 
+}: { 
+  data: FreeAuditsResponse, 
+  approveMutation: any, 
+  rejectMutation: any 
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: offer, isLoading: isOfferLoading } = useQuery<PromoOffer | null>({
+    queryKey: ["/api/admin/promo-offer"],
+  });
+
+  const [startsAt, setStartsAt] = useState("");
+  const [endsAt, setEndsAt] = useState("");
+
+  // Update local state when offer loads
+  useEffect(() => {
+    if (offer) {
+      if (offer.startsAt) setStartsAt(new Date(offer.startsAt).toISOString().slice(0, 16));
+      if (offer.endsAt) setEndsAt(new Date(offer.endsAt).toISOString().slice(0, 16));
+    }
+  }, [offer]);
+
+  const updateOfferMutation = useMutation({
+    mutationFn: async (values: { startsAt: string, endsAt: string }) => {
+      if (!offer?.id) throw new Error("No active offer found");
+      const res = await fetch(`/api/admin/promo-offer/${offer.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      });
+      if (!res.ok) throw new Error("Failed to update offer");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Campaign Updated", description: "The promo offer dates have been updated." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/promo-offer"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/public/promo-offer"] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Update Failed", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const handleUpdateOffer = () => {
+    updateOfferMutation.mutate({ startsAt, endsAt });
+  };
+
   const requests = data?.requests || [];
   const todayCost = data?.todayCost || 0;
   const isCeilingReached = todayCost >= 100;
@@ -113,6 +180,59 @@ export default function AdminFreeAuditQueue() {
           </p>
         </div>
       )}
+
+      {/* Campaign Settings Card */}
+      <Card>
+        <CardHeader className="pb-4">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-primary" />
+            Campaign Settings
+          </CardTitle>
+          <CardDescription>
+            Manage the start and end dates for the active Free Audit promo offer.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isOfferLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading campaign data...
+            </div>
+          ) : offer ? (
+            <div className="flex flex-col sm:flex-row items-end gap-4 max-w-2xl">
+              <div className="space-y-1.5 w-full sm:w-auto flex-1">
+                <Label htmlFor="startsAt" className="text-xs">Start Date & Time</Label>
+                <Input 
+                  id="startsAt" 
+                  type="datetime-local" 
+                  value={startsAt}
+                  onChange={(e) => setStartsAt(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+              <div className="space-y-1.5 w-full sm:w-auto flex-1">
+                <Label htmlFor="endsAt" className="text-xs">End Date & Time</Label>
+                <Input 
+                  id="endsAt" 
+                  type="datetime-local" 
+                  value={endsAt}
+                  onChange={(e) => setEndsAt(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+              <Button 
+                onClick={handleUpdateOffer} 
+                disabled={updateOfferMutation.isPending}
+                className="w-full sm:w-auto h-9"
+              >
+                {updateOfferMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                Save Changes
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No active promo offer found. Please seed the database.</p>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

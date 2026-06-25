@@ -118,6 +118,31 @@ router.post("/free-audits/:id/reject", async (req, res) => {
   }
 });
 
+// Promo Offer Management
+router.get("/promo-offer", async (req, res) => {
+  try {
+    const offer = await storage.getActivePromoOffer();
+    res.json(offer || null);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.patch("/promo-offer/:id", async (req, res) => {
+  try {
+    const { startsAt, endsAt } = req.body;
+    const updated = await storage.updatePromoOffer(req.params.id, { 
+      startsAt: startsAt ? new Date(startsAt) : undefined,
+      endsAt: endsAt ? new Date(endsAt) : undefined,
+    });
+    
+    await logAdminAction(req.user!.id, "update_promo_offer", req.params.id, null, { startsAt, endsAt });
+    res.json(updated);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get("/overview", async (req, res) => {
   try {
     const [{ count: totalUsers }] = await db.select({ count: sql<number>`count(*)` }).from(users);

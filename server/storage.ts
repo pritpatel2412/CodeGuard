@@ -683,6 +683,14 @@ export class DatabaseStorage implements IStorage {
     return offer || undefined;
   }
 
+  async updatePromoOffer(id: string, data: Partial<PromoOffer>): Promise<PromoOffer | undefined> {
+    const [updated] = await db.update(promoOffers)
+      .set(data)
+      .where(eq(promoOffers.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
   async createFreeAuditRequest(request: InsertFreeAuditRequest): Promise<FreeAuditRequest> {
     const [created] = await db.insert(freeAuditRequests).values(request).returning();
     return created;

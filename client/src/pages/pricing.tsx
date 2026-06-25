@@ -218,162 +218,30 @@ export default function PricingPage() {
               <div className="p-5 border-b border-border/60 bg-muted/35">
                 <DialogTitle className="text-base font-semibold flex items-center gap-2">
                   <CreditCard className="w-5 h-5 text-primary" />
-                  {step === "success" ? "Subscription Activated" : "Complete Your Subscription"}
+                  CodeGuard is Under Development
                 </DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground mt-1">
-                  {step === "success" 
-                    ? `Welcome to CodeGuard ${selectedTier.name}!` 
-                    : `Authenticate payment details to unlock the ${selectedTier.name} tier.`}
+                  We are not currently accepting real payments or card details.
                 </DialogDescription>
               </div>
 
-              {/* Steps rendering */}
-              {step === "checkout" && (
-                <div className="p-5 space-y-4">
-                  {/* Order Summary */}
-                  <div className="bg-muted/40 p-3 rounded-lg border border-border/40 space-y-1.5 text-xs">
-                    <div className="flex justify-between font-medium">
-                      <span>{selectedTier.name} Plan ({billingCycle})</span>
-                      <span>${calculatePrice(selectedTier.priceUsd)} / mo</span>
-                    </div>
-                    {promoApplied && (
-                      <div className="flex justify-between text-green-500 font-medium">
-                        <span>Promo Code Applied (SECURE20)</span>
-                        <span>-20%</span>
-                      </div>
-                    )}
-                    <div className="border-t border-border/60 pt-1.5 flex justify-between font-bold text-foreground">
-                      <span>Total Amount:</span>
-                      <span>
-                        ${promoApplied 
-                          ? Math.round(calculatePrice(selectedTier.priceUsd) * 0.8) 
-                          : calculatePrice(selectedTier.priceUsd)} / mo
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Payment Details Form */}
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <Label htmlFor="card-name" className="text-xs">Cardholder Name</Label>
-                      <Input 
-                        id="card-name" 
-                        value={name} 
-                        onChange={(e) => setName(e.target.value)} 
-                        className="h-8 text-xs" 
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="card-num" className="text-xs">Card Number</Label>
-                      <div className="relative">
-                        <Input 
-                          id="card-num" 
-                          value={cardNumber} 
-                          onChange={(e) => setCardNumber(e.target.value)} 
-                          className="h-8 pl-8 text-xs font-mono" 
-                        />
-                        <CreditCard className="w-4 h-4 text-muted-foreground/60 absolute left-2.5 top-2" />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <Label htmlFor="card-exp" className="text-xs">Expiry Date</Label>
-                        <Input 
-                          id="card-exp" 
-                          value={expiry} 
-                          onChange={(e) => setExpiry(e.target.value)} 
-                          placeholder="MM/YY" 
-                          className="h-8 text-xs font-mono" 
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label htmlFor="card-cvc" className="text-xs">CVC</Label>
-                        <Input 
-                          id="card-cvc" 
-                          value={cvc} 
-                          onChange={(e) => setCvc(e.target.value)} 
-                          type="password" 
-                          className="h-8 text-xs font-mono" 
-                        />
-                      </div>
-                    </div>
-
-                    {/* Promo Code Fields */}
-                    <div className="space-y-1.5 pt-2">
-                      <Label htmlFor="promo" className="text-xs flex items-center gap-1">
-                        <Percent className="w-3 h-3 text-primary" />
-                        Promo Code
-                      </Label>
-                      <div className="flex gap-2">
-                        <Input
-                          id="promo"
-                          placeholder="e.g. SECURE20"
-                          value={promoCode}
-                          onChange={(e) => setPromoCode(e.target.value)}
-                          className="h-8 text-xs uppercase"
-                          disabled={promoApplied}
-                        />
-                        <Button 
-                          type="button" 
-                          variant="outline" 
-                          size="sm" 
-                          className="h-8 text-xs" 
-                          onClick={handleApplyPromo}
-                          disabled={promoApplied}
-                        >
-                          Apply
-                        </Button>
-                      </div>
-                      {promoApplied && (
-                        <p className="text-[10px] text-green-500 font-medium">Extra 20% discount code SECURE20 successfully applied!</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="pt-2 flex flex-col gap-2">
-                    <Button onClick={handlePayment} className="w-full text-xs h-9 font-semibold">
-                      <Lock className="w-3.5 h-3.5 mr-2" />
-                      Authorize & Pay
-                    </Button>
-                    <Button variant="ghost" onClick={closeCheckout} className="w-full text-xs h-9 text-muted-foreground">
-                      Cancel
-                    </Button>
-                  </div>
-
-                  <div className="flex items-center justify-center gap-1.5 text-[10px] text-muted-foreground/80 mt-1">
-                    <ShieldCheck className="w-3.5 h-3.5 text-green-600" />
-                    <span>Secure Stripe-simulated sandbox payment processing.</span>
-                  </div>
+              <div className="p-8 flex flex-col items-center justify-center space-y-5 text-center">
+                <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+                  <Sparkles className="w-7 h-7" />
                 </div>
-              )}
-
-              {step === "processing" && (
-                <div className="p-10 flex flex-col items-center justify-center space-y-4 text-center">
-                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold">Processing Secure Transaction</p>
-                    <p className="text-xs text-muted-foreground">Contacting issuing bank and acquiring tokenized key...</p>
-                  </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-bold text-foreground">Thank you for your interest!</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed px-4">
+                    Please do not pay or add any card details here. If you want to know more about the product or discuss enterprise access, please contact:
+                  </p>
+                  <p className="font-semibold text-primary mt-2">
+                    try.prit24@gmail.com
+                  </p>
                 </div>
-              )}
-
-              {step === "success" && (
-                <div className="p-8 flex flex-col items-center justify-center space-y-5 text-center">
-                  <div className="w-12 h-12 rounded-full bg-green-500/10 text-green-500 flex items-center justify-center">
-                    <ShieldCheck className="w-7 h-7" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <h3 className="text-base font-bold text-foreground">Payment Confirmed</h3>
-                    <p className="text-xs text-muted-foreground leading-relaxed px-4">
-                      Thank you for your order! Your subscription is active. Your account is now upgraded to the <strong className="text-foreground">{selectedTier.name}</strong> tier.
-                    </p>
-                  </div>
-                  <Button onClick={closeCheckout} className="w-full text-xs h-9 font-semibold">
-                    Go to Dashboard
-                  </Button>
-                </div>
-              )}
+                <Button onClick={closeCheckout} className="w-full text-xs h-9 font-semibold mt-4">
+                  Close
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
