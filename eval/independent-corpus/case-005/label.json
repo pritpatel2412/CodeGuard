@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2012-4520",
+  "category": "other",
+  "source_url": "https://github.com/django/django/commit/92d3430f12171f16f566c9050c40feefb830a4a3",
+  "repo": "django/django",
+  "cwes": [
+    "CWE-20"
+  ]
+}

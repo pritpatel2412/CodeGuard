@@ -1,0 +1,36 @@
+From 38f23b9075ced1de2b82d2dad8b2bebb1ecd5b7d Mon Sep 17 00:00:00 2001
+From: Julius Volz <julius.volz@gmail.com>
+Date: Wed, 22 Apr 2026 17:31:29 +0200
+Subject: [PATCH] ui: fix stored XSS in old UI heatmap chart tick labels
+
+This fixes the stored XSS as described in:
+
+https://github.com/prometheus/prometheus/security/advisories/GHSA-fw8g-cg8f-9j28
+
+Signed-off-by: Julius Volz <julius.volz@gmail.com>
+Signed-off-by: Julien Pivotto <291750+roidelapluie@users.noreply.github.com>
+---
+ web/ui/react-app/src/pages/graph/Graph.tsx | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/web/ui/react-app/src/pages/graph/Graph.tsx b/web/ui/react-app/src/pages/graph/Graph.tsx
+index 332b3f47621..4422790cb96 100644
+--- a/web/ui/react-app/src/pages/graph/Graph.tsx
++++ b/web/ui/react-app/src/pages/graph/Graph.tsx
+@@ -10,6 +10,7 @@ import { Button } from 'reactstrap';
+ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+ import { faTimes } from '@fortawesome/free-solid-svg-icons';
+ import { GraphDisplayMode } from './Panel';
++import { escapeHTML } from '../../utils';
+ 
+ require('../../vendor/flot/jquery.flot');
+ require('../../vendor/flot/jquery.flot.stack');
+@@ -151,7 +152,7 @@ class Graph extends PureComponent<GraphProps, GraphState> {
+ 
+     if (options.yaxis && isHeatmap) {
+       options.yaxis.ticks = () => new Array(data.length + 1).fill(0).map((_el, i) => i);
+-      options.yaxis.tickFormatter = (val) => `${val ? data[val - 1].labels.le : ''}`;
++      options.yaxis.tickFormatter = (val) => `${val ? escapeHTML(data[val - 1].labels.le) : ''}`;
+       options.yaxis.min = 0;
+       options.yaxis.max = data.length;
+       options.series.lines = { show: false };

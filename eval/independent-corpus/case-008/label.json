@@ -1,0 +1,9 @@
+{
+  "cve": "BIT-tensorflow-2022-21726",
+  "category": "other",
+  "source_url": "https://github.com/tensorflow/tensorflow/commit/23968a8bf65b009120c43b5ebcceaf52dbc9e943",
+  "repo": "tensorflow/tensorflow",
+  "cwes": [
+    "CWE-125"
+  ]
+}

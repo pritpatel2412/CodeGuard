@@ -1,0 +1,9 @@
+{
+  "cve": "BIT-tensorflow-2023-25661",
+  "category": "other",
+  "source_url": "https://github.com/keras-team/keras/commit/85db5d07db54b853484bfd358c3894d948c36baf",
+  "repo": "keras-team/keras",
+  "cwes": [
+    "CWE-20"
+  ]
+}

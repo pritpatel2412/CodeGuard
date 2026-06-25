@@ -1,0 +1,9 @@
+{
+  "cve": "BIT-rails-2024-26143",
+  "category": "injection",
+  "source_url": "https://github.com/rails/rails/commit/4c83b331092a79d58e4adffe4be5f250fa5782cc",
+  "repo": "rails/rails",
+  "cwes": [
+    "CWE-79"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2013-1348",
+  "category": "injection",
+  "source_url": "https://github.com/symfony/symfony/commit/ac756bf39e646b4e130fad058d10a0228dbd9779",
+  "repo": "symfony/symfony",
+  "cwes": [
+    "CWE-94"
+  ]
+}

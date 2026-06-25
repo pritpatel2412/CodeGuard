@@ -1,0 +1,120 @@
+From 0867302ddbde0e9463d0564fea5861feb708c2dd Mon Sep 17 00:00:00 2001
+From: FDrag0n <34733637+FDrag0n@users.noreply.github.com>
+Date: Fri, 15 Mar 2024 15:49:01 +0800
+Subject: [PATCH] Prevent open redirect allow list bypass due to encodeurl
+
+Co-authored-by: Jon Church <me@jonchurch.com>
+---
+ lib/response.js      | 20 ++++++++++++++++++-
+ test/res.location.js | 46 +++++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 64 insertions(+), 2 deletions(-)
+
+diff --git a/lib/response.js b/lib/response.js
+index fede486c06d..f7c94d10e78 100644
+--- a/lib/response.js
++++ b/lib/response.js
+@@ -34,6 +34,7 @@ var extname = path.extname;
+ var mime = send.mime;
+ var resolve = path.resolve;
+ var vary = require('vary');
++var urlParse = require('url').parse;
+ 
+ /**
+  * Response prototype.
+@@ -911,8 +912,25 @@ res.location = function location(url) {
+     loc = this.req.get('Referrer') || '/';
+   }
+ 
++  var lowerLoc = loc.toLowerCase();
++  var encodedUrl = encodeUrl(loc);
++  if (lowerLoc.indexOf('https://') === 0 || lowerLoc.indexOf('http://') === 0) {
++    try {
++      var parsedUrl = urlParse(loc);
++      var parsedEncodedUrl = urlParse(encodedUrl);
++      // Because this can encode the host, check that we did not change the host
++      if (parsedUrl.host !== parsedEncodedUrl.host) {
++        // If the host changes after encodeUrl, return the original url
++        return this.set('Location', loc);
++      }
++    } catch (e) {
++      // If parse fails, return the original url
++      return this.set('Location', loc);
++    }
++  }
++
+   // set location
+-  return this.set('Location', encodeUrl(loc));
++  return this.set('Location', encodedUrl);
+ };
+ 
+ /**
+diff --git a/test/res.location.js b/test/res.location.js
+index 158afac01e7..38cab027a83 100644
+--- a/test/res.location.js
++++ b/test/res.location.js
+@@ -1,13 +1,27 @@
+ 'use strict'
+ 
+ var express = require('../')
+-  , request = require('supertest');
++  , request = require('supertest')
++  , url = require('url');
+ 
+ describe('res', function(){
+   describe('.location(url)', function(){
+     it('should set the header', function(done){
+       var app = express();
+ 
++      app.use(function(req, res){
++        res.location('http://google.com/').end();
++      });
++
++      request(app)
++      .get('/')
++      .expect('Location', 'http://google.com/')
++      .expect(200, done)
++    })
++
++    it('should preserve trailing slashes when not present', function(done){
++      var app = express();
++
+       app.use(function(req, res){
+         res.location('http://google.com').end();
+       });
+@@ -31,6 +45,36 @@ describe('res', function(){
+       .expect(200, done)
+     })
+ 
++    it('should not encode bad "url"', function (done) {
++      var app = express()
++
++      app.use(function (req, res) {
++        // This is here to show a basic check one might do which
++        // would pass but then the location header would still be bad
++        if (url.parse(req.query.q).host !== 'google.com') {
++          res.status(400).end('Bad url');
++        }
++        res.location(req.query.q).end();
++      });
++
++      request(app)
++        .get('/?q=http://google.com\\@apple.com')
++        .expect(200)
++        .expect('Location', 'http://google.com\\@apple.com')
++        .end(function (err) {
++          if (err) {
++            throw err;
++          }
++
++          // This ensures that our protocol check is case insensitive
++          request(app)
++            .get('/?q=HTTP://google.com\\@apple.com')
++            .expect(200)
++            .expect('Location', 'HTTP://google.com\\@apple.com')
++            .end(done)
++        });
++    });
++
+     it('should not touch already-encoded sequences in "url"', function (done) {
+       var app = express()
+ 

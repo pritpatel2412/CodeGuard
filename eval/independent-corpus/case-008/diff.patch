@@ -1,0 +1,28 @@
+From 23968a8bf65b009120c43b5ebcceaf52dbc9e943 Mon Sep 17 00:00:00 2001
+From: Isha Arkatkar <ishark@google.com>
+Date: Fri, 19 Nov 2021 23:16:11 -0800
+Subject: [PATCH] Fix out of bound access in DequantizeOp by adding check for
+ axis < input dimension
+
+PiperOrigin-RevId: 411214268
+Change-Id: I3249d2a69ddc82f182c589a3a5bbfb71543f4b29
+---
+ tensorflow/core/kernels/dequantize_op.cc | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/tensorflow/core/kernels/dequantize_op.cc b/tensorflow/core/kernels/dequantize_op.cc
+index 31a7a7498cf0c8..0a466f1cf118e2 100644
+--- a/tensorflow/core/kernels/dequantize_op.cc
++++ b/tensorflow/core/kernels/dequantize_op.cc
+@@ -94,6 +94,11 @@ class DequantizeOp : public OpKernel {
+     const Tensor& input_min_tensor = ctx->input(1);
+     const Tensor& input_max_tensor = ctx->input(2);
+ 
++    OP_REQUIRES(
++        ctx, axis_ < input.dims(),
++        errors::InvalidArgument("Axis must be less than input dimension(",
++                                input.dims(), "), got ", axis_));
++
+     int num_slices = 1;
+     if (axis_ > -1) {
+       num_slices = input.dim_size(axis_);

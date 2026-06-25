@@ -1,0 +1,7 @@
+{
+  "cve": "GHSA-22rr-f3p8-5gf8",
+  "category": "other",
+  "source_url": "https://github.com/directus/directus/commit/284156426fa94f688e8d65a7a4f34f9e6705f058",
+  "repo": "directus/directus",
+  "cwes": []
+}

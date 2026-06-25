@@ -1,0 +1,745 @@
+From b59f707f670e6f175b669977724ccf16c718430b Mon Sep 17 00:00:00 2001
+From: Michael Barrett <mike@ghost.org>
+Date: Thu, 8 Jan 2026 11:28:55 +0000
+Subject: [PATCH] =?UTF-8?q?=F0=9F=94=92=20Fixed=20ability=20to=20bypass=20?=
+ =?UTF-8?q?Staff=20User=202FA=20flow=20(#25806)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ref https://linear.app/ghost/issue/BER-3150/
+
+Previously the session creation endpoint accepted a `skipEmailVerification` property with an intended purpose of allowing the 2FA flow to be bypassed in the login immediately following a password reset, reducing friction in the UX considering a password reset is only possible via email and therefore considered already email-verified. Although Ghost's Admin client followed the expected usage and only used the property on the password reset authentication, the basic nature of the property meant anyone could manually add it to a session creation API request to bypass 2FA.
+
+- removed `skipEmailVerification` implementation
+- updated `/authentication/password_reset/` endpoint to generate an OTP after successful reset and return it as an `emailVerificationToken` property in the response
+- updated `/session` endpoint to accept a `token` property alongside the username/password, and mark the session as verified if the `token` contains a valid OTP
+- updated Admin client's password reset flow to use `emailVerificationToken` and `token` respectively to bypass 2FA when creating a session after password reset
+
+This updated flow removes the blanket 2FA bypass by requiring a valid OTP which can only be obtained via the normal email path after unverified sign-in or a successful password reset.
+
+Credit:
+
+Sho Odagiri
+GMO Cybersecurity by Ierae, Inc.
+---
+ ghost/admin/app/authenticators/cookie.js      |  10 +-
+ ghost/admin/app/controllers/reset.js          |   9 +-
+ .../tests/unit/authenticators/cookie-test.js  |  20 ----
+ .../tests/unit/controllers/reset-test.js      |  28 ++---
+ .../core/core/server/api/endpoints/session.js |   2 -
+ .../serializers/output/authentication.js      |   3 +-
+ ghost/core/core/server/services/auth/otp.js   |  33 ++++++
+ .../server/services/auth/passwordreset.js     |   8 ++
+ .../services/auth/session/session-service.js  |  28 ++---
+ .../__snapshots__/authentication.test.js.snap |  11 ++
+ .../admin/__snapshots__/session.test.js.snap  |  16 +++
+ .../test/e2e-api/admin/authentication.test.js |  72 ++++++++++++-
+ ghost/core/test/e2e-api/admin/session.test.js |  47 ++++++++
+ .../__snapshots__/authentication.test.js.snap |   3 +-
+ .../legacy/api/admin/authentication.test.js   |   8 +-
+ .../auth/session/session-service.test.js      | 101 ++++++++++++++++++
+ 16 files changed, 336 insertions(+), 63 deletions(-)
+ create mode 100644 ghost/core/core/server/services/auth/otp.js
+
+diff --git a/ghost/admin/app/authenticators/cookie.js b/ghost/admin/app/authenticators/cookie.js
+index 34dee6056cd..c46ec13030b 100644
+--- a/ghost/admin/app/authenticators/cookie.js
++++ b/ghost/admin/app/authenticators/cookie.js
+@@ -19,8 +19,8 @@ export default Authenticator.extend({
+         return RSVP.resolve();
+     },
+ 
+-    authenticate({identification, password, token, skipEmailVerification}) {
+-        if (token) {
++    authenticate({identification, password, token}) {
++        if (token && !identification && !password) {
+             const data = {token};
+             const options = {
+                 data,
+@@ -33,9 +33,11 @@ export default Authenticator.extend({
+         }
+ 
+         const data = {username: identification, password};
+-        if (skipEmailVerification) {
+-            data.skipEmailVerification = true;
++
++        if (token) {
++            data.token = token;
+         }
++
+         const options = {
+             data,
+             contentType: 'application/json;charset=utf-8',
+diff --git a/ghost/admin/app/controllers/reset.js b/ghost/admin/app/controllers/reset.js
+index 377050922dd..a883d609f87 100644
+--- a/ghost/admin/app/controllers/reset.js
++++ b/ghost/admin/app/controllers/reset.js
+@@ -57,16 +57,19 @@ export default class ResetController extends Controller.extend(ValidationEngine)
+         try {
+             yield this.validate();
+             try {
+-                let resp = yield this.ajax.put(authUrl, {
++                let {password_reset: [{message, emailVerificationToken}]} = yield this.ajax.put(authUrl, {
+                     data: {
+                         password_reset: [{newPassword, ne2Password, token}]
+                     }
+                 });
++
+                 this.notifications.showNotification(
+-                    resp.password_reset[0].message,
++                    message,
+                     {type: 'info', delayed: true, key: 'password.reset'}
+                 );
+-                this.session.authenticate('authenticator:cookie', {identification: email, password: newPassword, skipEmailVerification: true});
++
++                yield this.session.authenticate('authenticator:cookie', {identification: email, password: newPassword, token: emailVerificationToken});
++
+                 return true;
+             } catch (error) {
+                 this.notifications.showAPIError(error, {key: 'password.reset'});
+diff --git a/ghost/admin/tests/unit/authenticators/cookie-test.js b/ghost/admin/tests/unit/authenticators/cookie-test.js
+index 7b4e26f0000..8cab8f1b4b5 100644
+--- a/ghost/admin/tests/unit/authenticators/cookie-test.js
++++ b/ghost/admin/tests/unit/authenticators/cookie-test.js
+@@ -98,26 +98,6 @@ describe('Unit: Authenticator: cookie', () => {
+                 });
+             });
+         });
+-
+-        it('includes skipEmailVerification in request data when provided', function () {
+-            let authenticator = this.owner.lookup('authenticator:cookie');
+-            let post = authenticator.ajax.post;
+-
+-            return authenticator.authenticate({
+-                identification: 'AzureDiamond', 
+-                password: 'hunter2',
+-                skipEmailVerification: true
+-            }).then(() => {
+-                expect(post.args[0][0]).to.equal(`${ghostPaths().apiRoot}/session`);
+-                expect(post.args[0][1]).to.deep.include({
+-                    data: {
+-                        username: 'AzureDiamond',
+-                        password: 'hunter2',
+-                        skipEmailVerification: true
+-                    }
+-                });
+-            });
+-        });
+     });
+ 
+     describe('#invalidate', function () {
+diff --git a/ghost/admin/tests/unit/controllers/reset-test.js b/ghost/admin/tests/unit/controllers/reset-test.js
+index d9d42e1c821..44a93c6f081 100644
+--- a/ghost/admin/tests/unit/controllers/reset-test.js
++++ b/ghost/admin/tests/unit/controllers/reset-test.js
+@@ -15,23 +15,23 @@ describe('Unit: Controller: reset', function () {
+             addObjects: sinon.stub()
+         };
+         controller.validate = sinon.stub().resolves();
+-        
++
+         controller.ghostPaths = {
+             url: {
+                 api: sinon.stub().returns('/api/endpoint')
+             }
+         };
+-        
++
+         controller.ajax = {
+             put: sinon.stub().resolves({
+-                password_reset: [{message: 'Password reset successful'}]
++                password_reset: [{message: 'Password reset successful', emailVerificationToken: '123456'}]
+             })
+         };
+-        
++
+         controller.notifications = {
+             showNotification: sinon.stub()
+         };
+-        
++
+         controller.session = {
+             authenticate: sinon.stub().resolves()
+         };
+@@ -57,21 +57,21 @@ describe('Unit: Controller: reset', function () {
+             {
+                 identification: 'test@example.com',
+                 password: 'newpassword123',
+-                skipEmailVerification: true
++                token: '123456'
+             }
+         )).to.be.true;
+     });
+ 
+     it('handles validation errors correctly', async function () {
+         const controller = this.owner.lookup('controller:reset');
+-        
++
+         controller.token = btoa('token|test@example.com|moredata');
+         controller.newPassword = 'short';
+         controller.ne2Password = 'short';
+         controller.hasValidated = {
+             addObjects: sinon.stub()
+         };
+-        
++
+         // Simulate validation error
+         controller.errors = {
+             errorsFor: sinon.stub().returns([{message: 'Password too short'}]),
+@@ -87,7 +87,7 @@ describe('Unit: Controller: reset', function () {
+ 
+     it('handles API errors correctly', async function () {
+         const controller = this.owner.lookup('controller:reset');
+-        
++
+         controller.token = btoa('token|test@example.com|moredata');
+         controller.newPassword = 'newpassword123';
+         controller.ne2Password = 'newpassword123';
+@@ -95,18 +95,18 @@ describe('Unit: Controller: reset', function () {
+             addObjects: sinon.stub()
+         };
+         controller.validate = sinon.stub().resolves();
+-        
++
+         controller.ghostPaths = {
+             url: {
+                 api: sinon.stub().returns('/api/endpoint')
+             }
+         };
+-        
++
+         const apiError = new Error('API Error');
+         controller.ajax = {
+             put: sinon.stub().rejects(apiError)
+         };
+-        
++
+         controller.notifications = {
+             showAPIError: sinon.stub()
+         };
+@@ -119,14 +119,14 @@ describe('Unit: Controller: reset', function () {
+ 
+     it('handles password mismatch validation error', async function () {
+         const controller = this.owner.lookup('controller:reset');
+-        
++
+         controller.token = btoa('token|test@example.com|moredata');
+         controller.newPassword = 'newpassword123';
+         controller.ne2Password = 'differentpassword';
+         controller.hasValidated = {
+             addObjects: sinon.stub()
+         };
+-        
++
+         // Simulate ne2Password validation error
+         controller.errors = {
+             errorsFor: sinon.stub(),
+diff --git a/ghost/core/core/server/api/endpoints/session.js b/ghost/core/core/server/api/endpoints/session.js
+index 5e92c5f8dca..8ae5e427708 100644
+--- a/ghost/core/core/server/api/endpoints/session.js
++++ b/ghost/core/core/server/api/endpoints/session.js
+@@ -33,8 +33,6 @@ const controller = {
+         return models.User.getByEmail(object.username).then((user) => {
+             if (user && !user.hasLoggedIn()) {
+                 skipVerification = true;
+-            } else if (frame.data.skipEmailVerification) {
+-                skipVerification = true;
+             }
+ 
+             return models.User.check({
+diff --git a/ghost/core/core/server/api/endpoints/utils/serializers/output/authentication.js b/ghost/core/core/server/api/endpoints/utils/serializers/output/authentication.js
+index a3410985a32..023f65e7eea 100644
+--- a/ghost/core/core/server/api/endpoints/utils/serializers/output/authentication.js
++++ b/ghost/core/core/server/api/endpoints/utils/serializers/output/authentication.js
+@@ -42,7 +42,8 @@ module.exports = {
+     resetPassword(data, apiConfig, frame) {
+         frame.response = {
+             password_reset: [{
+-                message: tpl(messages.passwordChanged)
++                message: tpl(messages.passwordChanged),
++                emailVerificationToken: data.emailVerificationToken
+             }]
+         };
+     },
+diff --git a/ghost/core/core/server/services/auth/otp.js b/ghost/core/core/server/services/auth/otp.js
+new file mode 100644
+index 00000000000..6cbe40d188b
+--- /dev/null
++++ b/ghost/core/core/server/services/auth/otp.js
+@@ -0,0 +1,33 @@
++const {totp} = require('otplib');
++
++totp.options = {
++    digits: 6,
++    step: 60,
++    window: [10, 10]
++};
++
++/**
++ * Generate a TOTP token for a user
++ * @param {string} userId - The user's ID
++ * @param {string} secret - The admin session secret
++ * @returns {string} - The generated 6-digit token
++ */
++function generate(userId, secret) {
++    return totp.generate(secret + userId);
++}
++
++/**
++ * Verify a TOTP token for a user
++ * @param {string} userId - The user's ID
++ * @param {string} token - The token to verify
++ * @param {string} secret - The admin session secret
++ * @returns {boolean} - Whether the token is valid
++ */
++function verify(userId, token, secret) {
++    return totp.check(token, secret + userId);
++}
++
++module.exports = {
++    generate,
++    verify
++};
+diff --git a/ghost/core/core/server/services/auth/passwordreset.js b/ghost/core/core/server/services/auth/passwordreset.js
+index 0e6e86dca4e..4e4bacbd32d 100644
+--- a/ghost/core/core/server/services/auth/passwordreset.js
++++ b/ghost/core/core/server/services/auth/passwordreset.js
+@@ -7,6 +7,8 @@ const moment = require('moment');
+ const models = require('../../models');
+ const urlUtils = require('../../../shared/url-utils');
+ const mail = require('../mail');
++const otp = require('./otp');
++const settingsCache = require('../../../shared/settings-cache');
+ 
+ const messages = {
+     userNotFound: 'User not found.',
+@@ -145,6 +147,12 @@ function doReset(options, tokenParts, settingsAPI) {
+             updatedUser.set('status', 'active');
+             return updatedUser.save(options);
+         })
++        .then((savedUser) => {
++            // Generate email verification token for 2FA bypass on login
++            const secret = settingsCache.get('admin_session_secret');
++            const emailVerificationToken = otp.generate(savedUser.id, secret);
++            return {emailVerificationToken};
++        })
+         .catch((err) => {
+             if (errors.utils.isGhostError(err)) {
+                 return Promise.reject(err);
+diff --git a/ghost/core/core/server/services/auth/session/session-service.js b/ghost/core/core/server/services/auth/session/session-service.js
+index 8b02f77bd46..0c6e2096beb 100644
+--- a/ghost/core/core/server/services/auth/session/session-service.js
++++ b/ghost/core/core/server/services/auth/session/session-service.js
+@@ -5,16 +5,10 @@ const errors = require('@tryghost/errors');
+ const emailTemplate = require('./emails/signin');
+ const UAParser = require('ua-parser-js');
+ const got = require('got');
++const otp = require('../otp');
+ const IPV4_REGEX = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+ const IPV6_REGEX = /^(?:[A-F0-9]{1,4}:){7}[A-F0-9]{1,4}$/i;
+ 
+-const {totp} = require('otplib');
+-totp.options = {
+-    digits: 6,
+-    step: 60,
+-    window: [10, 10]
+-};
+-
+ /**
+  * @typedef {object} User
+  * @prop {string} id
+@@ -54,7 +48,7 @@ totp.options = {
+  * @param {(req: Req, res: Res) => Promise<Session>} deps.getSession
+  * @param {(data: {id: string}) => Promise<User>} deps.findUserById
+  * @param {(req: Req) => string} deps.getOriginOfRequest
+- * @param {(key: 'require_email_mfa' | 'admin_session_secret' | 'title') => boolean | string} deps.getSettingsCache
++ * @param {((key: 'require_email_mfa') => boolean) & ((key: 'admin_session_secret' | 'title') => string)} deps.getSettingsCache
+  * @param {() => string} deps.getBlogLogo
+  * @param {import('../../core/core/server/services/mail').GhostMailer} deps.mailer
+  * @param {import('../../core/core/server/services/i18n').t} deps.t
+@@ -128,6 +122,14 @@ module.exports = function createSessionService({
+         session.user_agent = req.get('user-agent');
+         session.ip = req.ip;
+ 
++        // If a verification token was provided with the login request, verify it
++        if (req.body && req.body.token) {
++            const secret = getSettingsCache('admin_session_secret');
++            if (otp.verify(session.user_id, req.body.token, secret)) {
++                session.verified = true;
++            }
++        }
++
+         if (isStaffDeviceVerificationDisabled()) {
+             session.verified = true;
+         }
+@@ -155,9 +157,8 @@ module.exports = function createSessionService({
+      */
+     async function generateAuthCodeForUser(req, res) {
+         const session = await getSession(req, res);
+-        const secret = getSettingsCache('admin_session_secret') + session.user_id;
+-        const token = totp.generate(secret);
+-        return token;
++        const secret = getSettingsCache('admin_session_secret');
++        return otp.generate(session.user_id, secret);
+     }
+ 
+     /**
+@@ -169,9 +170,8 @@ module.exports = function createSessionService({
+      */
+     async function verifyAuthCodeForUser(req, res) {
+         const session = await getSession(req, res);
+-        const secret = getSettingsCache('admin_session_secret') + session.user_id;
+-        const isValid = totp.check(req.body.token, secret);
+-        return isValid;
++        const secret = getSettingsCache('admin_session_secret');
++        return otp.verify(session.user_id, req.body.token, secret);
+     }
+ 
+     const formatTime = new Intl.DateTimeFormat('en-GB', {
+diff --git a/ghost/core/test/e2e-api/admin/__snapshots__/authentication.test.js.snap b/ghost/core/test/e2e-api/admin/__snapshots__/authentication.test.js.snap
+index a6c9c0c90e6..e9ba785f429 100644
+--- a/ghost/core/test/e2e-api/admin/__snapshots__/authentication.test.js.snap
++++ b/ghost/core/test/e2e-api/admin/__snapshots__/authentication.test.js.snap
+@@ -17,3 +17,14 @@ Object {
+   ],
+ }
+ `;
++
++exports[`Authentication API resetPassword returns emailVerificationToken that can be used to bypass 2FA on login 1: [body] 1`] = `
++Object {
++  "password_reset": Array [
++    Object {
++      "emailVerificationToken": StringMatching /\\^\\[0-9\\]\\{6\\}\\$/,
++      "message": "Password updated",
++    },
++  ],
++}
++`;
+diff --git a/ghost/core/test/e2e-api/admin/__snapshots__/session.test.js.snap b/ghost/core/test/e2e-api/admin/__snapshots__/session.test.js.snap
+index 6bdbcbede75..9f425dbdfd4 100644
+--- a/ghost/core/test/e2e-api/admin/__snapshots__/session.test.js.snap
++++ b/ghost/core/test/e2e-api/admin/__snapshots__/session.test.js.snap
+@@ -1,5 +1,21 @@
+ // Jest Snapshot v1, https://goo.gl/fbAQLP
+ 
++exports[`Sessions API Staff 2FA can login with 2FA code in session creation request 1: [headers] 1`] = `
++Object {
++  "access-control-allow-origin": "http://127.0.0.1:2369",
++  "cache-control": "no-cache, private, no-store, must-revalidate, max-stale=0, post-check=0, pre-check=0",
++  "content-length": "7",
++  "content-type": "text/plain; charset=utf-8",
++  "content-version": StringMatching /v\\\\d\\+\\\\\\.\\\\d\\+/,
++  "etag": StringMatching /\\(\\?:W\\\\/\\)\\?"\\(\\?:\\[ !#-\\\\x7E\\\\x80-\\\\xFF\\]\\*\\|\\\\r\\\\n\\[\\\\t \\]\\|\\\\\\\\\\.\\)\\*"/,
++  "set-cookie": Array [
++    StringMatching /\\^ghost-admin-api-session=/,
++  ],
++  "vary": "Accept-Version, Origin, Accept-Encoding",
++  "x-powered-by": "Express",
++}
++`;
++
+ exports[`Sessions API Staff 2FA can verify a session with 2FA code 1: [body] 1`] = `
+ Object {
+   "errors": Array [
+diff --git a/ghost/core/test/e2e-api/admin/authentication.test.js b/ghost/core/test/e2e-api/admin/authentication.test.js
+index bb6504a3b43..01612bbe160 100644
+--- a/ghost/core/test/e2e-api/admin/authentication.test.js
++++ b/ghost/core/test/e2e-api/admin/authentication.test.js
+@@ -1,5 +1,9 @@
+-const {agentProvider, fixtureManager, matchers} = require('../../utils/e2e-framework');
+-const {anyErrorId} = matchers;
++const {agentProvider, fixtureManager, matchers, configUtils} = require('../../utils/e2e-framework');
++const models = require('../../../core/server/models');
++const security = require('@tryghost/security');
++const settingsCache = require('../../../core/shared/settings-cache');
++const moment = require('moment');
++const {anyErrorId, stringMatching} = matchers;
+ 
+ describe('Authentication API', function () {
+     let agent;
+@@ -22,4 +26,68 @@ describe('Authentication API', function () {
+                 });
+         });
+     });
++
++    describe('resetPassword', function () {
++        it('returns emailVerificationToken that can be used to bypass 2FA on login', async function () {
++            // Enable 2FA for this test
++            configUtils.set('security:staffDeviceVerification', true);
++
++            const ownerUser = await fixtureManager.get('users', 0);
++            const newPassword = 'thisissupersafe';
++
++            // Generate a valid reset token manually (simulating the email link)
++            const dbHash = settingsCache.get('db_hash');
++            const user = await models.User.getByEmail(ownerUser.email, {context: {internal: true}});
++            const resetToken = security.tokens.resetToken.generateHash({
++                expires: moment().add(1, 'days').valueOf(),
++                email: ownerUser.email,
++                dbHash: dbHash,
++                password: user.get('password')
++            });
++            const encodedToken = security.url.encodeBase64(resetToken);
++
++            // Reset the password and capture the emailVerificationToken
++            const resetResponse = await agent
++                .put('authentication/password_reset')
++                .body({
++                    password_reset: [{
++                        token: encodedToken,
++                        newPassword: newPassword,
++                        ne2Password: newPassword
++                    }]
++                })
++                .expectStatus(200)
++                .matchBodySnapshot({
++                    password_reset: [{
++                        message: 'Password updated',
++                        emailVerificationToken: stringMatching(/^[0-9]{6}$/)
++                    }]
++                });
++
++            const emailVerificationToken = resetResponse.body.password_reset[0].emailVerificationToken;
++
++            // Clear cookies to simulate a fresh login attempt
++            agent.clearCookies();
++
++            // Now login with the emailVerificationToken - should bypass 2FA
++            await agent
++                .post('session/')
++                .body({
++                    grant_type: 'password',
++                    username: ownerUser.email,
++                    password: newPassword,
++                    token: emailVerificationToken
++                })
++                .expectStatus(201)
++                .expectEmptyBody();
++
++            // Verify we can access protected resources (session is verified)
++            await agent
++                .get('/users/me/')
++                .expectStatus(200);
++
++            // Cleanup: reset the password back to original and disable 2FA
++            configUtils.set('security:staffDeviceVerification', false);
++        });
++    });
+ });
+diff --git a/ghost/core/test/e2e-api/admin/session.test.js b/ghost/core/test/e2e-api/admin/session.test.js
+index da2aabfdcd5..7f97c986194 100644
+--- a/ghost/core/test/e2e-api/admin/session.test.js
++++ b/ghost/core/test/e2e-api/admin/session.test.js
+@@ -161,5 +161,52 @@ describe('Sessions API', function () {
+                 .expectStatus(200)
+                 .expectEmptyBody();
+         });
++
++        it('can login with 2FA code in session creation request', async function () {
++            const owner = await fixtureManager.get('users', 0);
++
++            // First login to trigger 2FA and get a verification code
++            await agent
++                .post('session/')
++                .body({
++                    grant_type: 'password',
++                    username: owner.email,
++                    password: owner.password
++                })
++                .expectStatus(403);
++
++            const email = assert.sentEmail({
++                subject: /[0-9]{6} is your Ghost sign in verification code/
++            });
++
++            const token = email.subject.match(/[0-9]{6}/)[0];
++
++            // Clear cookies to simulate fresh login attempt with token
++            agent.clearCookies();
++
++            // Login with token included - should succeed in one request
++            await agent
++                .post('session/')
++                .body({
++                    grant_type: 'password',
++                    username: owner.email,
++                    password: owner.password,
++                    token
++                })
++                .expectStatus(201)
++                .expectEmptyBody()
++                .matchHeaderSnapshot({
++                    'content-version': anyContentVersion,
++                    etag: anyEtag,
++                    'set-cookie': [
++                        stringMatching(/^ghost-admin-api-session=/)
++                    ]
++                });
++
++            // Verify we can access protected resources
++            await agent
++                .get('/users/me/')
++                .expectStatus(200);
++        });
+     });
+ });
+diff --git a/ghost/core/test/legacy/api/admin/__snapshots__/authentication.test.js.snap b/ghost/core/test/legacy/api/admin/__snapshots__/authentication.test.js.snap
+index 15c314ab181..5ab64598ad1 100644
+--- a/ghost/core/test/legacy/api/admin/__snapshots__/authentication.test.js.snap
++++ b/ghost/core/test/legacy/api/admin/__snapshots__/authentication.test.js.snap
+@@ -775,6 +775,7 @@ exports[`Authentication API Password reset reset password 1: [body] 1`] = `
+ Object {
+   "password_reset": Array [
+     Object {
++      "emailVerificationToken": StringMatching /\\^\\[0-9\\]\\{6\\}\\$/,
+       "message": "Password updated",
+     },
+   ],
+@@ -785,7 +786,7 @@ exports[`Authentication API Password reset reset password 2: [headers] 1`] = `
+ Object {
+   "access-control-allow-origin": "http://127.0.0.1:2369",
+   "cache-control": "no-cache, private, no-store, must-revalidate, max-stale=0, post-check=0, pre-check=0",
+-  "content-length": "51",
++  "content-length": "85",
+   "content-type": "application/json; charset=utf-8",
+   "content-version": StringMatching /v\\\\d\\+\\\\\\.\\\\d\\+/,
+   "etag": StringMatching /\\(\\?:W\\\\/\\)\\?"\\(\\?:\\[ !#-\\\\x7E\\\\x80-\\\\xFF\\]\\*\\|\\\\r\\\\n\\[\\\\t \\]\\|\\\\\\\\\\.\\)\\*"/,
+diff --git a/ghost/core/test/legacy/api/admin/authentication.test.js b/ghost/core/test/legacy/api/admin/authentication.test.js
+index fa176e33c90..23b43760250 100644
+--- a/ghost/core/test/legacy/api/admin/authentication.test.js
++++ b/ghost/core/test/legacy/api/admin/authentication.test.js
+@@ -1,7 +1,7 @@
+ const nock = require('nock');
+ const assert = require('assert/strict');
+ const {agentProvider, mockManager, fixtureManager, matchers} = require('../../../utils/e2e-framework');
+-const {anyContentVersion, anyEtag, anyISODateTime, anyErrorId} = matchers;
++const {anyContentVersion, anyEtag, anyISODateTime, anyErrorId, stringMatching} = matchers;
+ 
+ const {tokens} = require('@tryghost/security');
+ const models = require('../../../../core/server/models');
+@@ -388,7 +388,11 @@ describe('Authentication API', function () {
+                     }]
+                 })
+                 .expectStatus(200)
+-                .matchBodySnapshot()
++                .matchBodySnapshot({
++                    password_reset: [{
++                        emailVerificationToken: stringMatching(/^[0-9]{6}$/)
++                    }]
++                })
+                 .matchHeaderSnapshot({
+                     'content-version': anyContentVersion,
+                     etag: anyEtag
+diff --git a/ghost/core/test/unit/server/services/auth/session/session-service.test.js b/ghost/core/test/unit/server/services/auth/session/session-service.test.js
+index 58ad98ae0be..9cfd1c05cee 100644
+--- a/ghost/core/test/unit/server/services/auth/session/session-service.test.js
++++ b/ghost/core/test/unit/server/services/auth/session/session-service.test.js
+@@ -205,6 +205,107 @@ describe('SessionService', function () {
+         should.equal(req.session.verified, true);
+     });
+ 
++    it('#createSessionForUser verifies session when valid token is provided on request', async function () {
++        const getSession = async (req) => {
++            if (req.session) {
++                return req.session;
++            }
++            req.session = {
++                destroy: sinon.spy(cb => cb())
++            };
++            return req.session;
++        };
++
++        const findUserById = sinon.spy(async ({id}) => ({id}));
++        const getOriginOfRequest = sinon.stub().returns('origin');
++
++        const isStaffDeviceVerificationDisabled = sinon.stub().returns(false);
++
++        const sessionService = SessionService({
++            getSession,
++            findUserById,
++            getOriginOfRequest,
++            getSettingsCache,
++            isStaffDeviceVerificationDisabled
++        });
++
++        const req = Object.create(express.request, {
++            ip: {
++                value: '0.0.0.0'
++            },
++            headers: {
++                value: {
++                    cookie: 'thing'
++                }
++            },
++            get: {
++                value: () => 'Fake'
++            }
++        });
++        const res = Object.create(express.response);
++        const user = {id: 'egg'};
++
++        // Generate a valid token first
++        req.session = {user_id: 'egg'};
++        const validToken = await sessionService.generateAuthCodeForUser(req, res);
++        delete req.session;
++
++        // Now create session with token on request body
++        req.body = {token: validToken};
++        await sessionService.createSessionForUser(req, res, user);
++
++        should.equal(req.session.user_id, 'egg');
++        should.equal(req.session.verified, true);
++    });
++
++    it('#createSessionForUser does not verify session when invalid token is provided on request', async function () {
++        const getSession = async (req) => {
++            if (req.session) {
++                return req.session;
++            }
++            req.session = {
++                destroy: sinon.spy(cb => cb())
++            };
++            return req.session;
++        };
++
++        const findUserById = sinon.spy(async ({id}) => ({id}));
++        const getOriginOfRequest = sinon.stub().returns('origin');
++
++        const isStaffDeviceVerificationDisabled = sinon.stub().returns(false);
++
++        const sessionService = SessionService({
++            getSession,
++            findUserById,
++            getOriginOfRequest,
++            getSettingsCache,
++            isStaffDeviceVerificationDisabled
++        });
++
++        const req = Object.create(express.request, {
++            ip: {
++                value: '0.0.0.0'
++            },
++            headers: {
++                value: {
++                    cookie: 'thing'
++                }
++            },
++            get: {
++                value: () => 'Fake'
++            }
++        });
++        const res = Object.create(express.response);
++        const user = {id: 'egg'};
++
++        // Provide an invalid token on request body
++        req.body = {token: '000000'};
++        await sessionService.createSessionForUser(req, res, user);
++
++        should.equal(req.session.user_id, 'egg');
++        should.equal(req.session.verified, undefined);
++    });
++
+     it('Generates a valid auth code and verifies it correctly', async function () {
+         const getSession = async (req) => {
+             if (req.session) {

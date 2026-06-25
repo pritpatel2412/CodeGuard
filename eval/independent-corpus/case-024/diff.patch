@@ -1,0 +1,440 @@
+From 37f730f68c7f06e060f90714439bfb0dbb2df5e7 Mon Sep 17 00:00:00 2001
+From: Jordan Liggitt <jliggitt@redhat.com>
+Date: Tue, 20 Oct 2015 17:36:45 -0400
+Subject: [PATCH] Validate names in BeforeCreate
+
+---
+ pkg/api/rest/create.go                     |   9 ++
+ pkg/api/rest/resttest/resttest.go          |  28 ++++
+ pkg/api/validation/name.go                 |  48 +++++++
+ pkg/api/validation/name_test.go            | 149 +++++++++++++++++++++
+ pkg/registry/generic/etcd/etcd.go          |  16 +++
+ pkg/registry/namespace/etcd/etcd.go        |   3 +-
+ pkg/registry/node/etcd/etcd.go             |   2 +-
+ pkg/registry/persistentvolume/etcd/etcd.go |   4 +-
+ pkg/storage/util.go                        |  10 ++
+ 9 files changed, 263 insertions(+), 6 deletions(-)
+ create mode 100644 pkg/api/validation/name.go
+ create mode 100644 pkg/api/validation/name_test.go
+
+diff --git a/pkg/api/rest/create.go b/pkg/api/rest/create.go
+index e653a6b74ab85..2886d37533fd0 100644
+--- a/pkg/api/rest/create.go
++++ b/pkg/api/rest/create.go
+@@ -19,6 +19,7 @@ package rest
+ import (
+ 	"k8s.io/kubernetes/pkg/api"
+ 	"k8s.io/kubernetes/pkg/api/errors"
++	"k8s.io/kubernetes/pkg/api/validation"
+ 	"k8s.io/kubernetes/pkg/runtime"
+ 	"k8s.io/kubernetes/pkg/util/fielderrors"
+ )
+@@ -68,6 +69,14 @@ func BeforeCreate(strategy RESTCreateStrategy, ctx api.Context, obj runtime.Obje
+ 	if errs := strategy.Validate(ctx, obj); len(errs) > 0 {
+ 		return errors.NewInvalid(kind, objectMeta.Name, errs)
+ 	}
++
++	// Custom validation (including name validation) passed
++	// Now run common validation on object meta
++	// Do this *after* custom validation so that specific error messages are shown whenever possible
++	if errs := validation.ValidateObjectMeta(objectMeta, strategy.NamespaceScoped(), validation.ValidatePathSegmentName); len(errs) > 0 {
++		return errors.NewInvalid(kind, objectMeta.Name, errs)
++	}
++
+ 	return nil
+ }
+ 
+diff --git a/pkg/api/rest/resttest/resttest.go b/pkg/api/rest/resttest/resttest.go
+index 72a2ecb9af640..7d8bed11b4f69 100644
+--- a/pkg/api/rest/resttest/resttest.go
++++ b/pkg/api/rest/resttest/resttest.go
+@@ -27,6 +27,7 @@ import (
+ 	"k8s.io/kubernetes/pkg/api/errors"
+ 	"k8s.io/kubernetes/pkg/api/rest"
+ 	"k8s.io/kubernetes/pkg/api/unversioned"
++	"k8s.io/kubernetes/pkg/api/validation"
+ 	"k8s.io/kubernetes/pkg/conversion"
+ 	"k8s.io/kubernetes/pkg/fields"
+ 	"k8s.io/kubernetes/pkg/labels"
+@@ -153,6 +154,7 @@ func (t *Tester) TestCreate(valid runtime.Object, setFn SetFunc, getFn GetFunc,
+ 		t.testCreateRejectsMismatchedNamespace(copyOrDie(valid))
+ 	}
+ 	t.testCreateInvokesValidation(invalid...)
++	t.testCreateValidatesNames(copyOrDie(valid))
+ }
+ 
+ // Test updating an object.
+@@ -346,6 +348,32 @@ func (t *Tester) testCreateIgnoresMismatchedNamespace(valid runtime.Object) {
+ 	}
+ }
+ 
++func (t *Tester) testCreateValidatesNames(valid runtime.Object) {
++	for _, invalidName := range validation.NameMayNotBe {
++		objCopy := copyOrDie(valid)
++		objCopyMeta := t.getObjectMetaOrFail(objCopy)
++		objCopyMeta.Name = invalidName
++
++		ctx := t.TestContext()
++		_, err := t.storage.(rest.Creater).Create(ctx, objCopy)
++		if !errors.IsInvalid(err) {
++			t.Errorf("%s: Expected to get an invalid resource error, got %v", invalidName, err)
++		}
++	}
++
++	for _, invalidSuffix := range validation.NameMayNotContain {
++		objCopy := copyOrDie(valid)
++		objCopyMeta := t.getObjectMetaOrFail(objCopy)
++		objCopyMeta.Name += invalidSuffix
++
++		ctx := t.TestContext()
++		_, err := t.storage.(rest.Creater).Create(ctx, objCopy)
++		if !errors.IsInvalid(err) {
++			t.Errorf("%s: Expected to get an invalid resource error, got %v", invalidSuffix, err)
++		}
++	}
++}
++
+ func (t *Tester) testCreateInvokesValidation(invalid ...runtime.Object) {
+ 	for i, obj := range invalid {
+ 		ctx := t.TestContext()
+diff --git a/pkg/api/validation/name.go b/pkg/api/validation/name.go
+new file mode 100644
+index 0000000000000..ffd547b43cc63
+--- /dev/null
++++ b/pkg/api/validation/name.go
+@@ -0,0 +1,48 @@
++/*
++Copyright 2015 The Kubernetes Authors All rights reserved.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package validation
++
++import (
++	"fmt"
++	"strings"
++)
++
++// NameMayNotBe specifies strings that cannot be used as names specified as path segments (like the REST API or etcd store)
++var NameMayNotBe = []string{".", ".."}
++
++// NameMayNotContain specifies substrings that cannot be used in names specified as path segments (like the REST API or etcd store)
++var NameMayNotContain = []string{"/", "%"}
++
++// ValidatePathSegmentName validates the name can be used as a path segment
++func ValidatePathSegmentName(name string, prefix bool) (bool, string) {
++	// Only check for exact matches if this is the full name (not a prefix)
++	if prefix == false {
++		for _, illegalName := range NameMayNotBe {
++			if name == illegalName {
++				return false, fmt.Sprintf(`name may not be %q`, illegalName)
++			}
++		}
++	}
++
++	for _, illegalContent := range NameMayNotContain {
++		if strings.Contains(name, illegalContent) {
++			return false, fmt.Sprintf(`name may not contain %q`, illegalContent)
++		}
++	}
++
++	return true, ""
++}
+diff --git a/pkg/api/validation/name_test.go b/pkg/api/validation/name_test.go
+new file mode 100644
+index 0000000000000..b8687cdccd521
+--- /dev/null
++++ b/pkg/api/validation/name_test.go
+@@ -0,0 +1,149 @@
++/*
++Copyright 2015 The Kubernetes Authors All rights reserved.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package validation
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestValidatePathSegmentName(t *testing.T) {
++	testcases := map[string]struct {
++		Name        string
++		Prefix      bool
++		ExpectedOK  bool
++		ExpectedMsg string
++	}{
++		"empty": {
++			Name:        "",
++			Prefix:      false,
++			ExpectedOK:  true,
++			ExpectedMsg: "",
++		},
++		"empty,prefix": {
++			Name:        "",
++			Prefix:      true,
++			ExpectedOK:  true,
++			ExpectedMsg: "",
++		},
++
++		"valid": {
++			Name:        "foo.bar.baz",
++			Prefix:      false,
++			ExpectedOK:  true,
++			ExpectedMsg: "",
++		},
++		"valid,prefix": {
++			Name:        "foo.bar.baz",
++			Prefix:      true,
++			ExpectedOK:  true,
++			ExpectedMsg: "",
++		},
++
++		// Make sure mixed case, non DNS subdomain characters are tolerated
++		"valid complex": {
++			Name:        "sha256:ABCDEF012345@ABCDEF012345",
++			Prefix:      false,
++			ExpectedOK:  true,
++			ExpectedMsg: "",
++		},
++		// Make sure non-ascii characters are tolerated
++		"valid extended charset": {
++			Name:        "Iñtërnâtiônàlizætiøn",
++			Prefix:      false,
++			ExpectedOK:  true,
++			ExpectedMsg: "",
++		},
++
++		"dot": {
++			Name:        ".",
++			Prefix:      false,
++			ExpectedOK:  false,
++			ExpectedMsg: ".",
++		},
++		"dot leading": {
++			Name:        ".test",
++			Prefix:      false,
++			ExpectedOK:  true,
++			ExpectedMsg: "",
++		},
++		"dot,prefix": {
++			Name:        ".",
++			Prefix:      true,
++			ExpectedOK:  true, // allowed because a suffix could make it valid
++			ExpectedMsg: "",
++		},
++
++		"dot dot": {
++			Name:        "..",
++			Prefix:      false,
++			ExpectedOK:  false,
++			ExpectedMsg: "..",
++		},
++		"dot dot leading": {
++			Name:        "..test",
++			Prefix:      false,
++			ExpectedOK:  true,
++			ExpectedMsg: "",
++		},
++		"dot dot,prefix": {
++			Name:        "..",
++			Prefix:      true,
++			ExpectedOK:  true, // allowed because a suffix could make it valid
++			ExpectedMsg: "",
++		},
++
++		"slash": {
++			Name:        "foo/bar",
++			Prefix:      false,
++			ExpectedOK:  false,
++			ExpectedMsg: "/",
++		},
++		"slash,prefix": {
++			Name:        "foo/bar",
++			Prefix:      true,
++			ExpectedOK:  false,
++			ExpectedMsg: "/",
++		},
++
++		"percent": {
++			Name:        "foo%bar",
++			Prefix:      false,
++			ExpectedOK:  false,
++			ExpectedMsg: "%",
++		},
++		"percent,prefix": {
++			Name:        "foo%bar",
++			Prefix:      true,
++			ExpectedOK:  false,
++			ExpectedMsg: "%",
++		},
++	}
++
++	for k, tc := range testcases {
++		ok, msg := ValidatePathSegmentName(tc.Name, tc.Prefix)
++		if ok != tc.ExpectedOK {
++			t.Errorf("%s: expected ok=%v, got %v", k, tc.ExpectedOK, ok)
++		}
++		if len(tc.ExpectedMsg) == 0 && len(msg) > 0 {
++			t.Errorf("%s: expected no message, got %v", k, msg)
++		}
++		if len(tc.ExpectedMsg) > 0 && !strings.Contains(msg, tc.ExpectedMsg) {
++			t.Errorf("%s: expected message containing %q, got %v", k, tc.ExpectedMsg, msg)
++		}
++	}
++}
+diff --git a/pkg/registry/generic/etcd/etcd.go b/pkg/registry/generic/etcd/etcd.go
+index e3fed4d76c6d9..e8619bbfa430b 100644
+--- a/pkg/registry/generic/etcd/etcd.go
++++ b/pkg/registry/generic/etcd/etcd.go
+@@ -26,6 +26,7 @@ import (
+ 	etcderr "k8s.io/kubernetes/pkg/api/errors/etcd"
+ 	"k8s.io/kubernetes/pkg/api/rest"
+ 	"k8s.io/kubernetes/pkg/api/unversioned"
++	"k8s.io/kubernetes/pkg/api/validation"
+ 	"k8s.io/kubernetes/pkg/fields"
+ 	"k8s.io/kubernetes/pkg/labels"
+ 	"k8s.io/kubernetes/pkg/registry/generic"
+@@ -128,10 +129,25 @@ func NamespaceKeyFunc(ctx api.Context, prefix string, name string) (string, erro
+ 	if len(name) == 0 {
+ 		return "", kubeerr.NewBadRequest("Name parameter required.")
+ 	}
++	if ok, msg := validation.ValidatePathSegmentName(name, false); !ok {
++		return "", kubeerr.NewBadRequest(fmt.Sprintf("Name parameter invalid: %v.", msg))
++	}
+ 	key = key + "/" + name
+ 	return key, nil
+ }
+ 
++// NoNamespaceKeyFunc is the default function for constructing etcd paths to a resource relative to prefix without a namespace
++func NoNamespaceKeyFunc(ctx api.Context, prefix string, name string) (string, error) {
++	if len(name) == 0 {
++		return "", kubeerr.NewBadRequest("Name parameter required.")
++	}
++	if ok, msg := validation.ValidatePathSegmentName(name, false); !ok {
++		return "", kubeerr.NewBadRequest(fmt.Sprintf("Name parameter invalid: %v.", msg))
++	}
++	key := prefix + "/" + name
++	return key, nil
++}
++
+ // New implements RESTStorage
+ func (e *Etcd) New() runtime.Object {
+ 	return e.NewFunc()
+diff --git a/pkg/registry/namespace/etcd/etcd.go b/pkg/registry/namespace/etcd/etcd.go
+index df343590fbd16..4109837c91507 100644
+--- a/pkg/registry/namespace/etcd/etcd.go
++++ b/pkg/registry/namespace/etcd/etcd.go
+@@ -18,7 +18,6 @@ package etcd
+ 
+ import (
+ 	"fmt"
+-	"path"
+ 
+ 	"k8s.io/kubernetes/pkg/api"
+ 	apierrors "k8s.io/kubernetes/pkg/api/errors"
+@@ -58,7 +57,7 @@ func NewREST(s storage.Interface) (*REST, *StatusREST, *FinalizeREST) {
+ 			return prefix
+ 		},
+ 		KeyFunc: func(ctx api.Context, name string) (string, error) {
+-			return path.Join(prefix, name), nil
++			return etcdgeneric.NoNamespaceKeyFunc(ctx, prefix, name)
+ 		},
+ 		ObjectNameFunc: func(obj runtime.Object) (string, error) {
+ 			return obj.(*api.Namespace).Name, nil
+diff --git a/pkg/registry/node/etcd/etcd.go b/pkg/registry/node/etcd/etcd.go
+index ec66b5cf46fa8..5095793b8b7aa 100644
+--- a/pkg/registry/node/etcd/etcd.go
++++ b/pkg/registry/node/etcd/etcd.go
+@@ -74,7 +74,7 @@ func NewREST(s storage.Interface, useCacher bool, connection client.ConnectionIn
+ 			return prefix
+ 		},
+ 		KeyFunc: func(ctx api.Context, name string) (string, error) {
+-			return prefix + "/" + name, nil
++			return etcdgeneric.NoNamespaceKeyFunc(ctx, prefix, name)
+ 		},
+ 		ObjectNameFunc: func(obj runtime.Object) (string, error) {
+ 			return obj.(*api.Node).Name, nil
+diff --git a/pkg/registry/persistentvolume/etcd/etcd.go b/pkg/registry/persistentvolume/etcd/etcd.go
+index 3398835dd7663..fe84303fa851d 100644
+--- a/pkg/registry/persistentvolume/etcd/etcd.go
++++ b/pkg/registry/persistentvolume/etcd/etcd.go
+@@ -17,8 +17,6 @@ limitations under the License.
+ package etcd
+ 
+ import (
+-	"path"
+-
+ 	"k8s.io/kubernetes/pkg/api"
+ 	"k8s.io/kubernetes/pkg/fields"
+ 	"k8s.io/kubernetes/pkg/labels"
+@@ -43,7 +41,7 @@ func NewREST(s storage.Interface) (*REST, *StatusREST) {
+ 			return prefix
+ 		},
+ 		KeyFunc: func(ctx api.Context, name string) (string, error) {
+-			return path.Join(prefix, name), nil
++			return etcdgeneric.NoNamespaceKeyFunc(ctx, prefix, name)
+ 		},
+ 		ObjectNameFunc: func(obj runtime.Object) (string, error) {
+ 			return obj.(*api.PersistentVolume).Name, nil
+diff --git a/pkg/storage/util.go b/pkg/storage/util.go
+index 89b0b2af7da38..1e12684e427a7 100644
+--- a/pkg/storage/util.go
++++ b/pkg/storage/util.go
+@@ -17,10 +17,12 @@ limitations under the License.
+ package storage
+ 
+ import (
++	"fmt"
+ 	"strconv"
+ 
+ 	"k8s.io/kubernetes/pkg/api/errors"
+ 	"k8s.io/kubernetes/pkg/api/meta"
++	"k8s.io/kubernetes/pkg/api/validation"
+ 	"k8s.io/kubernetes/pkg/runtime"
+ 	"k8s.io/kubernetes/pkg/util/fielderrors"
+ )
+@@ -56,6 +58,10 @@ func NamespaceKeyFunc(prefix string, obj runtime.Object) (string, error) {
+ 	if err != nil {
+ 		return "", err
+ 	}
++	name := meta.Name()
++	if ok, msg := validation.ValidatePathSegmentName(name, false); !ok {
++		return "", fmt.Errorf("invalid name: %v", msg)
++	}
+ 	return prefix + "/" + meta.Namespace() + "/" + meta.Name(), nil
+ }
+ 
+@@ -64,5 +70,9 @@ func NoNamespaceKeyFunc(prefix string, obj runtime.Object) (string, error) {
+ 	if err != nil {
+ 		return "", err
+ 	}
++	name := meta.Name()
++	if ok, msg := validation.ValidatePathSegmentName(name, false); !ok {
++		return "", fmt.Errorf("invalid name: %v", msg)
++	}
+ 	return prefix + "/" + meta.Name(), nil
+ }

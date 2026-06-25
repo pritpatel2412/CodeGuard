@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2018-7408",
+  "category": "other",
+  "source_url": "https://github.com/npm/npm/commit/74e149da6efe6ed89477faa81fef08eee7999ad0",
+  "repo": "npm/npm",
+  "cwes": [
+    "CWE-732"
+  ]
+}

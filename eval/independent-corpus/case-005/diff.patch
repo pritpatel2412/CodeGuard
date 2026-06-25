@@ -1,0 +1,111 @@
+From 92d3430f12171f16f566c9050c40feefb830a4a3 Mon Sep 17 00:00:00 2001
+From: Preston Holmes <preston@ptone.com>
+Date: Wed, 17 Oct 2012 14:38:33 -0700
+Subject: [PATCH] Fixed a security issue related to password resets
+
+Full disclosure and new release are forthcoming
+
+backport from master
+---
+ django/contrib/auth/tests/urls.py  |  1 +
+ django/contrib/auth/tests/views.py | 37 ++++++++++++++++++++++++++++++
+ django/contrib/auth/views.py       |  2 +-
+ django/http/__init__.py            |  5 ++++
+ 4 files changed, 44 insertions(+), 1 deletion(-)
+
+diff --git a/django/contrib/auth/tests/urls.py b/django/contrib/auth/tests/urls.py
+index dbbd35ee88d2..8a683b965df4 100644
+--- a/django/contrib/auth/tests/urls.py
++++ b/django/contrib/auth/tests/urls.py
+@@ -51,6 +51,7 @@ def userpage(request):
+     (r'^logout/next_page/$', 'django.contrib.auth.views.logout', dict(next_page='/somewhere/')),
+     (r'^remote_user/$', remote_user_auth_view),
+     (r'^password_reset_from_email/$', 'django.contrib.auth.views.password_reset', dict(from_email='staffmember@example.com')),
++    (r'^admin_password_reset/$', 'django.contrib.auth.views.password_reset', dict(is_admin_site=True)),
+     (r'^login_required/$', login_required(password_reset)),
+     (r'^login_required_login_url/$', login_required(password_reset, login_url='/somewhere/')),
+ 
+diff --git a/django/contrib/auth/tests/views.py b/django/contrib/auth/tests/views.py
+index 72440864da54..1525f888fef8 100644
+--- a/django/contrib/auth/tests/views.py
++++ b/django/contrib/auth/tests/views.py
+@@ -7,6 +7,7 @@
+ from django.contrib.sites.models import Site, RequestSite
+ from django.contrib.auth.models import User
+ from django.core import mail
++from django.core.exceptions import SuspiciousOperation
+ from django.core.urlresolvers import reverse, NoReverseMatch
+ from django.http import QueryDict
+ from django.utils.encoding import force_unicode
+@@ -106,6 +107,42 @@ def test_email_found_custom_from(self):
+         self.assertEqual(len(mail.outbox), 1)
+         self.assertEqual("staffmember@example.com", mail.outbox[0].from_email)
+ 
++    def test_admin_reset(self):
++        "If the reset view is marked as being for admin, the HTTP_HOST header is used for a domain override."
++        response = self.client.post('/admin_password_reset/',
++            {'email': 'staffmember@example.com'},
++            HTTP_HOST='adminsite.com'
++        )
++        self.assertEqual(response.status_code, 302)
++        self.assertEqual(len(mail.outbox), 1)
++        self.assertTrue("http://adminsite.com" in mail.outbox[0].body)
++        self.assertEqual(settings.DEFAULT_FROM_EMAIL, mail.outbox[0].from_email)
++
++    def test_poisoned_http_host(self):
++        "Poisoned HTTP_HOST headers can't be used for reset emails"
++        # This attack is based on the way browsers handle URLs. The colon
++        # should be used to separate the port, but if the URL contains an @,
++        # the colon is interpreted as part of a username for login purposes,
++        # making 'evil.com' the request domain. Since HTTP_HOST is used to
++        # produce a meaningful reset URL, we need to be certain that the
++        # HTTP_HOST header isn't poisoned. This is done as a check when get_host()
++        # is invoked, but we check here as a practical consequence.
++        with self.assertRaises(SuspiciousOperation):
++            self.client.post('/password_reset/',
++                {'email': 'staffmember@example.com'},
++                HTTP_HOST='www.example:dr.frankenstein@evil.tld'
++            )
++        self.assertEqual(len(mail.outbox), 0)
++
++    def test_poisoned_http_host_admin_site(self):
++        "Poisoned HTTP_HOST headers can't be used for reset emails on admin views"
++        with self.assertRaises(SuspiciousOperation):
++            self.client.post('/admin_password_reset/',
++                {'email': 'staffmember@example.com'},
++                HTTP_HOST='www.example:dr.frankenstein@evil.tld'
++            )
++        self.assertEqual(len(mail.outbox), 0)
++
+     def _test_confirm_start(self):
+         # Start by creating the email
+         response = self.client.post('/password_reset/', {'email': 'staffmember@example.com'})
+diff --git a/django/contrib/auth/views.py b/django/contrib/auth/views.py
+index c86ef535954f..ac880209082f 100644
+--- a/django/contrib/auth/views.py
++++ b/django/contrib/auth/views.py
+@@ -156,7 +156,7 @@ def password_reset(request, is_admin_site=False,
+                 'request': request,
+             }
+             if is_admin_site:
+-                opts = dict(opts, domain_override=request.META['HTTP_HOST'])
++                opts = dict(opts, domain_override=request.get_host())
+             form.save(**opts)
+             return HttpResponseRedirect(post_reset_redirect)
+     else:
+diff --git a/django/http/__init__.py b/django/http/__init__.py
+index 8af7228b4b30..98ec9966c490 100644
+--- a/django/http/__init__.py
++++ b/django/http/__init__.py
+@@ -212,6 +212,11 @@ def get_host(self):
+             server_port = str(self.META['SERVER_PORT'])
+             if server_port != (self.is_secure() and '443' or '80'):
+                 host = '%s:%s' % (host, server_port)
++
++        # Disallow potentially poisoned hostnames.
++        if set(';/?@&=+$,').intersection(host):
++            raise SuspiciousOperation('Invalid HTTP_HOST header: %s' % host)
++
+         return host
+ 
+     def get_full_path(self):

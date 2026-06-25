@@ -1,0 +1,31 @@
+From 45287fb2a91c69bb1c110539b9b7341faf5aee33 Mon Sep 17 00:00:00 2001
+From: Jeremy Angele <131715596+angelej@users.noreply.github.com>
+Date: Fri, 13 Dec 2024 16:51:57 +0100
+Subject: [PATCH] Escape data (#53869)
+
+---
+ .../exceptions/renderer/components/context.blade.php          | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/Illuminate/Foundation/resources/exceptions/renderer/components/context.blade.php b/src/Illuminate/Foundation/resources/exceptions/renderer/components/context.blade.php
+index 26fae1afdc5a..13b922a865e6 100644
+--- a/src/Illuminate/Foundation/resources/exceptions/renderer/components/context.blade.php
++++ b/src/Illuminate/Foundation/resources/exceptions/renderer/components/context.blade.php
+@@ -51,7 +51,7 @@ class="min-w-0 flex-grow"
+                 class="min-w-0 flex-grow"
+                 style="-webkit-mask-image: linear-gradient(90deg, transparent 0, #000 1rem, #000 calc(100% - 3rem), transparent calc(100% - 1rem))"
+             >
+-                <pre class="scrollbar-hidden mx-5 my-3 overflow-y-hidden text-xs lg:text-sm"><code class="overflow-y-hidden scrollbar-hidden overflow-x-scroll scrollbar-hidden-x">{!! $exception->requestBody() ?: 'No body data' !!}</code></pre>
++                <pre class="scrollbar-hidden mx-5 my-3 overflow-y-hidden text-xs lg:text-sm"><code class="overflow-y-hidden scrollbar-hidden overflow-x-scroll scrollbar-hidden-x">{{ $exception->requestBody() ?: 'No body data' }}</code></pre>
+             </span>
+         </div>
+     </div>
+@@ -105,7 +105,7 @@ class="min-w-0 flex-grow"
+                     class="min-w-0 flex-grow"
+                     style="-webkit-mask-image: linear-gradient(90deg, transparent 0, #000 1rem, #000 calc(100% - 3rem), transparent calc(100% - 1rem))"
+                 >
+-                    <pre class="scrollbar-hidden mx-5 my-3 overflow-y-hidden text-xs lg:text-sm"><code class="overflow-y-hidden scrollbar-hidden overflow-x-scroll scrollbar-hidden-x">{!! $routeParametersContext !!}</code></pre>
++                    <pre class="scrollbar-hidden mx-5 my-3 overflow-y-hidden text-xs lg:text-sm"><code class="overflow-y-hidden scrollbar-hidden overflow-x-scroll scrollbar-hidden-x">{{ $routeParametersContext }}</code></pre>
+                 </span>
+             </div>
+         </div>

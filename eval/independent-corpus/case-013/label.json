@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2021-32677",
+  "category": "other",
+  "source_url": "https://github.com/tiangolo/fastapi/commit/fa7e3c996edf2d5482fff8f9d890ac2390dede4d",
+  "repo": "tiangolo/fastapi",
+  "cwes": [
+    "CWE-352"
+  ]
+}

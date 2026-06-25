@@ -1,0 +1,9 @@
+{
+  "cve": "BIT-ghost-2026-22594",
+  "category": "other",
+  "source_url": "https://github.com/TryGhost/Ghost/commit/b59f707f670e6f175b669977724ccf16c718430b",
+  "repo": "tryghost/ghost",
+  "cwes": [
+    "CWE-287"
+  ]
+}

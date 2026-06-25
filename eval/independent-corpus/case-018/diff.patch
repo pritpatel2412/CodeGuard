@@ -1,0 +1,56 @@
+From dad9576ea9362905cc4de8028d3877caff36dc23 Mon Sep 17 00:00:00 2001
+From: Brainslug <br41nslug@users.noreply.github.com>
+Date: Tue, 9 Dec 2025 18:22:20 +0100
+Subject: [PATCH] Merge from fork (#26346)
+
+* validate relay state redirect
+
+* changeset
+
+---------
+
+Co-authored-by: daedalus <44623501+ComfortablyCoding@users.noreply.github.com>
+---
+ .changeset/empty-areas-lead.md | 5 +++++
+ api/src/auth/drivers/saml.ts   | 8 ++++++--
+ 2 files changed, 11 insertions(+), 2 deletions(-)
+ create mode 100644 .changeset/empty-areas-lead.md
+
+diff --git a/.changeset/empty-areas-lead.md b/.changeset/empty-areas-lead.md
+new file mode 100644
+index 0000000000000..61787482097fc
+--- /dev/null
++++ b/.changeset/empty-areas-lead.md
+@@ -0,0 +1,5 @@
++---
++'@directus/api': patch
++---
++
++Added redirect validation
+diff --git a/api/src/auth/drivers/saml.ts b/api/src/auth/drivers/saml.ts
+index 3b794d9894d3c..c7d165c9a661b 100644
+--- a/api/src/auth/drivers/saml.ts
++++ b/api/src/auth/drivers/saml.ts
+@@ -19,9 +19,9 @@ import { AuthenticationService } from '../../services/authentication.js';
+ import type { AuthDriverOptions, User } from '../../types/index.js';
+ import asyncHandler from '../../utils/async-handler.js';
+ import { getConfigFromEnv } from '../../utils/get-config-from-env.js';
+-import { LocalAuthDriver } from './local.js';
+-import { isLoginRedirectAllowed } from '../../utils/is-login-redirect-allowed.js';
+ import { getSchema } from '../../utils/get-schema.js';
++import { isLoginRedirectAllowed } from '../../utils/is-login-redirect-allowed.js';
++import { LocalAuthDriver } from './local.js';
+ 
+ // Register the samlify schema validator
+ samlify.setSchemaValidator(validator);
+@@ -175,6 +175,10 @@ export function createSAMLAuthRouter(providerName: string) {
+ 
+ 			const authMode = (env[`AUTH_${providerName.toUpperCase()}_MODE`] ?? 'session') as string;
+ 
++			if (relayState && isLoginRedirectAllowed(relayState, providerName) === false) {
++				throw new InvalidPayloadError({ reason: `URL "${relayState}" can't be used to redirect after login` });
++			}
++
+ 			try {
+ 				const { sp, idp } = getAuthProvider(providerName) as SAMLAuthDriver;
+ 				const { extract } = await sp.parseLoginResponse(idp, 'post', req);

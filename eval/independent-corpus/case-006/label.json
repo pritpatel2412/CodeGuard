@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2014-0481",
+  "category": "other",
+  "source_url": "https://github.com/django/django/commit/26cd48e166ac4d84317c8ee6d63ac52a87e8da99",
+  "repo": "django/django",
+  "cwes": [
+    "CWE-400"
+  ]
+}

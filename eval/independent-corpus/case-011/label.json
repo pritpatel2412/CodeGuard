@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2025-47278",
+  "category": "other",
+  "source_url": "https://github.com/pallets/flask/commit/73d6504063bfa00666a92b07a28aaf906c532f09",
+  "repo": "pallets/flask",
+  "cwes": [
+    "CWE-683"
+  ]
+}

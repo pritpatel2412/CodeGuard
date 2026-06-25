@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2026-22032",
+  "category": "other",
+  "source_url": "https://github.com/directus/directus/commit/dad9576ea9362905cc4de8028d3877caff36dc23",
+  "repo": "directus/directus",
+  "cwes": [
+    "CWE-601"
+  ]
+}
