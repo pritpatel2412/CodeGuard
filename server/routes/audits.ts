@@ -16,8 +16,26 @@ import { promisify } from "util";
 import { db } from "../db.js";
 import { audits as auditsTable } from "../../shared/schema.js";
 import { eq, desc } from "drizzle-orm";
+import dns from "dns/promises";
+import { auditIngestionLimiter } from "../middleware/rate-limit.js";
 
-const AUDIT_SECRET = process.env.AUDIT_SECRET || "default_dev_audit_secret_key_12345";
+const MIN_AUDIT_SECRET_LEN = 32;
+function resolveAuditSecret(): string {
+  const secret = process.env.AUDIT_SECRET;
+  if (process.env.NODE_ENV === "production") {
+    if (!secret || secret.length < MIN_AUDIT_SECRET_LEN) {
+      console.error("[FATAL] AUDIT_SECRET must be set in production and be at least 32 characters.");
+      process.exit(1);
+    }
+    return secret;
+  }
+  if (!secret || secret.length < MIN_AUDIT_SECRET_LEN) {
+    console.warn("[SECURITY] Using development AUDIT_SECRET fallback. Set AUDIT_SECRET in .env.");
+    return "default_dev_audit_secret_key_12345";
+  }
+  return secret;
+}
+const AUDIT_SECRET = resolveAuditSecret();
 
 const router = Router();
 
@@ -43,7 +61,29 @@ const createAuditSchema = z.object({
   framework: z.literal("asvs-5.0").default("asvs-5.0"),
 });
 
-router.post("/", async (req, res) => {
+async function isSafeUrl(urlString: string): Promise<boolean> {
+  try {
+    const parsed = new URL(urlString);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    const ips = await dns.resolve(parsed.hostname);
+    for (const ip of ips) {
+      if (
+        ip.startsWith("10.") ||
+        ip.startsWith("192.168.") ||
+        ip.startsWith("127.") ||
+        ip.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) ||
+        ip === "::1" || ip.toLowerCase().startsWith("fc00:") || ip.toLowerCase().startsWith("fd00:")
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+router.post("/", auditIngestionLimiter, async (req, res) => {
   if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
   
   try {
@@ -53,6 +93,10 @@ router.post("/", async (req, res) => {
     }
     
     const { repositoryUrl, branch, framework } = parsed.data;
+
+    if (!(await isSafeUrl(repositoryUrl))) {
+      return res.status(400).json({ error: "Invalid or unsafe repository URL" });
+    }
     
     const audit = await storage.createAudit({
       repositoryUrl,
@@ -344,5 +388,54 @@ export async function runAuditAsync(auditId: string, repoUrl: string, branch: st
     activeAuditAbortControllers.delete(auditId);
   }
 }
+
+router.get("/:id/feedback", async (req, res) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+  try {
+    const audit = await storage.getAudit(req.params.id);
+    if (!audit || audit.userId !== req.user!.id) return res.status(403).json({ error: "Unauthorized" });
+    
+    const feedback = await storage.getAuditFeedback(audit.id);
+    res.json(feedback || null);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/:id/feedback/show", async (req, res) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+  try {
+    const audit = await storage.getAudit(req.params.id);
+    if (!audit || audit.userId !== req.user!.id) return res.status(403).json({ error: "Unauthorized" });
+    
+    let feedback = await storage.getAuditFeedback(audit.id);
+    if (!feedback) {
+      feedback = await storage.createAuditFeedback(audit.id);
+    }
+    res.json(feedback);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/:id/feedback/submit", async (req, res) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+  try {
+    const audit = await storage.getAudit(req.params.id);
+    if (!audit || audit.userId !== req.user!.id) return res.status(403).json({ error: "Unauthorized" });
+    
+    let feedback = await storage.getAuditFeedback(audit.id);
+    if (!feedback) {
+       return res.status(400).json({ error: "Feedback not initialized" });
+    }
+    
+    const { responses, freeText } = req.body;
+    feedback = await storage.updateAuditFeedback(feedback.id, { responses, freeText }) as any;
+    
+    res.json(feedback);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 export default router;

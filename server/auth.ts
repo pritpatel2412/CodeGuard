@@ -7,6 +7,7 @@ import { pool } from "./db.js";
 import { storage } from "./storage.js";
 import { toPublicUser, type PublicUser } from "./user-public.js";
 import { csrfProtectionMiddleware, ensureSessionCsrfToken } from "./csrf.js";
+import { authRateLimiter } from "./middleware/rate-limit.js";
 
 const MIN_SESSION_SECRET_LEN = 32;
 
@@ -130,13 +131,23 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.get("/auth/github", passport.authenticate("github", { scope: ["user:email", "repo"] }));
+  app.get("/auth/github", authRateLimiter, passport.authenticate("github", { scope: ["user:email", "repo"] }));
 
   app.get(
     "/auth/github/callback",
+    authRateLimiter,
     passport.authenticate("github", { failureRedirect: "/" }),
-    (req, res) => {
-      res.redirect("/");
+    (req, res, next) => {
+      const user = req.user;
+      req.session.regenerate((err) => {
+        if (err) return next(err);
+        req.login(user!, (loginErr) => {
+          if (loginErr) return next(loginErr);
+          req.session.createdAt = Date.now();
+          req.session.lastActivityAt = Date.now();
+          res.redirect("/");
+        });
+      });
     },
   );
 

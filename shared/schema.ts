@@ -512,3 +512,21 @@ export const insertFreeAuditRequestSchema = createInsertSchema(freeAuditRequests
 });
 export type FreeAuditRequest = typeof freeAuditRequests.$inferSelect;
 export type InsertFreeAuditRequest = z.infer<typeof insertFreeAuditRequestSchema>;
+
+// Audit Feedback (Post-download prompt responses)
+export const auditFeedback = pgTable("audit_feedback", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  auditId: varchar("audit_id").notNull().references(() => audits.id, { onDelete: "cascade" }),
+  shownAt: timestamp("shown_at").notNull().defaultNow(),
+  respondedAt: timestamp("responded_at"),
+  responses: jsonb("responses"), // JSON holding answers like Q1 (accuracy) and Q2 (willingness to pay)
+  freeText: text("free_text"), // Q3 (optional open text field)
+});
+
+export const insertAuditFeedbackSchema = createInsertSchema(auditFeedback).omit({
+  id: true,
+  shownAt: true,
+});
+export type AuditFeedback = typeof auditFeedback.$inferSelect;
+export type InsertAuditFeedback = z.infer<typeof insertAuditFeedbackSchema>;
+

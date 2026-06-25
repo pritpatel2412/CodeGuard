@@ -32,8 +32,7 @@ app.use(helmet({
     },
 }));
 
-// 2. Prevent HTTP Parameter Pollution
-app.use(hpp());
+// 2. Prevent HTTP Parameter Pollution (moved below body parsers)
 
 // 3. CORS — explicit allowlist in production (comma-separated APP_ORIGIN)
 function getProductionAllowedOrigins(): string[] {
@@ -106,6 +105,9 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// 2. Prevent HTTP Parameter Pollution (must be after body parsers)
+app.use(hpp());
 
 const SENSITIVE_LOG_KEYS = /token|secret|password|authorization|access_token|accessToken|cookie|set-cookie|webhookSecret|sess\b/i;
 

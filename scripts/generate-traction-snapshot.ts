@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { db } from "../server/db";
-import { users, repositories, reviews, audits, auditOrders, apiUsageLog, requestLogs } from "../shared/schema";
-import { sql, gte } from "drizzle-orm";
+import { users, repositories, reviews, audits, auditOrders, apiUsageLog, requestLogs, auditFeedback } from "../shared/schema";
+import { sql, gte, isNotNull } from "drizzle-orm";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -90,6 +90,28 @@ async function generateSnapshot() {
   const today = new Date().toISOString().split('T')[0];
   const snapshotPath = path.join(process.cwd(), `docs/TRACTION_SNAPSHOT_${today}.md`);
 
+  // 7. Post-Audit Feedback
+  const feedbackRows = await db.select().from(auditFeedback).where(isNotNull(auditFeedback.respondedAt));
+  let totalAccuracy = 0;
+  let totalValue = 0;
+  let validAccuracy = 0;
+  let validValue = 0;
+  
+  feedbackRows.forEach(f => {
+    const responses = f.responses as any;
+    if (responses?.accuracy) {
+      totalAccuracy += Number(responses.accuracy);
+      validAccuracy++;
+    }
+    if (responses?.willingnessToPay) {
+      totalValue += Number(responses.willingnessToPay);
+      validValue++;
+    }
+  });
+  
+  const avgAccuracy = validAccuracy > 0 ? (totalAccuracy / validAccuracy).toFixed(1) : "0.0";
+  const avgValue = validValue > 0 ? (totalValue / validValue).toFixed(1) : "0.0";
+
   const snapshotContent = `# Traction Snapshot - ${today}
 
 ## Users & Activity
@@ -114,6 +136,11 @@ ${payingCustomers === 0 ? '> Fastest path to non-zero: Convert one pilot user vi
 
 ## Evaluation Metrics (latest.md)
 ${evalNumbers}
+
+## Post-Audit Feedback
+- Total responses: ${feedbackRows.length}
+- Average Accuracy Rating: ${avgAccuracy} / 5
+- Average Willingness to Pay Rating: ${avgValue} / 5
 
 ## Unit Economics
 - Average cost per review/audit: $${avgCostPerReview} (Total cost: $${totalCost.toFixed(4)})

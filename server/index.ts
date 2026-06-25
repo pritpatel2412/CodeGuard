@@ -13,10 +13,15 @@ import { setupSocketIO } from "./socket";
 import { requestLogger } from "./middleware/request-logger";
 import { startRetentionJob } from "./jobs/retention";
 
+import { sessionTimeout } from "./middleware/session-timeout.js";
+import { apiRateLimiter } from "./middleware/rate-limit.js";
+
 (async () => {
   const httpServer = createServer(app);
   setupSocketIO(httpServer);
   setupAuth(app);
+  
+  app.use(sessionTimeout);
   
   // Mount the admin request logger after auth so we have req.user, 
   // but before routes so we capture API traffic
@@ -24,6 +29,9 @@ import { startRetentionJob } from "./jobs/retention";
   
   // Start the background job for purging old request logs
   startRetentionJob();
+
+  // Rate limit /api routes (except webhooks if any are mounted here)
+  app.use("/api", apiRateLimiter);
 
   await registerRoutes(httpServer, app);
   

@@ -10,6 +10,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 export default function AuditPage() {
   const [selectedRepoId, setSelectedRepoId] = useState("");
@@ -17,6 +19,13 @@ export default function AuditPage() {
   const [currentAuditId, setCurrentAuditId] = useState<string | null>(null);
   const [logs, setLogs] = useState<{log: string, progress: number, timestamp: string}[]>([]);
   const [progress, setProgress] = useState(0);
+  
+  // Feedback Modal State
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackRating, setFeedbackRating] = useState<number | null>(null);
+  const [valueRating, setValueRating] = useState<number | null>(null);
+  const [feedbackText, setFeedbackText] = useState("");
+
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -159,6 +168,45 @@ export default function AuditPage() {
     queryKey: ["/api/orders/audit", currentAuditId],
     enabled: !!currentAuditId && audit?.status === "complete",
   });
+
+  const { data: feedbackData } = useQuery<any>({
+    queryKey: ["/api/audits", currentAuditId, "feedback"],
+    enabled: !!currentAuditId && audit?.status === "complete",
+  });
+
+  const showFeedbackMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/audits/${currentAuditId}/feedback/show`);
+      return res.json();
+    }
+  });
+
+  const submitFeedbackMutation = useMutation({
+    mutationFn: async (data: { responses: any, freeText: string }) => {
+      const res = await apiRequest("POST", `/api/audits/${currentAuditId}/feedback/submit`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Feedback Submitted",
+        description: "Thank you for helping us improve CodeGuard!",
+      });
+      setShowFeedbackModal(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/audits", currentAuditId, "feedback"] });
+    }
+  });
+
+  const handleDownloadPdf = () => {
+    window.open(`/api/audits/${currentAuditId}/pdf`, '_blank');
+    
+    // Wait a brief moment then show feedback prompt if they haven't responded yet
+    setTimeout(() => {
+      if (!feedbackData?.respondedAt) {
+        showFeedbackMutation.mutate();
+        setShowFeedbackModal(true);
+      }
+    }, 1500);
+  };
 
   const createOrderMutation = useMutation({
     mutationFn: async () => {
@@ -332,7 +380,7 @@ export default function AuditPage() {
                               <Download className="mr-2 h-4 w-4" />
                               JSON
                             </Button>
-                            <Button variant="outline" size="sm" onClick={() => window.open(`/api/audits/${currentAuditId}/pdf`, '_blank')}>
+                            <Button variant="outline" size="sm" onClick={handleDownloadPdf}>
                               <FileText className="mr-2 h-4 w-4" />
                               PDF
                             </Button>
@@ -457,6 +505,80 @@ export default function AuditPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Post-Download Feedback Modal */}
+      <Dialog open={showFeedbackModal} onOpenChange={setShowFeedbackModal}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Quick Feedback</DialogTitle>
+            <DialogDescription>
+              We're constantly improving our ASVS 5.0 audit engine. How did we do on this report?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-6 py-4">
+            <div className="space-y-3">
+              <Label>How accurate were the security findings?</Label>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">Poor</span>
+                {[1, 2, 3, 4, 5].map((val) => (
+                  <Button
+                    key={val}
+                    variant={feedbackRating === val ? "default" : "outline"}
+                    className="w-10 h-10 rounded-full p-0"
+                    onClick={() => setFeedbackRating(val)}
+                  >
+                    {val}
+                  </Button>
+                ))}
+                <span className="text-xs text-muted-foreground">Excellent</span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label>Would you pay for this level of automated audit?</Label>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">No</span>
+                {[1, 2, 3, 4, 5].map((val) => (
+                  <Button
+                    key={`val-${val}`}
+                    variant={valueRating === val ? "default" : "outline"}
+                    className="w-10 h-10 rounded-full p-0"
+                    onClick={() => setValueRating(val)}
+                  >
+                    {val}
+                  </Button>
+                ))}
+                <span className="text-xs text-muted-foreground">Definitely</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="feedback">Any additional comments? (Optional)</Label>
+              <Textarea
+                id="feedback"
+                placeholder="What was missing? What was helpful?"
+                value={feedbackText}
+                onChange={(e) => setFeedbackText(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowFeedbackModal(false)}>Skip</Button>
+            <Button 
+              onClick={() => {
+                submitFeedbackMutation.mutate({
+                  responses: { accuracy: feedbackRating, willingnessToPay: valueRating },
+                  freeText: feedbackText
+                });
+              }}
+              disabled={!feedbackRating || submitFeedbackMutation.isPending}
+            >
+              {submitFeedbackMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Submit Feedback
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

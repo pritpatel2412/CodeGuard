@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { users, audits, requestLogs, apiUsageLog, adminActionLog, auditOrders } from "../../shared/schema.js";
-import { desc, sql, eq } from "drizzle-orm";
+import { users, audits, requestLogs, apiUsageLog, adminActionLog, auditOrders, auditFeedback } from "../../shared/schema.js";
+import { desc, sql, eq, isNotNull } from "drizzle-orm";
 import { storage } from "../storage.js";
 import { runAuditAsync } from "./audits.js";
 
@@ -127,6 +127,30 @@ router.get("/overview", async (req, res) => {
     // Calculate total API cost
     const [{ totalCost }] = await db.select({ totalCost: sql<number>`sum(CAST(cost_usd AS float))` }).from(apiUsageLog);
 
+    // Feedback metrics
+    const [{ count: feedbackCount }] = await db.select({ count: sql<number>`count(*)` }).from(auditFeedback).where(isNotNull(auditFeedback.respondedAt));
+    const feedbackRows = await db.select().from(auditFeedback).where(isNotNull(auditFeedback.respondedAt));
+    
+    let totalAccuracy = 0;
+    let totalValue = 0;
+    let validAccuracy = 0;
+    let validValue = 0;
+    
+    feedbackRows.forEach(f => {
+      const responses = f.responses as any;
+      if (responses?.accuracy) {
+        totalAccuracy += Number(responses.accuracy);
+        validAccuracy++;
+      }
+      if (responses?.willingnessToPay) {
+        totalValue += Number(responses.willingnessToPay);
+        validValue++;
+      }
+    });
+    
+    const avgAccuracy = validAccuracy > 0 ? (totalAccuracy / validAccuracy).toFixed(1) : "0.0";
+    const avgValue = validValue > 0 ? (totalValue / validValue).toFixed(1) : "0.0";
+
     const rangeParam = req.query.range as string || "7d";
     const startDate = new Date();
     let daysToInit = 7;
@@ -181,6 +205,11 @@ router.get("/overview", async (req, res) => {
       totalOrders: Number(totalOrders),
       totalApiCost: Number(totalCost || 0).toFixed(2),
       growthMetrics,
+      feedback: {
+        count: Number(feedbackCount),
+        avgAccuracy,
+        avgValue
+      }
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

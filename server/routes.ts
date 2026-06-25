@@ -17,7 +17,7 @@ import { db } from "./db.js";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { toPublicUser } from "./user-public.js";
 import { triggerWorkflowIntegrations } from "./integrations/workflow.js";
-
+import { publicIntakeLimiter } from "./middleware/rate-limit.js";
 import { z } from "zod";
 import crypto from "crypto";
 import PDFDocument from "pdfkit";
@@ -171,14 +171,19 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/public/free-audit-request", async (req, res) => {
+  app.post("/api/public/free-audit-request", publicIntakeLimiter, async (req, res) => {
     try {
+      const { repoUrl, contactName, contactEmail, motivationText, website } = req.body;
+
+      // Honeypot check for bots
+      if (website) {
+        return res.status(201).json({ id: 0, status: "pending" });
+      }
+
       const offer = await storage.getActivePromoOffer();
       if (!offer) {
         return res.status(400).json({ error: "No active free audit offer at this time." });
       }
-
-      const { repoUrl, contactName, contactEmail, motivationText } = req.body;
       if (!repoUrl || !contactName || !contactEmail || !motivationText) {
         return res.status(400).json({ error: "Missing required fields." });
       }

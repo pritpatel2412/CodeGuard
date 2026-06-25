@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { ASVSControl, ControlResult, EvidenceTrail } from "../asvs-controls.js";
 import { callAI } from "../../ai/provider.js";
+import { validateNoSymlinkEscape } from "../../utils/fs-sandbox.js";
 
 const MAX_FILES_TO_PROCESS = 50;
 const MAX_CONTENT_LENGTH = 100000;
@@ -35,6 +36,12 @@ export async function runStaticAnalysis(
     if (processedCount >= MAX_FILES_TO_PROCESS) break;
     
     const relativePath = path.relative(repoPath, file);
+
+    if (!(await validateNoSymlinkEscape(repoPath, relativePath))) {
+      console.warn(`[Static Analysis] Skipping unsafe file: ${relativePath}`);
+      continue;
+    }
+
     onProgress?.(`Parsing ${relativePath}...`, Math.floor((processedCount / totalFiles) * 50));
     
     const content = await fs.readFile(file, "utf-8");
