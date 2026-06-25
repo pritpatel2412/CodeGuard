@@ -1,0 +1,11 @@
+diff --git a/view.js b/view.js
+index a1b2c3d..e4f5g6h 100644
+--- a/view.js
++++ b/view.js
+@@ -2,5 +2,6 @@
+ function renderPage(userInput) {
+-  return `<div>${userInput}</div>`; // XSS
++  // We use a trusted HTML sanitization library before rendering
++  const safeInput = DOMPurify.sanitize(userInput);
++  return `<div>${safeInput}</div>`;
+ }

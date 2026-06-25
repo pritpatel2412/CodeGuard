@@ -1,0 +1,7 @@
+{
+  "cve": "control-015",
+  "category": "control",
+  "source_url": "https://github.com/pallets/flask/commit/8705dd39c4fa563ea0fe0bf84c85da8fcc98b88d",
+  "repo": "pallets/flask",
+  "cwes": []
+}

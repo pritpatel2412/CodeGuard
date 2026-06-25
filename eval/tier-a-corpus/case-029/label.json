@@ -1,0 +1,9 @@
+{
+  "cve": "GHSA-7852-w36x-6mf6",
+  "category": "other",
+  "source_url": "https://github.com/laravel/framework/commit/28e53f23a76206fb130e9a54eb95aa3f010e79c9",
+  "repo": "laravel/framework",
+  "cwes": [
+    "CWE-1240"
+  ]
+}

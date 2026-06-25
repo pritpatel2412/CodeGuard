@@ -1,0 +1,9 @@
+{
+  "cve": "GHSA-mw6j-hh29-h379",
+  "category": "other",
+  "source_url": "https://github.com/tensorflow/tensorflow/commit/3796cc4fcd93ae55812a457abc96dcd55fbb854b",
+  "repo": "tensorflow/tensorflow",
+  "cwes": [
+    "CWE-190"
+  ]
+}

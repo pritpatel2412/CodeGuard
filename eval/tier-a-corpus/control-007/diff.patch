@@ -1,0 +1,164 @@
+From 45acd6d836895a4c36575f48b3fb36a3dae98d19 Mon Sep 17 00:00:00 2001
+From: Tim Graham <timograham@gmail.com>
+Date: Mon, 17 Oct 2016 12:14:49 -0400
+Subject: [PATCH] [1.9.x] Fixed CVE-2016-9014 -- Validated Host header when
+ DEBUG=True.
+
+This is a security fix.
+---
+ django/http/request.py   |  9 +++++----
+ docs/ref/settings.txt    | 10 +++++++---
+ docs/releases/1.8.16.txt | 22 ++++++++++++++++++++++
+ docs/releases/1.9.11.txt | 22 ++++++++++++++++++++++
+ tests/requests/tests.py  | 29 +++++++++++++++--------------
+ 5 files changed, 71 insertions(+), 21 deletions(-)
+
+diff --git a/django/http/request.py b/django/http/request.py
+index 22405d8306e8..cec2add58e27 100644
+--- a/django/http/request.py
++++ b/django/http/request.py
+@@ -92,12 +92,13 @@ def get_host(self):
+         """Return the HTTP host using the environment or request headers."""
+         host = self._get_raw_host()
+ 
+-        # There is no hostname validation when DEBUG=True
+-        if settings.DEBUG:
+-            return host
++        # Allow variants of localhost if ALLOWED_HOSTS is empty and DEBUG=True.
++        allowed_hosts = settings.ALLOWED_HOSTS
++        if settings.DEBUG and not allowed_hosts:
++            allowed_hosts = ['localhost', '127.0.0.1', '[::1]']
+ 
+         domain, port = split_domain_port(host)
+-        if domain and validate_host(domain, settings.ALLOWED_HOSTS):
++        if domain and validate_host(domain, allowed_hosts):
+             return host
+         else:
+             msg = "Invalid HTTP_HOST header: %r." % host
+diff --git a/docs/ref/settings.txt b/docs/ref/settings.txt
+index 63aca2e97803..ba5ae2e351fb 100644
+--- a/docs/ref/settings.txt
++++ b/docs/ref/settings.txt
+@@ -90,14 +90,18 @@ If the ``Host`` header (or ``X-Forwarded-Host`` if
+ list, the :meth:`django.http.HttpRequest.get_host()` method will raise
+ :exc:`~django.core.exceptions.SuspiciousOperation`.
+ 
+-When :setting:`DEBUG` is ``True`` or when running tests, host validation is
+-disabled; any host will be accepted. Thus it's usually only necessary to set it
+-in production.
++When :setting:`DEBUG` is ``True`` and ``ALLOWED_HOSTS`` is empty, the host
++is validated against ``['localhost', '127.0.0.1', '[::1]']``.
+ 
+ This validation only applies via :meth:`~django.http.HttpRequest.get_host()`;
+ if your code accesses the ``Host`` header directly from ``request.META`` you
+ are bypassing this security protection.
+ 
++.. versionchanged:: 1.9.11
++
++    In older versions, ``ALLOWED_HOSTS`` wasn't checked if ``DEBUG=True``.
++    This was also changed in Django 1.8.16 to prevent a DNS rebinding attack.
++
+ .. setting:: ALLOWED_INCLUDE_ROOTS
+ 
+ ALLOWED_INCLUDE_ROOTS
+diff --git a/docs/releases/1.8.16.txt b/docs/releases/1.8.16.txt
+index aa5d9cccea1f..9cd82d8d7acd 100644
+--- a/docs/releases/1.8.16.txt
++++ b/docs/releases/1.8.16.txt
+@@ -19,3 +19,25 @@ the ``manage.py test --keepdb`` option or if the user has an active session
+ (such as an attacker's connection).
+ 
+ A randomly generated password is now used for each test run.
++
++DNS rebinding vulnerability when ``DEBUG=True``
++===============================================
++
++Older versions of Django don't validate the ``Host`` header against
++``settings.ALLOWED_HOSTS`` when ``settings.DEBUG=True``. This makes them
++vulnerable to a `DNS rebinding attack
++<http://benmmurphy.github.io/blog/2016/07/11/rails-webconsole-dns-rebinding/>`_.
++
++While Django doesn't ship a module that allows remote code execution, this is
++at least a cross-site scripting vector, which could be quite serious if
++developers load a copy of the production database in development or connect to
++some production services for which there's no development instance, for
++example. If a project uses a package like the ``django-debug-toolbar``, then
++the attacker could execute arbitrary SQL, which could be especially bad if the
++developers connect to the database with a superuser account.
++
++``settings.ALLOWED_HOSTS`` is now validated regardless of ``DEBUG``. For
++convenience, if ``ALLOWED_HOSTS`` is empty and ``DEBUG=True``, the following
++variations of localhost are allowed ``['localhost', '127.0.0.1', '::1']``. If
++your local settings file has your production ``ALLOWED_HOSTS`` value, you must
++now omit it to get those fallback values.
+diff --git a/docs/releases/1.9.11.txt b/docs/releases/1.9.11.txt
+index 3c29187e864a..4a7b3ba08678 100644
+--- a/docs/releases/1.9.11.txt
++++ b/docs/releases/1.9.11.txt
+@@ -19,3 +19,25 @@ the ``manage.py test --keepdb`` option or if the user has an active session
+ (such as an attacker's connection).
+ 
+ A randomly generated password is now used for each test run.
++
++DNS rebinding vulnerability when ``DEBUG=True``
++===============================================
++
++Older versions of Django don't validate the ``Host`` header against
++``settings.ALLOWED_HOSTS`` when ``settings.DEBUG=True``. This makes them
++vulnerable to a `DNS rebinding attack
++<http://benmmurphy.github.io/blog/2016/07/11/rails-webconsole-dns-rebinding/>`_.
++
++While Django doesn't ship a module that allows remote code execution, this is
++at least a cross-site scripting vector, which could be quite serious if
++developers load a copy of the production database in development or connect to
++some production services for which there's no development instance, for
++example. If a project uses a package like the ``django-debug-toolbar``, then
++the attacker could execute arbitrary SQL, which could be especially bad if the
++developers connect to the database with a superuser account.
++
++``settings.ALLOWED_HOSTS`` is now validated regardless of ``DEBUG``. For
++convenience, if ``ALLOWED_HOSTS`` is empty and ``DEBUG=True``, the following
++variations of localhost are allowed ``['localhost', '127.0.0.1', '::1']``. If
++your local settings file has your production ``ALLOWED_HOSTS`` value, you must
++now omit it to get those fallback values.
+diff --git a/tests/requests/tests.py b/tests/requests/tests.py
+index c0a48d610cc9..772ddc51f7c3 100644
+--- a/tests/requests/tests.py
++++ b/tests/requests/tests.py
+@@ -709,21 +709,22 @@ def test_get_port_with_x_forwarded_port(self):
+         self.assertEqual(request.get_port(), '8080')
+ 
+     @override_settings(DEBUG=True, ALLOWED_HOSTS=[])
+-    def test_host_validation_disabled_in_debug_mode(self):
+-        """If ALLOWED_HOSTS is empty and DEBUG is True, all hosts pass."""
+-        request = HttpRequest()
+-        request.META = {
+-            'HTTP_HOST': 'example.com',
+-        }
+-        self.assertEqual(request.get_host(), 'example.com')
++    def test_host_validation_in_debug_mode(self):
++        """
++        If ALLOWED_HOSTS is empty and DEBUG is True, variants of localhost are
++        allowed.
++        """
++        valid_hosts = ['localhost', '127.0.0.1', '[::1]']
++        for host in valid_hosts:
++            request = HttpRequest()
++            request.META = {'HTTP_HOST': host}
++            self.assertEqual(request.get_host(), host)
+ 
+-        # Invalid hostnames would normally raise a SuspiciousOperation,
+-        # but we have DEBUG=True, so this check is disabled.
+-        request = HttpRequest()
+-        request.META = {
+-            'HTTP_HOST': "invalid_hostname.com",
+-        }
+-        self.assertEqual(request.get_host(), "invalid_hostname.com")
++        # Other hostnames raise a SuspiciousOperation.
++        with self.assertRaises(SuspiciousOperation):
++            request = HttpRequest()
++            request.META = {'HTTP_HOST': 'example.com'}
++            request.get_host()
+ 
+     @override_settings(ALLOWED_HOSTS=[])
+     def test_get_host_suggestion_of_allowed_host(self):

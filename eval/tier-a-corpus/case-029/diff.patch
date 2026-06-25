@@ -1,0 +1,25 @@
+From 28e53f23a76206fb130e9a54eb95aa3f010e79c9 Mon Sep 17 00:00:00 2001
+From: Taylor Otwell <taylor@laravel.com>
+Date: Fri, 30 Mar 2018 08:26:38 -0500
+Subject: [PATCH] check iv length
+
+---
+ src/Illuminate/Encryption/Encrypter.php | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/src/Illuminate/Encryption/Encrypter.php b/src/Illuminate/Encryption/Encrypter.php
+index 61670ea38a61..df89e48f002a 100755
+--- a/src/Illuminate/Encryption/Encrypter.php
++++ b/src/Illuminate/Encryption/Encrypter.php
+@@ -206,9 +206,8 @@ protected function getJsonPayload($payload)
+      */
+     protected function validPayload($payload)
+     {
+-        return is_array($payload) && isset(
+-            $payload['iv'], $payload['value'], $payload['mac']
+-        );
++        return is_array($payload) && isset($payload['iv'], $payload['value'], $payload['mac']) &&
++               strlen(base64_decode($payload['iv'], true)) === openssl_cipher_iv_length($this->cipher);
+     }
+ 
+     /**

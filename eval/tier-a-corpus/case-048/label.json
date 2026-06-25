@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2017-5647",
+  "category": "other",
+  "source_url": "https://github.com/apache/tomcat/commit/864aa1199ad2cccc9a7e7c6b977f7d7f812c9910",
+  "repo": "apache/tomcat",
+  "cwes": [
+    "CWE-200"
+  ]
+}

@@ -1,0 +1,56 @@
+From 19dbd27c5caa1a160bd5854b65a4e1fe2a8a4f00 Mon Sep 17 00:00:00 2001
+From: Sofia Papagiannaki <papagian@users.noreply.github.com>
+Date: Wed, 6 Nov 2019 10:54:53 +0200
+Subject: [PATCH] mysql: fix encoding in connection string (#20192)
+
+---
+ pkg/tsdb/mysql/mysql.go | 15 ++++++++++-----
+ 1 file changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/pkg/tsdb/mysql/mysql.go b/pkg/tsdb/mysql/mysql.go
+index fe41a9f38b5b0..342873d9a2696 100644
+--- a/pkg/tsdb/mysql/mysql.go
++++ b/pkg/tsdb/mysql/mysql.go
+@@ -4,12 +4,12 @@ import (
+ 	"database/sql"
+ 	"errors"
+ 	"fmt"
++	"net/url"
+ 	"reflect"
+ 	"strconv"
+ 	"strings"
+ 
+ 	"github.com/VividCortex/mysqlerr"
+-
+ 	"github.com/grafana/grafana/pkg/setting"
+ 
+ 	"github.com/go-sql-driver/mysql"
+@@ -24,6 +24,10 @@ func init() {
+ 	tsdb.RegisterTsdbQueryEndpoint("mysql", newMysqlQueryEndpoint)
+ }
+ 
++func characterEscape(s string, escapeChar string) string {
++	return strings.Replace(s, escapeChar, url.QueryEscape(escapeChar), -1)
++}
++
+ func newMysqlQueryEndpoint(datasource *models.DataSource) (tsdb.TsdbQueryEndpoint, error) {
+ 	logger := log.New("tsdb.mysql")
+ 
+@@ -31,12 +35,13 @@ func newMysqlQueryEndpoint(datasource *models.DataSource) (tsdb.TsdbQueryEndpoin
+ 	if strings.HasPrefix(datasource.Url, "/") {
+ 		protocol = "unix"
+ 	}
++
+ 	cnnstr := fmt.Sprintf("%s:%s@%s(%s)/%s?collation=utf8mb4_unicode_ci&parseTime=true&loc=UTC&allowNativePasswords=true",
+-		datasource.User,
+-		datasource.DecryptedPassword(),
++		characterEscape(datasource.User, ":"),
++		characterEscape(datasource.DecryptedPassword(), "@"),
+ 		protocol,
+-		datasource.Url,
+-		datasource.Database,
++		characterEscape(datasource.Url, ")"),
++		characterEscape(datasource.Database, "?"),
+ 	)
+ 
+ 	tlsConfig, err := datasource.GetTLSConfig()

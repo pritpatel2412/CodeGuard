@@ -1,0 +1,11 @@
+{
+  "cve": "CVE-2019-19499",
+  "category": "injection",
+  "source_url": "https://github.com/grafana/grafana/commit/19dbd27c5caa1a160bd5854b65a4e1fe2a8a4f00",
+  "repo": "grafana/grafana",
+  "cwes": [
+    "CWE-200",
+    "CWE-22",
+    "CWE-89"
+  ]
+}

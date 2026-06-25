@@ -1,0 +1,9 @@
+{
+  "cve": "GHSA-4v48-4q5m-8vx4",
+  "category": "other",
+  "source_url": "https://github.com/prometheus/prometheus/commit/31a2db3ae9c0f4b486b6895973beabc1d1beac93",
+  "repo": "prometheus/prometheus",
+  "cwes": [
+    "CWE-303"
+  ]
+}

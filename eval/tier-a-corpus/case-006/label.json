@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2025-49826",
+  "category": "other",
+  "source_url": "https://github.com/vercel/next.js/commit/16bfce64ef2157f2c1dfedcfdb7771bc63103fd2",
+  "repo": "vercel/next.js",
+  "cwes": [
+    "CWE-444"
+  ]
+}

@@ -1,0 +1,186 @@
+From 070a723ef2c886770a063eb9a67f84f74e06edfb Mon Sep 17 00:00:00 2001
+From: Juergen Hoeller <jhoeller@vmware.com>
+Date: Thu, 21 Jul 2011 09:05:59 +0000
+Subject: [PATCH] added "acceptProxyClasses" flag to
+ RemoteInvocationSerializingExporter
+
+---
+ .../rmi/CodebaseAwareObjectInputStream.java   | 22 +++++++++++++---
+ .../RemoteInvocationSerializingExporter.java  | 23 ++++++++++++++---
+ .../core/ConfigurableObjectInputStream.java   | 25 +++++++++++++++++--
+ 3 files changed, 62 insertions(+), 8 deletions(-)
+
+diff --git a/org.springframework.context/src/main/java/org/springframework/remoting/rmi/CodebaseAwareObjectInputStream.java b/org.springframework.context/src/main/java/org/springframework/remoting/rmi/CodebaseAwareObjectInputStream.java
+index b50a0b491c5d..c43095b0cbcb 100644
+--- a/org.springframework.context/src/main/java/org/springframework/remoting/rmi/CodebaseAwareObjectInputStream.java
++++ b/org.springframework.context/src/main/java/org/springframework/remoting/rmi/CodebaseAwareObjectInputStream.java
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright 2002-2008 the original author or authors.
++ * Copyright 2002-2011 the original author or authors.
+  *
+  * Licensed under the Apache License, Version 2.0 (the "License");
+  * you may not use this file except in compliance with the License.
+@@ -57,7 +57,7 @@ public class CodebaseAwareObjectInputStream extends ConfigurableObjectInputStrea
+ 
+ 	/**
+ 	 * Create a new CodebaseAwareObjectInputStream for the given InputStream and codebase.
+-	 * @param	in the InputStream to read from
++	 * @param in the InputStream to read from
+ 	 * @param codebaseUrl the codebase URL to load classes from if not found locally
+ 	 * (can consist of multiple URLs, separated by spaces)
+ 	 * @see java.io.ObjectInputStream#ObjectInputStream(java.io.InputStream)
+@@ -68,7 +68,7 @@ public CodebaseAwareObjectInputStream(InputStream in, String codebaseUrl) throws
+ 
+ 	/**
+ 	 * Create a new CodebaseAwareObjectInputStream for the given InputStream and codebase.
+-	 * @param	in the InputStream to read from
++	 * @param in the InputStream to read from
+ 	 * @param classLoader the ClassLoader to use for loading local classes
+ 	 * (may be <code>null</code> to indicate RMI's default ClassLoader)
+ 	 * @param codebaseUrl the codebase URL to load classes from if not found locally
+@@ -82,6 +82,22 @@ public CodebaseAwareObjectInputStream(
+ 		this.codebaseUrl = codebaseUrl;
+ 	}
+ 
++	/**
++	 * Create a new CodebaseAwareObjectInputStream for the given InputStream and codebase.
++	 * @param in the InputStream to read from
++	 * @param classLoader the ClassLoader to use for loading local classes
++	 * (may be <code>null</code> to indicate RMI's default ClassLoader)
++	 * @param acceptProxyClasses whether to accept deserialization of proxy classes
++	 * (may be deactivated as a security measure)
++	 * @see java.io.ObjectInputStream#ObjectInputStream(java.io.InputStream)
++	 */
++	public CodebaseAwareObjectInputStream(
++			InputStream in, ClassLoader classLoader, boolean acceptProxyClasses) throws IOException {
++
++		super(in, classLoader, acceptProxyClasses);
++		this.codebaseUrl = null;
++	}
++
+ 
+ 	@Override
+ 	protected Class resolveFallbackIfPossible(String className, ClassNotFoundException ex)
+diff --git a/org.springframework.context/src/main/java/org/springframework/remoting/rmi/RemoteInvocationSerializingExporter.java b/org.springframework.context/src/main/java/org/springframework/remoting/rmi/RemoteInvocationSerializingExporter.java
+index 7f8288b61695..d9b338e75929 100644
+--- a/org.springframework.context/src/main/java/org/springframework/remoting/rmi/RemoteInvocationSerializingExporter.java
++++ b/org.springframework.context/src/main/java/org/springframework/remoting/rmi/RemoteInvocationSerializingExporter.java
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright 2002-2008 the original author or authors.
++ * Copyright 2002-2011 the original author or authors.
+  *
+  * Licensed under the Apache License, Version 2.0 (the "License");
+  * you may not use this file except in compliance with the License.
+@@ -57,6 +57,8 @@ public abstract class RemoteInvocationSerializingExporter extends RemoteInvocati
+ 
+ 	private String contentType = CONTENT_TYPE_SERIALIZED_OBJECT;
+ 
++	private boolean acceptProxyClasses = true;
++
+ 	private Object proxy;
+ 
+ 
+@@ -70,12 +72,27 @@ public void setContentType(String contentType) {
+ 	}
+ 
+ 	/**
+-	 * Return the content type to use for sending remote invocation  responses.
++	 * Return the content type to use for sending remote invocation responses.
+ 	 */
+ 	public String getContentType() {
+ 		return this.contentType;
+ 	}
+ 
++	/**
++	 * Set whether to accept deserialization of proxy classes.
++	 * <p>Default is "true". May be deactivated as a security measure.
++	 */
++	public void setAcceptProxyClasses(boolean acceptProxyClasses) {
++		this.acceptProxyClasses = acceptProxyClasses;
++	}
++
++	/**
++	 * Return whether to accept deserialization of proxy classes.
++	 */
++	public boolean isAcceptProxyClasses() {
++		return this.acceptProxyClasses;
++	}
++
+ 
+ 	public void afterPropertiesSet() {
+ 		prepare();
+@@ -102,7 +119,7 @@ protected final Object getProxy() {
+ 	 * @throws java.io.IOException if creation of the ObjectInputStream failed
+ 	 */
+ 	protected ObjectInputStream createObjectInputStream(InputStream is) throws IOException {
+-		return new CodebaseAwareObjectInputStream(is, getBeanClassLoader(), null);
++		return new CodebaseAwareObjectInputStream(is, getBeanClassLoader(), isAcceptProxyClasses());
+ 	}
+ 
+ 	/**
+diff --git a/org.springframework.core/src/main/java/org/springframework/core/ConfigurableObjectInputStream.java b/org.springframework.core/src/main/java/org/springframework/core/ConfigurableObjectInputStream.java
+index 1b1aebdf2656..20c729955b6a 100644
+--- a/org.springframework.core/src/main/java/org/springframework/core/ConfigurableObjectInputStream.java
++++ b/org.springframework.core/src/main/java/org/springframework/core/ConfigurableObjectInputStream.java
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright 2002-2008 the original author or authors.
++ * Copyright 2002-2011 the original author or authors.
+  *
+  * Licensed under the Apache License, Version 2.0 (the "License");
+  * you may not use this file except in compliance with the License.
+@@ -18,6 +18,7 @@
+ 
+ import java.io.IOException;
+ import java.io.InputStream;
++import java.io.NotSerializableException;
+ import java.io.ObjectInputStream;
+ import java.io.ObjectStreamClass;
+ import java.lang.reflect.Proxy;
+@@ -36,16 +37,33 @@ public class ConfigurableObjectInputStream extends ObjectInputStream {
+ 
+ 	private final ClassLoader classLoader;
+ 
++	private final boolean acceptProxyClasses;
++
+ 
+ 	/**
+ 	 * Create a new ConfigurableObjectInputStream for the given InputStream and ClassLoader.
+-	 * @param	in the InputStream to read from
++	 * @param in the InputStream to read from
+ 	 * @param classLoader the ClassLoader to use for loading local classes
+ 	 * @see java.io.ObjectInputStream#ObjectInputStream(java.io.InputStream)
+ 	 */
+ 	public ConfigurableObjectInputStream(InputStream in, ClassLoader classLoader) throws IOException {
++		this(in, classLoader, true);
++	}
++
++	/**
++	 * Create a new ConfigurableObjectInputStream for the given InputStream and ClassLoader.
++	 * @param in the InputStream to read from
++	 * @param classLoader the ClassLoader to use for loading local classes
++	 * @param acceptProxyClasses whether to accept deserialization of proxy classes
++	 * (may be deactivated as a security measure)
++	 * @see java.io.ObjectInputStream#ObjectInputStream(java.io.InputStream)
++	 */
++	public ConfigurableObjectInputStream(
++			InputStream in, ClassLoader classLoader, boolean acceptProxyClasses) throws IOException {
++
+ 		super(in);
+ 		this.classLoader = classLoader;
++		this.acceptProxyClasses = acceptProxyClasses;
+ 	}
+ 
+ 
+@@ -68,6 +86,9 @@ protected Class resolveClass(ObjectStreamClass classDesc) throws IOException, Cl
+ 
+ 	@Override
+ 	protected Class resolveProxyClass(String[] interfaces) throws IOException, ClassNotFoundException {
++		if (!this.acceptProxyClasses) {
++			throw new NotSerializableException("Not allowed to accept serialized proxy classes");
++		}
+ 		if (this.classLoader != null) {
+ 			// Use the specified ClassLoader to resolve local proxy classes.
+ 			Class[] resolvedInterfaces = new Class[interfaces.length];

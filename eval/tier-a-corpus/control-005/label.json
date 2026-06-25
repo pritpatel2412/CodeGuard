@@ -1,0 +1,7 @@
+{
+  "cve": "control-005",
+  "category": "control",
+  "source_url": "https://github.com/strapi/strapi/commit/2c735db6e02ea9f1376b024bd109ca266bc1bb22",
+  "repo": "strapi/strapi",
+  "cwes": []
+}

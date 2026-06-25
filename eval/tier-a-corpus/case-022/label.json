@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2018-11407",
+  "category": "other",
+  "source_url": "https://github.com/symfony/symfony/commit/b46fc93785d37ffa5d706a82cd175b33ce8f2934",
+  "repo": "symfony/symfony",
+  "cwes": [
+    "CWE-287"
+  ]
+}

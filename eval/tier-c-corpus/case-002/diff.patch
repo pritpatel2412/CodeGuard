@@ -1,0 +1,14 @@
+diff --git a/admin.js b/admin.js
+index a1b2c3d..e4f5g6h 100644
+--- a/admin.js
++++ b/admin.js
+@@ -10,6 +10,5 @@
+ function deleteUser(req, res) {
+   const target = req.body.userId;
++  db.users.delete(target);
+   if (!req.user.isAdmin) {
+     return res.status(403).send("Forbidden");
+   }
+-  db.users.delete(target);
+   res.send("Deleted");
+ }

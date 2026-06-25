@@ -1,0 +1,159 @@
+From b907f9e11892ddab1e71095e3d41bf76e63c3873 Mon Sep 17 00:00:00 2001
+From: Nikolaos Moraitis <nmoraiti@redhat.com>
+Date: Fri, 11 Sep 2020 11:36:27 +0200
+Subject: [PATCH] avoid potential secret leaking while reading .dockercfg
+
+There are a lot of scenarios where an invalid .dockercfg file
+will still contain secrets. This commit removes logging of the
+contents to avoid any potential leaking and manages the actual error
+by printing to the user the actual location of the invalid file.
+
+Signed-off-by: Nikolaos Moraitis <nmoraiti@redhat.com>
+---
+ pkg/credentialprovider/config.go      | 16 +++--
+ pkg/credentialprovider/config_test.go | 93 +++++++++++++++++++++++++++
+ 2 files changed, 102 insertions(+), 7 deletions(-)
+
+diff --git a/pkg/credentialprovider/config.go b/pkg/credentialprovider/config.go
+index 42c184589ee75..b9edb4c39e834 100644
+--- a/pkg/credentialprovider/config.go
++++ b/pkg/credentialprovider/config.go
+@@ -117,10 +117,14 @@ func ReadDockercfgFile(searchPaths []string) (cfg DockerConfig, err error) {
+ 			continue
+ 		}
+ 		cfg, err := readDockerConfigFileFromBytes(contents)
+-		if err == nil {
+-			klog.V(4).Infof("found .dockercfg at %s", absDockerConfigFileLocation)
+-			return cfg, nil
++		if err != nil {
++			klog.V(4).Infof("couldn't get the config from %q contents: %v", absDockerConfigFileLocation, err)
++			continue
+ 		}
++
++		klog.V(4).Infof("found .dockercfg at %s", absDockerConfigFileLocation)
++		return cfg, nil
++
+ 	}
+ 	return nil, fmt.Errorf("couldn't find valid .dockercfg after checking in %v", searchPaths)
+ }
+@@ -230,8 +234,7 @@ func ReadDockerConfigFileFromURL(url string, client *http.Client, header *http.H
+ 
+ func readDockerConfigFileFromBytes(contents []byte) (cfg DockerConfig, err error) {
+ 	if err = json.Unmarshal(contents, &cfg); err != nil {
+-		klog.Errorf("while trying to parse blob %q: %v", contents, err)
+-		return nil, err
++		return nil, errors.New("error occurred while trying to unmarshal json")
+ 	}
+ 	return
+ }
+@@ -239,8 +242,7 @@ func readDockerConfigFileFromBytes(contents []byte) (cfg DockerConfig, err error
+ func readDockerConfigJSONFileFromBytes(contents []byte) (cfg DockerConfig, err error) {
+ 	var cfgJSON DockerConfigJSON
+ 	if err = json.Unmarshal(contents, &cfgJSON); err != nil {
+-		klog.Errorf("while trying to parse blob %q: %v", contents, err)
+-		return nil, err
++		return nil, errors.New("error occurred while trying to unmarshal json")
+ 	}
+ 	cfg = cfgJSON.Auths
+ 	return
+diff --git a/pkg/credentialprovider/config_test.go b/pkg/credentialprovider/config_test.go
+index fb96ab28c7e67..0adc5053bf824 100644
+--- a/pkg/credentialprovider/config_test.go
++++ b/pkg/credentialprovider/config_test.go
+@@ -309,3 +309,96 @@ func TestDockerConfigEntryJSONCompatibleEncode(t *testing.T) {
+ 		}
+ 	}
+ }
++
++func TestReadDockerConfigFileFromBytes(t *testing.T) {
++	testCases := []struct {
++		id               string
++		input            []byte
++		expectedCfg      DockerConfig
++		errorExpected    bool
++		expectedErrorMsg string
++	}{
++		{
++			id:    "valid input, no error expected",
++			input: []byte(`{"http://foo.example.com":{"username": "foo", "password": "bar", "email": "foo@example.com"}}`),
++			expectedCfg: DockerConfig(map[string]DockerConfigEntry{
++				"http://foo.example.com": {
++					Username: "foo",
++					Password: "bar",
++					Email:    "foo@example.com",
++				},
++			}),
++		},
++		{
++			id:               "invalid input, error expected",
++			input:            []byte(`{"http://foo.example.com":{"username": "foo", "password": "bar", "email": "foo@example.com"`),
++			errorExpected:    true,
++			expectedErrorMsg: "error occurred while trying to unmarshal json",
++		},
++	}
++
++	for _, tc := range testCases {
++		cfg, err := readDockerConfigFileFromBytes(tc.input)
++		if err != nil && !tc.errorExpected {
++			t.Fatalf("Error was not expected: %v", err)
++		}
++		if err != nil && tc.errorExpected {
++			if !reflect.DeepEqual(err.Error(), tc.expectedErrorMsg) {
++				t.Fatalf("Expected error message: `%s` got `%s`", tc.expectedErrorMsg, err.Error())
++			}
++		} else {
++			if !reflect.DeepEqual(cfg, tc.expectedCfg) {
++				t.Fatalf("expected: %v got %v", tc.expectedCfg, cfg)
++			}
++		}
++	}
++}
++
++func TestReadDockerConfigJSONFileFromBytes(t *testing.T) {
++	testCases := []struct {
++		id               string
++		input            []byte
++		expectedCfg      DockerConfig
++		errorExpected    bool
++		expectedErrorMsg string
++	}{
++		{
++			id:    "valid input, no error expected",
++			input: []byte(`{"auths": {"http://foo.example.com":{"username": "foo", "password": "bar", "email": "foo@example.com"}, "http://bar.example.com":{"username": "bar", "password": "baz", "email": "bar@example.com"}}}`),
++			expectedCfg: DockerConfig(map[string]DockerConfigEntry{
++				"http://foo.example.com": {
++					Username: "foo",
++					Password: "bar",
++					Email:    "foo@example.com",
++				},
++				"http://bar.example.com": {
++					Username: "bar",
++					Password: "baz",
++					Email:    "bar@example.com",
++				},
++			}),
++		},
++		{
++			id:               "invalid input, error expected",
++			input:            []byte(`{"auths": {"http://foo.example.com":{"username": "foo", "password": "bar", "email": "foo@example.com"}, "http://bar.example.com":{"username": "bar", "password": "baz", "email": "bar@example.com"`),
++			errorExpected:    true,
++			expectedErrorMsg: "error occurred while trying to unmarshal json",
++		},
++	}
++
++	for _, tc := range testCases {
++		cfg, err := readDockerConfigJSONFileFromBytes(tc.input)
++		if err != nil && !tc.errorExpected {
++			t.Fatalf("Error was not expected: %v", err)
++		}
++		if err != nil && tc.errorExpected {
++			if !reflect.DeepEqual(err.Error(), tc.expectedErrorMsg) {
++				t.Fatalf("Expected error message: `%s` got `%s`", tc.expectedErrorMsg, err.Error())
++			}
++		} else {
++			if !reflect.DeepEqual(cfg, tc.expectedCfg) {
++				t.Fatalf("expected: %v got %v", tc.expectedCfg, cfg)
++			}
++		}
++	}
++}

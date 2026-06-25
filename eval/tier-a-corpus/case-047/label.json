@@ -1,0 +1,7 @@
+{
+  "cve": "CVE-2016-6794",
+  "category": "other",
+  "source_url": "https://github.com/apache/tomcat/commit/0b41766456b1980e4f809e13ad6dc9fa912bae7e",
+  "repo": "apache/tomcat",
+  "cwes": []
+}

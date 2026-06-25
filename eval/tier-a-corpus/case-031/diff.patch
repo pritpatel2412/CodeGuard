@@ -1,0 +1,91 @@
+From d84cf988ed5d4661a4bf1fdcb08f5073835083a0 Mon Sep 17 00:00:00 2001
+From: Taylor Otwell <taylor@laravel.com>
+Date: Mon, 6 Aug 2018 21:49:04 -1000
+Subject: [PATCH] dont serialize csrf cookie / header
+
+---
+ .../Cookie/Middleware/EncryptCookies.php      | 22 ++++++++++++++-----
+ .../Http/Middleware/VerifyCsrfToken.php       |  2 +-
+ 2 files changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/src/Illuminate/Cookie/Middleware/EncryptCookies.php b/src/Illuminate/Cookie/Middleware/EncryptCookies.php
+index 5c289af0ad26..388290f60900 100644
+--- a/src/Illuminate/Cookie/Middleware/EncryptCookies.php
++++ b/src/Illuminate/Cookie/Middleware/EncryptCookies.php
+@@ -25,6 +25,15 @@ class EncryptCookies
+      */
+     protected $except = [];
+ 
++    /**
++     * The cookies that should not be serialized.
++     *
++     * @var array
++     */
++    protected $serialization = [
++        'XSRF-TOKEN' => false,
++    ];
++
+     /**
+      * Create a new CookieGuard instance.
+      *
+@@ -73,7 +82,7 @@ protected function decrypt(Request $request)
+             }
+ 
+             try {
+-                $request->cookies->set($key, $this->decryptCookie($cookie));
++                $request->cookies->set($key, $this->decryptCookie($key, $cookie));
+             } catch (DecryptException $e) {
+                 $request->cookies->set($key, null);
+             }
+@@ -85,14 +94,15 @@ protected function decrypt(Request $request)
+     /**
+      * Decrypt the given cookie and return the value.
+      *
++     * @param  string  $name
+      * @param  string|array  $cookie
+      * @return string|array
+      */
+-    protected function decryptCookie($cookie)
++    protected function decryptCookie($name, $cookie)
+     {
+         return is_array($cookie)
+                         ? $this->decryptArray($cookie)
+-                        : $this->encrypter->decrypt($cookie);
++                        : $this->encrypter->decrypt($cookie, $this->serialization[$name] ?? true);
+     }
+ 
+     /**
+@@ -107,7 +117,7 @@ protected function decryptArray(array $cookie)
+ 
+         foreach ($cookie as $key => $value) {
+             if (is_string($value)) {
+-                $decrypted[$key] = $this->encrypter->decrypt($value);
++                $decrypted[$key] = $this->encrypter->decrypt($value, $this->serialization[$key] ?? true);
+             }
+         }
+ 
+@@ -127,8 +137,10 @@ protected function encrypt(Response $response)
+                 continue;
+             }
+ 
++            $serialize = $this->serialization[$cookie->getName()] ?? true;
++
+             $response->headers->setCookie($this->duplicate(
+-                $cookie, $this->encrypter->encrypt($cookie->getValue())
++                $cookie, $this->encrypter->encrypt($cookie->getValue(), $serialize)
+             ));
+         }
+ 
+diff --git a/src/Illuminate/Foundation/Http/Middleware/VerifyCsrfToken.php b/src/Illuminate/Foundation/Http/Middleware/VerifyCsrfToken.php
+index a33e20952f2e..89a5501791ba 100644
+--- a/src/Illuminate/Foundation/Http/Middleware/VerifyCsrfToken.php
++++ b/src/Illuminate/Foundation/Http/Middleware/VerifyCsrfToken.php
+@@ -138,7 +138,7 @@ protected function getTokenFromRequest($request)
+         $token = $request->input('_token') ?: $request->header('X-CSRF-TOKEN');
+ 
+         if (! $token && $header = $request->header('X-XSRF-TOKEN')) {
+-            $token = $this->encrypter->decrypt($header);
++            $token = $this->encrypter->decrypt($header, false);
+         }
+ 
+         return $token;

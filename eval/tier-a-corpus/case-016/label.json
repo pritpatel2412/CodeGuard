@@ -1,0 +1,9 @@
+{
+  "cve": "GHSA-wcv5-vrvr-3rx2",
+  "category": "other",
+  "source_url": "https://github.com/tensorflow/tensorflow/commit/be7b286d40bc68cb0b56f702186cc4837d508058",
+  "repo": "tensorflow/tensorflow",
+  "cwes": [
+    "CWE-190"
+  ]
+}

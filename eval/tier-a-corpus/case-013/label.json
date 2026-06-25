@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2013-4249",
+  "category": "injection",
+  "source_url": "https://github.com/django/django/commit/90363e388c61874add3f3557ee654a996ec75d78",
+  "repo": "django/django",
+  "cwes": [
+    "CWE-79"
+  ]
+}

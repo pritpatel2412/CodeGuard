@@ -1,0 +1,7 @@
+{
+  "cve": "control-004",
+  "category": "control",
+  "source_url": "https://github.com/vercel/next.js/commit/44eba020c615f0d9efe431f84ada67b81576f3f5",
+  "repo": "vercel/next.js",
+  "cwes": []
+}

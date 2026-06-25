@@ -1,0 +1,9 @@
+{
+  "cve": "ADV-VULN-004",
+  "category": "injection",
+  "source_url": "internal",
+  "repo": "internal/adversarial",
+  "cwes": [
+    "CWE-78"
+  ]
+}

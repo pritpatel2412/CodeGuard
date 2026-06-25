@@ -1,0 +1,7 @@
+{
+  "cve": "CVE-2016-6796",
+  "category": "other",
+  "source_url": "https://github.com/apache/tomcat/commit/f603f2f4595073f9490e01699d2083112a7c09a7",
+  "repo": "apache/tomcat",
+  "cwes": []
+}

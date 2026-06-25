@@ -1,0 +1,42 @@
+From 748167bfa33c3c69db2d8dbdc3a0e9da692da3a0 Mon Sep 17 00:00:00 2001
+From: Rossen Stoyanchev <rstoyanchev@gopivotal.com>
+Date: Thu, 15 May 2014 17:26:52 -0400
+Subject: [PATCH] Improve StringUtils.cleanPath
+
+Issue: SPR-11793
+---
+ .../main/java/org/springframework/util/StringUtils.java    | 7 ++++++-
+ .../java/org/springframework/util/StringUtilsTests.java    | 2 ++
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/spring-core/src/main/java/org/springframework/util/StringUtils.java b/spring-core/src/main/java/org/springframework/util/StringUtils.java
+index 126cab69fcd3..b659486a19d0 100644
+--- a/spring-core/src/main/java/org/springframework/util/StringUtils.java
++++ b/spring-core/src/main/java/org/springframework/util/StringUtils.java
+@@ -622,7 +622,12 @@ public static String cleanPath(String path) {
+ 		String prefix = "";
+ 		if (prefixIndex != -1) {
+ 			prefix = pathToUse.substring(0, prefixIndex + 1);
+-			pathToUse = pathToUse.substring(prefixIndex + 1);
++			if (prefix.contains("/")) {
++				prefix = "";
++			}
++			else {
++				pathToUse = pathToUse.substring(prefixIndex + 1);
++			}
+ 		}
+ 		if (pathToUse.startsWith(FOLDER_SEPARATOR)) {
+ 			prefix = prefix + FOLDER_SEPARATOR;
+diff --git a/spring-core/src/test/java/org/springframework/util/StringUtilsTests.java b/spring-core/src/test/java/org/springframework/util/StringUtilsTests.java
+index b366ed7f96d0..c362a92ed529 100644
+--- a/spring-core/src/test/java/org/springframework/util/StringUtilsTests.java
++++ b/spring-core/src/test/java/org/springframework/util/StringUtilsTests.java
+@@ -299,6 +299,8 @@ public void testCleanPath() {
+ 		assertEquals("../mypath/myfile", StringUtils.cleanPath("../mypath/../mypath/myfile"));
+ 		assertEquals("../mypath/myfile", StringUtils.cleanPath("mypath/../../mypath/myfile"));
+ 		assertEquals("/../mypath/myfile", StringUtils.cleanPath("/../mypath/myfile"));
++		assertEquals("/mypath/myfile", StringUtils.cleanPath("/a/:b/../../mypath/myfile"));
++		assertEquals("file:///c:/path/to/the%20file.txt", StringUtils.cleanPath("file:///c:/some/../path/to/the%20file.txt"));
+ 	}
+ 
+ 	public void testPathEquals() {

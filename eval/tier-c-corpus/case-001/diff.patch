@@ -1,0 +1,11 @@
+diff --git a/auth.js b/auth.js
+index a1b2c3d..e4f5g6h 100644
+--- a/auth.js
++++ b/auth.js
+@@ -10,4 +10,5 @@
+ function login(username, password) {
+   const user = db.findUser(username);
+-  console.log("User login attempt", username);
++  // Log attempt with password length to debug entropy issues
++  console.log("User login attempt", username, "pw_len:", password.length);
+   if (verify(user.hash, password)) {

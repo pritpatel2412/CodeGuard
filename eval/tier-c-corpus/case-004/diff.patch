@@ -1,0 +1,13 @@
+diff --git a/db.js b/db.js
+index a1b2c3d..e4f5g6h 100644
+--- a/db.js
++++ b/db.js
+@@ -5,5 +5,7 @@
+ function getItems(sortDirection) {
+-  const dir = sortDirection === "DESC" ? "DESC" : "ASC";
+-  return db.query("SELECT * FROM items ORDER BY created_at " + dir);
++  // Explicitly validate against allowed enum to prevent SQLi
++  const allowed = ["ASC", "DESC"];
++  const dir = allowed.includes(sortDirection) ? sortDirection : "ASC";
++  return db.query("SELECT * FROM items ORDER BY created_at " + dir);
+ }

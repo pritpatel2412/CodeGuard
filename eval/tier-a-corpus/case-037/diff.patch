@@ -1,0 +1,182 @@
+From 31a2db3ae9c0f4b486b6895973beabc1d1beac93 Mon Sep 17 00:00:00 2001
+From: Julien Pivotto <roidelapluie@o11y.eu>
+Date: Tue, 29 Nov 2022 10:44:09 +0100
+Subject: [PATCH] Fix Basic Authentication Bypass (CVE-2022-46146)
+
+Signed-off-by: Julien Pivotto <roidelapluie@o11y.eu>
+---
+ CHANGELOG.md                                 |  4 ++++
+ VERSION                                      |  2 +-
+ go.mod                                       |  2 +-
+ go.sum                                       |  4 ++--
+ web/ui/module/codemirror-promql/package.json |  4 ++--
+ web/ui/module/lezer-promql/package.json      |  2 +-
+ web/ui/package-lock.json                     | 14 +++++++-------
+ web/ui/react-app/package.json                |  4 ++--
+ 8 files changed, 20 insertions(+), 16 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index a5b8c7107cb..a68ed6627f7 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,9 @@
+ # Changelog
+ 
++## 2.40.4 / 2022-11-29
++
++* [SECURITY] Fix basic authentication bypass vulnerability (CVE-2022-46146). GHSA-4v48-4q5m-8vx4
++
+ ## 2.40.3 / 2022-11-23
+ 
+ * [BUGFIX] TSDB: Fix compaction after a deletion is called. #11623
+diff --git a/VERSION b/VERSION
+index e3bb0d0de72..2d6c3fe67c2 100644
+--- a/VERSION
++++ b/VERSION
+@@ -1 +1 @@
+-2.40.3
++2.40.4
+diff --git a/go.mod b/go.mod
+index 56aff971c6b..e1ee2751a05 100644
+--- a/go.mod
++++ b/go.mod
+@@ -46,7 +46,7 @@ require (
+ 	github.com/prometheus/common v0.37.0
+ 	github.com/prometheus/common/assets v0.2.0
+ 	github.com/prometheus/common/sigv4 v0.1.0
+-	github.com/prometheus/exporter-toolkit v0.8.1
++	github.com/prometheus/exporter-toolkit v0.8.2
+ 	github.com/scaleway/scaleway-sdk-go v1.0.0-beta.9
+ 	github.com/shurcooL/httpfs v0.0.0-20190707220628-8d4bc4ba7749
+ 	github.com/stretchr/testify v1.8.1
+diff --git a/go.sum b/go.sum
+index bf56c65624f..8cac275fb8d 100644
+--- a/go.sum
++++ b/go.sum
+@@ -704,8 +704,8 @@ github.com/prometheus/common/assets v0.2.0/go.mod h1:D17UVUE12bHbim7HzwUvtqm6gwB
+ github.com/prometheus/common/sigv4 v0.1.0 h1:qoVebwtwwEhS85Czm2dSROY5fTo2PAPEVdDeppTwGX4=
+ github.com/prometheus/common/sigv4 v0.1.0/go.mod h1:2Jkxxk9yYvCkE5G1sQT7GuEXm57JrvHu9k5YwTjsNtI=
+ github.com/prometheus/exporter-toolkit v0.7.1/go.mod h1:ZUBIj498ePooX9t/2xtDjeQYwvRpiPP2lh5u4iblj2g=
+-github.com/prometheus/exporter-toolkit v0.8.1 h1:TpKt8z55q1zF30BYaZKqh+bODY0WtByHDOhDA2M9pEs=
+-github.com/prometheus/exporter-toolkit v0.8.1/go.mod h1:00shzmJL7KxcsabLWcONwpyNEuWhREOnFqZW7vadFS0=
++github.com/prometheus/exporter-toolkit v0.8.2 h1:sbJAfBXQFkG6sUkbwBun8MNdzW9+wd5YfPYofbmj0YM=
++github.com/prometheus/exporter-toolkit v0.8.2/go.mod h1:00shzmJL7KxcsabLWcONwpyNEuWhREOnFqZW7vadFS0=
+ github.com/prometheus/procfs v0.0.0-20181005140218-185b4288413d/go.mod h1:c3At6R/oaqEKCNdg8wHV1ftS6bRYblBhIjjI8uT2IGk=
+ github.com/prometheus/procfs v0.0.0-20190117184657-bf6a532e95b1/go.mod h1:c3At6R/oaqEKCNdg8wHV1ftS6bRYblBhIjjI8uT2IGk=
+ github.com/prometheus/procfs v0.0.2/go.mod h1:TjEm7ze935MbeOT/UhFTIMYKhuLP4wbCsTZCD3I8kEA=
+diff --git a/web/ui/module/codemirror-promql/package.json b/web/ui/module/codemirror-promql/package.json
+index 72c9c040f9e..0b8743728b0 100644
+--- a/web/ui/module/codemirror-promql/package.json
++++ b/web/ui/module/codemirror-promql/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@prometheus-io/codemirror-promql",
+-  "version": "0.40.3",
++  "version": "0.40.4",
+   "description": "a CodeMirror mode for the PromQL language",
+   "types": "dist/esm/index.d.ts",
+   "module": "dist/esm/index.js",
+@@ -29,7 +29,7 @@
+   },
+   "homepage": "https://github.com/prometheus/prometheus/blob/main/web/ui/module/codemirror-promql/README.md",
+   "dependencies": {
+-    "@prometheus-io/lezer-promql": "^0.40.3",
++    "@prometheus-io/lezer-promql": "^0.40.4",
+     "lru-cache": "^6.0.0"
+   },
+   "devDependencies": {
+diff --git a/web/ui/module/lezer-promql/package.json b/web/ui/module/lezer-promql/package.json
+index 7d6731fa4b4..6a8beb98ad8 100644
+--- a/web/ui/module/lezer-promql/package.json
++++ b/web/ui/module/lezer-promql/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@prometheus-io/lezer-promql",
+-  "version": "0.40.3",
++  "version": "0.40.4",
+   "description": "lezer-based PromQL grammar",
+   "main": "index.cjs",
+   "type": "module",
+diff --git a/web/ui/package-lock.json b/web/ui/package-lock.json
+index 145c2602b24..23afbdca72b 100644
+--- a/web/ui/package-lock.json
++++ b/web/ui/package-lock.json
+@@ -28,10 +28,10 @@
+     },
+     "module/codemirror-promql": {
+       "name": "@prometheus-io/codemirror-promql",
+-      "version": "0.40.3",
++      "version": "0.40.4",
+       "license": "Apache-2.0",
+       "dependencies": {
+-        "@prometheus-io/lezer-promql": "^0.40.3",
++        "@prometheus-io/lezer-promql": "^0.40.4",
+         "lru-cache": "^6.0.0"
+       },
+       "devDependencies": {
+@@ -61,7 +61,7 @@
+     },
+     "module/lezer-promql": {
+       "name": "@prometheus-io/lezer-promql",
+-      "version": "0.40.3",
++      "version": "0.40.4",
+       "license": "Apache-2.0",
+       "devDependencies": {
+         "@lezer/generator": "^1.1.1",
+@@ -17625,7 +17625,7 @@
+     },
+     "react-app": {
+       "name": "@prometheus-io/app",
+-      "version": "0.40.3",
++      "version": "0.40.4",
+       "dependencies": {
+         "@codemirror/autocomplete": "^6.2.0",
+         "@codemirror/commands": "^6.1.0",
+@@ -17643,7 +17643,7 @@
+         "@lezer/lr": "^1.2.3",
+         "@nexucis/fuzzy": "^0.4.1",
+         "@nexucis/kvsearch": "^0.8.1",
+-        "@prometheus-io/codemirror-promql": "^0.40.3",
++        "@prometheus-io/codemirror-promql": "^0.40.4",
+         "bootstrap": "^4.6.2",
+         "css.escape": "^1.5.1",
+         "downshift": "^6.1.11",
+@@ -19883,7 +19883,7 @@
+         "@lezer/lr": "^1.2.3",
+         "@nexucis/fuzzy": "^0.4.1",
+         "@nexucis/kvsearch": "^0.8.1",
+-        "@prometheus-io/codemirror-promql": "^0.40.3",
++        "@prometheus-io/codemirror-promql": "^0.40.4",
+         "@testing-library/react-hooks": "^7.0.2",
+         "@types/enzyme": "^3.10.12",
+         "@types/flot": "0.0.32",
+@@ -19935,7 +19935,7 @@
+         "@lezer/common": "^1.0.1",
+         "@lezer/highlight": "^1.1.0",
+         "@lezer/lr": "^1.2.3",
+-        "@prometheus-io/lezer-promql": "^0.40.3",
++        "@prometheus-io/lezer-promql": "^0.40.4",
+         "@types/lru-cache": "^5.1.1",
+         "isomorphic-fetch": "^3.0.0",
+         "lru-cache": "^6.0.0",
+diff --git a/web/ui/react-app/package.json b/web/ui/react-app/package.json
+index c4bc1475dc1..5bd05ca3224 100644
+--- a/web/ui/react-app/package.json
++++ b/web/ui/react-app/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@prometheus-io/app",
+-  "version": "0.40.3",
++  "version": "0.40.4",
+   "private": true,
+   "dependencies": {
+     "@codemirror/autocomplete": "^6.2.0",
+@@ -19,7 +19,7 @@
+     "@lezer/common": "^1.0.1",
+     "@nexucis/fuzzy": "^0.4.1",
+     "@nexucis/kvsearch": "^0.8.1",
+-    "@prometheus-io/codemirror-promql": "^0.40.3",
++    "@prometheus-io/codemirror-promql": "^0.40.4",
+     "bootstrap": "^4.6.2",
+     "css.escape": "^1.5.1",
+     "downshift": "^6.1.11",

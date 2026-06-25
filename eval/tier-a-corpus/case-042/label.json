@@ -1,0 +1,7 @@
+{
+  "cve": "CVE-2018-15727",
+  "category": "other",
+  "source_url": "https://github.com/grafana/grafana/commit/7baecf0d0deae0d865e45cf03e082bc0db3f28c3",
+  "repo": "grafana/grafana",
+  "cwes": []
+}

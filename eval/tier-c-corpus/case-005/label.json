@@ -1,0 +1,9 @@
+{
+  "cve": "ADV-VULN-002",
+  "category": "ssrf",
+  "source_url": "internal",
+  "repo": "internal/adversarial",
+  "cwes": [
+    "CWE-918"
+  ]
+}

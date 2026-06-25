@@ -1,0 +1,382 @@
+From 6d710d482a6785b069e35022e81758953afc21ff Mon Sep 17 00:00:00 2001
+From: Sam Brannen <104798+sbrannen@users.noreply.github.com>
+Date: Mon, 18 Aug 2025 18:15:57 +0200
+Subject: [PATCH] Find annotation on overridden method in type hierarchy with
+ unresolved generics
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Prior to this commit, the MergedAnnotations support (specifically
+AnnotationsScanner) and AnnotatedMethod did not find annotations on
+overridden methods in type hierarchies with unresolved generics.
+
+The reason for this is that ResolvableType.resolve() returns null for
+such an unresolved type, which prevents the search algorithms from
+considering such methods as override candidates.
+
+For example, given the following type hierarchy, the compiler does not
+generate a method corresponding to processOneAndTwo(Long, String) for
+GenericInterfaceImpl. Nonetheless, one would expect an invocation of
+processOneAndTwo(Long, String) to be @⁠Transactional since it is
+effectively an invocation of processOneAndTwo(Long, C) in
+GenericAbstractSuperclass, which overrides/implements
+processOneAndTwo(A, B) in GenericInterface, which is annotated with
+@⁠Transactional.
+
+However, the MergedAnnotations infrastructure currently does not
+determine that processOneAndTwo(Long, C) is @⁠Transactional since it is
+not able to determine that processOneAndTwo(Long, C) overrides
+processOneAndTwo(A, B) because of the unresolved generic C.
+
+interface GenericInterface<A, B> {
+
+    @⁠Transactional
+    void processOneAndTwo(A value1, B value2);
+}
+
+abstract class GenericAbstractSuperclass<C> implements GenericInterface<Long, C> {
+
+    @⁠Override
+    public void processOneAndTwo(Long value1, C value2) {
+    }
+}
+
+static GenericInterfaceImpl extends GenericAbstractSuperclass<String> {
+}
+
+To address such issues, this commit changes the logic in
+AnnotationsScanner.hasSameGenericTypeParameters() and
+AnnotatedMethod.isOverrideFor() so that they use
+ResolvableType.toClass() instead of ResolvableType.resolve(). The
+former returns Object.class for an unresolved generic which in turn
+allows the search algorithms to properly detect method overrides in
+such type hierarchies.
+
+Closes gh-35342
+---
+ .../core/annotation/AnnotatedMethod.java      |   2 +-
+ .../core/annotation/AnnotationsScanner.java   |   2 +-
+ .../core/annotation/AnnotatedMethodTests.java | 116 ++++++++++++++++++
+ .../annotation/MergedAnnotationsTests.java    |  29 +++++
+ .../web/method/HandlerMethodTests.java        |  68 +++++++++-
+ 5 files changed, 209 insertions(+), 8 deletions(-)
+ create mode 100644 spring-core/src/test/java/org/springframework/core/annotation/AnnotatedMethodTests.java
+
+diff --git a/spring-core/src/main/java/org/springframework/core/annotation/AnnotatedMethod.java b/spring-core/src/main/java/org/springframework/core/annotation/AnnotatedMethod.java
+index 85048080ea45..ed9ed5253002 100644
+--- a/spring-core/src/main/java/org/springframework/core/annotation/AnnotatedMethod.java
++++ b/spring-core/src/main/java/org/springframework/core/annotation/AnnotatedMethod.java
+@@ -204,7 +204,7 @@ private boolean isOverrideFor(Method candidate) {
+ 		}
+ 		for (int i = 0; i < paramTypes.length; i++) {
+ 			if (paramTypes[i] !=
+-					ResolvableType.forMethodParameter(candidate, i, this.method.getDeclaringClass()).resolve()) {
++					ResolvableType.forMethodParameter(candidate, i, this.method.getDeclaringClass()).toClass()) {
+ 				return false;
+ 			}
+ 		}
+diff --git a/spring-core/src/main/java/org/springframework/core/annotation/AnnotationsScanner.java b/spring-core/src/main/java/org/springframework/core/annotation/AnnotationsScanner.java
+index e064aa4e45df..e81a08d18b55 100644
+--- a/spring-core/src/main/java/org/springframework/core/annotation/AnnotationsScanner.java
++++ b/spring-core/src/main/java/org/springframework/core/annotation/AnnotationsScanner.java
+@@ -379,7 +379,7 @@ private static boolean hasSameGenericTypeParameters(
+ 		}
+ 		for (int i = 0; i < rootParameterTypes.length; i++) {
+ 			Class<?> resolvedParameterType = ResolvableType.forMethodParameter(
+-					candidateMethod, i, sourceDeclaringClass).resolve();
++					candidateMethod, i, sourceDeclaringClass).toClass();
+ 			if (rootParameterTypes[i] != resolvedParameterType) {
+ 				return false;
+ 			}
+diff --git a/spring-core/src/test/java/org/springframework/core/annotation/AnnotatedMethodTests.java b/spring-core/src/test/java/org/springframework/core/annotation/AnnotatedMethodTests.java
+new file mode 100644
+index 000000000000..1118239d614b
+--- /dev/null
++++ b/spring-core/src/test/java/org/springframework/core/annotation/AnnotatedMethodTests.java
+@@ -0,0 +1,116 @@
++/*
++ * Copyright 2002-present the original author or authors.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      https://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package org.springframework.core.annotation;
++
++import java.lang.annotation.Retention;
++import java.lang.annotation.RetentionPolicy;
++import java.lang.reflect.Method;
++
++import org.junit.jupiter.api.Test;
++
++import org.springframework.core.MethodParameter;
++import org.springframework.util.ClassUtils;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++/**
++ * Tests for {@link AnnotatedMethod}.
++ *
++ * @author Sam Brannen
++ * @since 6.2.11
++ */
++class AnnotatedMethodTests {
++
++	@Test
++	void shouldFindAnnotationOnMethodInGenericAbstractSuperclass() {
++		Method processTwo = getMethod("processTwo", String.class);
++
++		AnnotatedMethod annotatedMethod = new AnnotatedMethod(processTwo);
++
++		assertThat(annotatedMethod.hasMethodAnnotation(Handler.class)).isTrue();
++	}
++
++	@Test
++	void shouldFindAnnotationOnMethodInGenericInterface() {
++		Method processOneAndTwo = getMethod("processOneAndTwo", Long.class, Object.class);
++
++		AnnotatedMethod annotatedMethod = new AnnotatedMethod(processOneAndTwo);
++
++		assertThat(annotatedMethod.hasMethodAnnotation(Handler.class)).isTrue();
++	}
++
++	@Test
++	void shouldFindAnnotationOnMethodParameterInGenericAbstractSuperclass() {
++		Method processTwo = getMethod("processTwo", String.class);
++
++		AnnotatedMethod annotatedMethod = new AnnotatedMethod(processTwo);
++		MethodParameter[] methodParameters = annotatedMethod.getMethodParameters();
++
++		assertThat(methodParameters).hasSize(1);
++		assertThat(methodParameters[0].hasParameterAnnotation(Param.class)).isTrue();
++	}
++
++	@Test
++	void shouldFindAnnotationOnMethodParameterInGenericInterface() {
++		Method processOneAndTwo = getMethod("processOneAndTwo", Long.class, Object.class);
++
++		AnnotatedMethod annotatedMethod = new AnnotatedMethod(processOneAndTwo);
++		MethodParameter[] methodParameters = annotatedMethod.getMethodParameters();
++
++		assertThat(methodParameters).hasSize(2);
++		assertThat(methodParameters[0].hasParameterAnnotation(Param.class)).isFalse();
++		assertThat(methodParameters[1].hasParameterAnnotation(Param.class)).isTrue();
++	}
++
++
++	private static Method getMethod(String name, Class<?>...parameterTypes) {
++		return ClassUtils.getMethod(GenericInterfaceImpl.class, name, parameterTypes);
++	}
++
++
++	@Retention(RetentionPolicy.RUNTIME)
++	@interface Handler {
++	}
++
++	@Retention(RetentionPolicy.RUNTIME)
++	@interface Param {
++	}
++
++	interface GenericInterface<A, B> {
++
++		@Handler
++		void processOneAndTwo(A value1, @Param B value2);
++	}
++
++	abstract static class GenericAbstractSuperclass<C> implements GenericInterface<Long, C> {
++
++		@Override
++		public void processOneAndTwo(Long value1, C value2) {
++		}
++
++		@Handler
++		public abstract void processTwo(@Param C value);
++	}
++
++	static class GenericInterfaceImpl extends GenericAbstractSuperclass<String> {
++
++		@Override
++		public void processTwo(String value) {
++		}
++	}
++
++}
+diff --git a/spring-core/src/test/java/org/springframework/core/annotation/MergedAnnotationsTests.java b/spring-core/src/test/java/org/springframework/core/annotation/MergedAnnotationsTests.java
+index 0face9eab769..66a1b7e4bc89 100644
+--- a/spring-core/src/test/java/org/springframework/core/annotation/MergedAnnotationsTests.java
++++ b/spring-core/src/test/java/org/springframework/core/annotation/MergedAnnotationsTests.java
+@@ -945,6 +945,15 @@ void getFromMethodWithGenericSuperclass() throws Exception {
+ 				Order.class).getDistance()).isEqualTo(0);
+ 	}
+ 
++	@Test
++	void getFromMethodWithUnresolvedGenericsInGenericTypeHierarchy() {
++		// The following method is GenericAbstractSuperclass.processOneAndTwo(java.lang.Long, C),
++		// where 'C' is an unresolved generic, for which ResolvableType.resolve() returns null.
++		Method method = ClassUtils.getMethod(GenericInterfaceImpl.class, "processOneAndTwo", Long.class, Object.class);
++		assertThat(MergedAnnotations.from(method, SearchStrategy.TYPE_HIERARCHY)
++				.get(Transactional.class).isDirectlyPresent()).isTrue();
++	}
++
+ 	@Test
+ 	void getFromMethodWithInterfaceOnSuper() throws Exception {
+ 		Method method = SubOfImplementsInterfaceWithAnnotatedMethod.class.getMethod("foo");
+@@ -3032,6 +3041,26 @@ public void foo(String t) {
+ 		}
+ 	}
+ 
++	interface GenericInterface<A, B> {
++
++		@Transactional
++		void processOneAndTwo(A value1, B value2);
++	}
++
++	abstract static class GenericAbstractSuperclass<C> implements GenericInterface<Long, C> {
++
++		@Override
++		public void processOneAndTwo(Long value1, C value2) {
++		}
++	}
++
++	static class GenericInterfaceImpl extends GenericAbstractSuperclass<String> {
++		// The compiler does not require us to declare a concrete
++		// processOneAndTwo(Long, String) method, and we intentionally
++		// do not declare one here.
++	}
++
++
+ 	@Retention(RetentionPolicy.RUNTIME)
+ 	@Inherited
+ 	@interface MyRepeatableContainer {
+diff --git a/spring-web/src/test/java/org/springframework/web/method/HandlerMethodTests.java b/spring-web/src/test/java/org/springframework/web/method/HandlerMethodTests.java
+index b114133bc167..291ba4925bdd 100644
+--- a/spring-web/src/test/java/org/springframework/web/method/HandlerMethodTests.java
++++ b/spring-web/src/test/java/org/springframework/web/method/HandlerMethodTests.java
+@@ -35,32 +35,46 @@
+  * Tests for {@link HandlerMethod}.
+  *
+  * @author Rossen Stoyanchev
++ * @author Sam Brannen
+  */
+ class HandlerMethodTests {
+ 
+ 	@Test
+-	void shouldValidateArgsWithConstraintsDirectlyOnClass() {
++	void shouldValidateArgsWithConstraintsDirectlyInClass() {
+ 		Object target = new MyClass();
+ 		testValidateArgs(target, List.of("addIntValue", "addPersonAndIntValue", "addPersons", "addPeople", "addNames"), true);
+ 		testValidateArgs(target, List.of("addPerson", "getPerson", "getIntValue", "addPersonNotValidated"), false);
+ 	}
+ 
+ 	@Test
+-	void shouldValidateArgsWithConstraintsOnInterface() {
++	void shouldValidateArgsWithConstraintsInInterface() {
+ 		Object target = new MyInterfaceImpl();
+ 		testValidateArgs(target, List.of("addIntValue", "addPersonAndIntValue", "addPersons", "addPeople"), true);
+ 		testValidateArgs(target, List.of("addPerson", "addPersonNotValidated", "getPerson", "getIntValue"), false);
+ 	}
+ 
+ 	@Test
+-	void shouldValidateReturnValueWithConstraintsDirectlyOnClass() {
++	void shouldValidateArgsWithConstraintsInGenericAbstractSuperclass() {
++		Object target = new GenericInterfaceImpl();
++		shouldValidateArguments(getHandlerMethod(target, "processTwo", String.class), true);
++	}
++
++	@Test
++	void shouldValidateArgsWithConstraintsInGenericInterface() {
++		Object target = new GenericInterfaceImpl();
++		shouldValidateArguments(getHandlerMethod(target, "processOne", Long.class), false);
++		shouldValidateArguments(getHandlerMethod(target, "processOneAndTwo", Long.class, Object.class), true);
++	}
++
++	@Test
++	void shouldValidateReturnValueWithConstraintsDirectlyInClass() {
+ 		Object target = new MyClass();
+ 		testValidateReturnValue(target, List.of("getPerson", "getIntValue"), true);
+ 		testValidateReturnValue(target, List.of("addPerson", "addIntValue", "addPersonNotValidated"), false);
+ 	}
+ 
+ 	@Test
+-	void shouldValidateReturnValueWithConstraintsOnInterface() {
++	void shouldValidateReturnValueWithConstraintsInInterface() {
+ 		Object target = new MyInterfaceImpl();
+ 		testValidateReturnValue(target, List.of("getPerson", "getIntValue"), true);
+ 		testValidateReturnValue(target, List.of("addPerson", "addIntValue", "addPersonNotValidated"), false);
+@@ -97,9 +111,19 @@ void resolvedFromHandlerMethod() {
+ 		assertThat(hm3.getResolvedFromHandlerMethod()).isSameAs(hm1);
+ 	}
+ 
++
++	private static void shouldValidateArguments(HandlerMethod handlerMethod, boolean expected) {
++		if (expected) {
++			assertThat(handlerMethod.shouldValidateArguments()).as(handlerMethod.getMethod().getName()).isTrue();
++		}
++		else {
++			assertThat(handlerMethod.shouldValidateArguments()).as(handlerMethod.getMethod().getName()).isFalse();
++		}
++	}
++
+ 	private static void testValidateArgs(Object target, List<String> methodNames, boolean expected) {
+ 		for (String methodName : methodNames) {
+-			assertThat(getHandlerMethod(target, methodName).shouldValidateArguments()).isEqualTo(expected);
++			shouldValidateArguments(getHandlerMethod(target, methodName), expected);
+ 		}
+ 	}
+ 
+@@ -110,7 +134,11 @@ private static void testValidateReturnValue(Object target, List<String> methodNa
+ 	}
+ 
+ 	private static HandlerMethod getHandlerMethod(Object target, String methodName) {
+-		Method method = ClassUtils.getMethod(target.getClass(), methodName, (Class<?>[]) null);
++		return getHandlerMethod(target, methodName, (Class<?>[]) null);
++	}
++
++	private static HandlerMethod getHandlerMethod(Object target, String methodName, Class<?>... parameterTypes) {
++		Method method = ClassUtils.getMethod(target.getClass(), methodName, parameterTypes);
+ 		return new HandlerMethod(target, method).createWithValidateFlags();
+ 	}
+ 
+@@ -236,4 +264,32 @@ public Person getPerson() {
+ 		}
+ 	}
+ 
++
++	interface GenericInterface<A, B> {
++
++		void processOne(@Valid A value1);
++
++		void processOneAndTwo(A value1, @Max(42) B value2);
++	}
++
++	abstract static class GenericAbstractSuperclass<C> implements GenericInterface<Long, C> {
++
++		@Override
++		public void processOne(Long value1) {
++		}
++
++		@Override
++		public void processOneAndTwo(Long value1, C value2) {
++		}
++
++		public abstract void processTwo(@Max(42) C value);
++	}
++
++	static class GenericInterfaceImpl extends GenericAbstractSuperclass<String> {
++
++		@Override
++		public void processTwo(String value) {
++		}
++	}
++
+ }

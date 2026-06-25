@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2011-0013",
+  "category": "injection",
+  "source_url": "https://github.com/apache/tomcat/commit/58223c5ecc0751c3642c810f291b8f033d33b97f",
+  "repo": "apache/tomcat",
+  "cwes": [
+    "CWE-79"
+  ]
+}

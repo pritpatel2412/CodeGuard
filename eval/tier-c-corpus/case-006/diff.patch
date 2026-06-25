@@ -1,0 +1,11 @@
+diff --git a/validate.js b/validate.js
+index a1b2c3d..e4f5g6h 100644
+--- a/validate.js
++++ b/validate.js
+@@ -2,5 +2,5 @@
+ function validateEmail(email) {
+-  // Vulnerable to ReDoS
+-  return /^([a-zA-Z0-9_.-])+@(([a-zA-Z0-9-])+.)+([a-zA-Z0-9]{2,4})+$/.test(email);
++  // Fixed ReDoS by removing nested quantifiers
++  return /^[a-zA-Z0-9_.-]+@[a-zA-Z0-9-]+.[a-zA-Z0-9]{2,4}$/.test(email);
+ }

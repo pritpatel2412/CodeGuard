@@ -1,0 +1,10 @@
+{
+  "cve": "CVE-2024-29041",
+  "category": "other",
+  "source_url": "https://github.com/expressjs/express/commit/0867302ddbde0e9463d0564fea5861feb708c2dd",
+  "repo": "expressjs/express",
+  "cwes": [
+    "CWE-1286",
+    "CWE-601"
+  ]
+}

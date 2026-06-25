@@ -1,0 +1,47 @@
+From 82765368cf74177c36613575182f168a2eb765b2 Mon Sep 17 00:00:00 2001
+From: Nicolas Grekas <nicolas.grekas@gmail.com>
+Date: Fri, 22 May 2026 12:12:16 +0200
+Subject: [PATCH] [HttpClient] Block IPv6 transition forms in
+ NoPrivateNetworkHttpClient
+
+Extends PRIVATE_SUBNETS with IPv4-compatible (::/96), 6to4 (2002::/16),
+Teredo (2001::/32) and NAT64 (64:ff9b::/96, 64:ff9b:1::/48) prefixes,
+so that requests to e.g. http://[2002:7f00:1::]/ are blocked when they
+embed a private IPv4 address.
+---
+ .../Component/HttpClient/NoPrivateNetworkHttpClient.php      | 5 +++++
+ .../HttpClient/Tests/NoPrivateNetworkHttpClientTest.php      | 5 +++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/src/Symfony/Component/HttpClient/NoPrivateNetworkHttpClient.php b/src/Symfony/Component/HttpClient/NoPrivateNetworkHttpClient.php
+index ad973671c08d9..7c6eb1fba1866 100644
+--- a/src/Symfony/Component/HttpClient/NoPrivateNetworkHttpClient.php
++++ b/src/Symfony/Component/HttpClient/NoPrivateNetworkHttpClient.php
+@@ -46,6 +46,11 @@ final class NoPrivateNetworkHttpClient implements HttpClientInterface, LoggerAwa
+         'fe80::/10',
+         '::ffff:0:0/96',
+         '::/128',
++        '::/96',
++        '2002::/16',
++        '2001::/32',
++        '64:ff9b::/96',
++        '64:ff9b:1::/48',
+     ];
+ 
+     private $defaultOptions = self::OPTIONS_DEFAULTS;
+diff --git a/src/Symfony/Component/HttpClient/Tests/NoPrivateNetworkHttpClientTest.php b/src/Symfony/Component/HttpClient/Tests/NoPrivateNetworkHttpClientTest.php
+index cfc989e01e682..437f7a44c9db4 100644
+--- a/src/Symfony/Component/HttpClient/Tests/NoPrivateNetworkHttpClientTest.php
++++ b/src/Symfony/Component/HttpClient/Tests/NoPrivateNetworkHttpClientTest.php
+@@ -37,6 +37,11 @@ public static function getExcludeIpData(): array
+             ['fe80::1',     null,          true],
+             ['fc00::1',     null,          true],
+             ['fd00::1',     null,          true],
++            ['::7f00:1',          null,    true],
++            ['2002:7f00:1::',     null,    true],
++            ['2001::1',           null,    true],
++            ['64:ff9b::7f00:1',   null,    true],
++            ['64:ff9b:1::7f00:1', null,    true],
+             ['10.0.0.1',    '10.0.0.0/24', true],
+             ['10.0.0.1',    '10.0.0.1',    true],
+             ['fc00::1',     'fc00::1/120', true],

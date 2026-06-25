@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2011-2894",
+  "category": "deserialization",
+  "source_url": "https://github.com/spring-projects/spring-framework/commit/070a723ef2c886770a063eb9a67f84f74e06edfb",
+  "repo": "spring-projects/spring-framework",
+  "cwes": [
+    "CWE-502"
+  ]
+}

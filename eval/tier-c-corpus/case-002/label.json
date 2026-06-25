@@ -1,0 +1,9 @@
+{
+  "cve": "ADV-VULN-001",
+  "category": "access_control",
+  "source_url": "internal",
+  "repo": "internal/adversarial",
+  "cwes": [
+    "CWE-285"
+  ]
+}

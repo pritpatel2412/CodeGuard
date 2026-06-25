@@ -1,0 +1,84 @@
+From fb54159861708558b5f5658ebdc14709d984361c Mon Sep 17 00:00:00 2001
+From: James Addison <james@reciperadar.com>
+Date: Mon, 10 Mar 2025 16:34:12 +0000
+Subject: [PATCH] secret key rotation: fix key list ordering
+
+The `itsdangerous` serializer interface[1] expects keys to be
+provided with the oldest key at index zero and the active signing key
+at the end of the list.
+
+We document[2] that `SECRET_KEY_FALLBACKS` should be configured with
+the most recent first (at index zero), so to achieve the expected
+behaviour, those should be inserted in reverse-order at the head of
+the list.
+
+[1] - https://itsdangerous.palletsprojects.com/en/stable/serializer/#itsdangerous.serializer.Serializer
+
+[2] - https://flask.palletsprojects.com/en/stable/config/#SECRET_KEY_FALLBACKS
+---
+ CHANGES.rst           |  2 ++
+ src/flask/sessions.py |  3 ++-
+ tests/test_basic.py   | 15 +++++++++++----
+ 3 files changed, 15 insertions(+), 5 deletions(-)
+
+diff --git a/CHANGES.rst b/CHANGES.rst
+index 51c99d4266..fc474ebb9a 100644
+--- a/CHANGES.rst
++++ b/CHANGES.rst
+@@ -3,6 +3,8 @@ Version 3.1.1
+ 
+ Unreleased
+ 
++-   Fix signing key selection order when key rotation is enabled via
++    ``SECRET_KEY_FALLBACKS``. :ghsa:`4grg-w6v8-c28g`
+ -   Fix type hint for `cli_runner.invoke`. :issue:`5645`
+ -   ``flask --help`` loads the app and plugins first to make sure all commands
+     are shown. :issue:5673`
+diff --git a/src/flask/sessions.py b/src/flask/sessions.py
+index 375de06574..4ffde71360 100644
+--- a/src/flask/sessions.py
++++ b/src/flask/sessions.py
+@@ -318,11 +318,12 @@ def get_signing_serializer(self, app: Flask) -> URLSafeTimedSerializer | None:
+         if not app.secret_key:
+             return None
+ 
+-        keys: list[str | bytes] = [app.secret_key]
++        keys: list[str | bytes] = []
+ 
+         if fallbacks := app.config["SECRET_KEY_FALLBACKS"]:
+             keys.extend(fallbacks)
+ 
++        keys.append(app.secret_key)  # itsdangerous expects current key at top
+         return URLSafeTimedSerializer(
+             keys,  # type: ignore[arg-type]
+             salt=self.salt,
+diff --git a/tests/test_basic.py b/tests/test_basic.py
+index c737dc5f95..c372a91074 100644
+--- a/tests/test_basic.py
++++ b/tests/test_basic.py
+@@ -381,14 +381,21 @@ def set_session() -> str:
+     def get_session() -> dict[str, t.Any]:
+         return dict(flask.session)
+ 
+-    # Set session with initial secret key
++    # Set session with initial secret key, and two valid expiring keys
++    app.secret_key, app.config["SECRET_KEY_FALLBACKS"] = (
++        "0 key",
++        ["-1 key", "-2 key"],
++    )
+     client.post()
+     assert client.get().json == {"a": 1}
+     # Change secret key, session can't be loaded and appears empty
+-    app.secret_key = "new test key"
++    app.secret_key = "? key"
+     assert client.get().json == {}
+-    # Add initial secret key as fallback, session can be loaded
+-    app.config["SECRET_KEY_FALLBACKS"] = ["test key"]
++    # Rotate the valid keys, session can be loaded
++    app.secret_key, app.config["SECRET_KEY_FALLBACKS"] = (
++        "+1 key",
++        ["0 key", "-1 key"],
++    )
+     assert client.get().json == {"a": 1}
+ 
+ 

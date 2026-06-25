@@ -1,0 +1,10 @@
+{
+  "cve": "CVE-2022-0764",
+  "category": "injection",
+  "source_url": "https://github.com/strapi/strapi/commit/2a3f5e988be6a2c7dae5ac22b9e86d579b462f4c",
+  "repo": "strapi/strapi",
+  "cwes": [
+    "CWE-77",
+    "CWE-78"
+  ]
+}

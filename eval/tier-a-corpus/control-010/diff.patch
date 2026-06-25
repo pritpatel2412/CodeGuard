@@ -1,0 +1,34 @@
+From 8ddc0e2a9d686900a260ac04609ff4eccbd54df8 Mon Sep 17 00:00:00 2001
+From: Yong Tang <yong.tang.github@outlook.com>
+Date: Fri, 7 Jan 2022 18:35:32 +0000
+Subject: [PATCH] Fix crash of tf.sparse.split when axis is not a scalar.
+
+This PR tries to fix the crash of tf.sparse.split when axis is not a scalar,
+as was raised in 53660.
+
+This PR fixes 53660.
+
+Signed-off-by: Yong Tang <yong.tang.github@outlook.com>
+---
+ tensorflow/core/kernels/sparse_split_op.cc | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/tensorflow/core/kernels/sparse_split_op.cc b/tensorflow/core/kernels/sparse_split_op.cc
+index fea40db728dba0..629ed9cea57c1d 100644
+--- a/tensorflow/core/kernels/sparse_split_op.cc
++++ b/tensorflow/core/kernels/sparse_split_op.cc
+@@ -74,7 +74,13 @@ void SparseSplitOpImpl(OpKernelContext* context, int num_split,
+     done = [] {};
+   }
+ 
+-  const int64_t axis_input = context->input(0).scalar<int64_t>()();
++  const Tensor& input_axis = context->input(0);
++  OP_REQUIRES_ASYNC(context, TensorShapeUtils::IsScalar(input_axis.shape()),
++                    errors::InvalidArgument(
++                        "Input axis should be a scalar but received shape ",
++                        input_axis.shape().DebugString()),
++                    done);
++  const int64_t axis_input = input_axis.scalar<int64_t>()();
+   const Tensor& input_indices = context->input(1);
+   const Tensor& input_values = context->input(2);
+   const Tensor& input_shape = context->input(3);

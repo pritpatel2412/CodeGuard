@@ -1,0 +1,112 @@
+From adbca5e4db42542575734b8e5d26961c8ada7265 Mon Sep 17 00:00:00 2001
+From: Myk Willis <myk@mykwillis.com>
+Date: Sun, 24 Jan 2016 08:13:23 -0500
+Subject: [PATCH] [1.9.x] Fixed incorrect permissions check for admin's "Save
+ as new".
+
+This is a security fix.
+---
+ django/contrib/admin/options.py | 10 ++++++----
+ docs/releases/1.9.2.txt         | 13 +++++++++++--
+ tests/admin_views/tests.py      | 29 +++++++++++++++++++++++++++++
+ 3 files changed, 46 insertions(+), 6 deletions(-)
+
+diff --git a/django/contrib/admin/options.py b/django/contrib/admin/options.py
+index dab27d5437ce..526400580a5b 100644
+--- a/django/contrib/admin/options.py
++++ b/django/contrib/admin/options.py
+@@ -1343,6 +1343,10 @@ def changeform_view(self, request, object_id=None, form_url='', extra_context=No
+ 
+         model = self.model
+         opts = model._meta
++
++        if request.method == 'POST' and '_saveasnew' in request.POST:
++            object_id = None
++
+         add = object_id is None
+ 
+         if add:
+@@ -1360,10 +1364,6 @@ def changeform_view(self, request, object_id=None, form_url='', extra_context=No
+                 raise Http404(_('%(name)s object with primary key %(key)r does not exist.') % {
+                     'name': force_text(opts.verbose_name), 'key': escape(object_id)})
+ 
+-            if request.method == 'POST' and "_saveasnew" in request.POST:
+-                object_id = None
+-                obj = None
+-
+         ModelForm = self.get_form(request, obj)
+         if request.method == 'POST':
+             form = ModelForm(request.POST, request.FILES, instance=obj)
+@@ -1426,6 +1426,8 @@ def changeform_view(self, request, object_id=None, form_url='', extra_context=No
+         if request.method == 'POST' and not form_validated and "_saveasnew" in request.POST:
+             context['show_save'] = False
+             context['show_save_and_continue'] = False
++            # Use the change template instead of the add template.
++            add = False
+ 
+         context.update(extra_context or {})
+ 
+diff --git a/docs/releases/1.9.2.txt b/docs/releases/1.9.2.txt
+index cfa04b703f56..770f9f73417f 100644
+--- a/docs/releases/1.9.2.txt
++++ b/docs/releases/1.9.2.txt
+@@ -4,8 +4,17 @@ Django 1.9.2 release notes
+ 
+ *Under development*
+ 
+-Django 1.9.2 fixes several bugs in 1.9.1 and makes a small backwards
+-incompatible change that hopefully doesn't affect any users.
++Django 1.9.2 fixes a security regression in 1.9 and several bugs in 1.9.1. It
++also makes a small backwards incompatible change that hopefully doesn't affect
++any users.
++
++Security issue: User with "change" but not "add" permission can create objects for ``ModelAdmin``’s with ``save_as=True``
++=========================================================================================================================
++
++If a ``ModelAdmin`` uses ``save_as=True`` (not the default), the admin
++provides an option when editing objects to "Save as new". A regression in
++Django 1.9 prevented that form submission from raising a "Permission Denied"
++error for users without the "add" permission.
+ 
+ Backwards incompatible change: ``.py-tpl`` files rewritten in project/app templates
+ ===================================================================================
+diff --git a/tests/admin_views/tests.py b/tests/admin_views/tests.py
+index 1b9509347902..039ebec8f7a4 100644
+--- a/tests/admin_views/tests.py
++++ b/tests/admin_views/tests.py
+@@ -1712,6 +1712,35 @@ def test_change_view(self):
+             self.assertContains(response, 'login-form')
+             self.client.get(reverse('admin:logout'))
+ 
++    def test_change_view_save_as_new(self):
++        """
++        'Save as new' should raise PermissionDenied for users without the 'add'
++        permission.
++        """
++        change_dict_save_as_new = {
++            '_saveasnew': 'Save as new',
++            'title': 'Ikke fordømt',
++            'content': '<p>edited article</p>',
++            'date_0': '2008-03-18', 'date_1': '10:54:39',
++            'section': self.s1.pk,
++        }
++        article_change_url = reverse('admin:admin_views_article_change', args=(self.a1.pk,))
++
++        # Add user can perform "Save as new".
++        article_count = Article.objects.count()
++        self.client.force_login(self.adduser)
++        post = self.client.post(article_change_url, change_dict_save_as_new)
++        self.assertRedirects(post, self.index_url)
++        self.assertEqual(Article.objects.count(), article_count + 1)
++        self.client.logout()
++
++        # Change user cannot perform "Save as new" (no 'add' permission).
++        article_count = Article.objects.count()
++        self.client.force_login(self.changeuser)
++        post = self.client.post(article_change_url, change_dict_save_as_new)
++        self.assertEqual(post.status_code, 403)
++        self.assertEqual(Article.objects.count(), article_count)
++
+     def test_delete_view(self):
+         """Delete view should restrict access and actually delete items."""
+         delete_dict = {'post': 'yes'}

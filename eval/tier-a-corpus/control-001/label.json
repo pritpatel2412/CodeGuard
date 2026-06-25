@@ -1,0 +1,7 @@
+{
+  "cve": "control-001",
+  "category": "control",
+  "source_url": "https://github.com/expressjs/express/commit/54271f69b511fea198471e6ff3400ab805d6b553",
+  "repo": "expressjs/express",
+  "cwes": []
+}

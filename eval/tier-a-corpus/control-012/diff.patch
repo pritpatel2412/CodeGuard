@@ -1,0 +1,31 @@
+From be7b286d40bc68cb0b56f702186cc4837d508058 Mon Sep 17 00:00:00 2001
+From: Mihai Maruseac <mihaimaruseac@google.com>
+Date: Mon, 15 Nov 2021 13:55:14 -0800
+Subject: [PATCH] Fix `CHECK`-failure caused by constant folding code.
+
+We're losing a `const` qualifier here, but unless we get to use more `StatusOr` objects, this is the best alternative.
+
+PiperOrigin-RevId: 410072241
+Change-Id: I69535c91490f0d23facb9587d2ff59db0782cda6
+---
+ tensorflow/core/grappler/optimizers/constant_folding.cc | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/tensorflow/core/grappler/optimizers/constant_folding.cc b/tensorflow/core/grappler/optimizers/constant_folding.cc
+index a05823f71d09f4..77a3f22efd4b90 100644
+--- a/tensorflow/core/grappler/optimizers/constant_folding.cc
++++ b/tensorflow/core/grappler/optimizers/constant_folding.cc
+@@ -1017,7 +1017,12 @@ bool ConstantFolding::IsFoldableUncached(
+       }
+     }
+     for (const auto& output_prop : output_props) {
+-      const PartialTensorShape output_shape(output_prop.shape());
++      PartialTensorShape output_shape;
++      if (!PartialTensorShape::BuildPartialTensorShape(output_prop.shape(),
++                                                       &output_shape)
++               .ok()) {
++        return false;
++      }
+       if (output_shape.IsFullyDefined()) {
+         const int64_t num_bytes =
+             output_shape.num_elements() * DataTypeSize(output_prop.dtype());

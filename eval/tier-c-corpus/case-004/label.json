@@ -1,0 +1,7 @@
+{
+  "cve": "ADV-SAFE-003",
+  "category": "control",
+  "source_url": "internal",
+  "repo": "internal/adversarial",
+  "cwes": []
+}

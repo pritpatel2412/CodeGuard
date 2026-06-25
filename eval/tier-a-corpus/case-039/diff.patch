@@ -1,0 +1,38 @@
+From 0284747c88eb9435899006d26ffaf65f89dec88e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Torkel=20=C3=96degaard?= <torkel@grafana.com>
+Date: Thu, 23 Apr 2020 14:15:48 +0200
+Subject: [PATCH] TablePanel: Fix XSS issue in header column rename (#23816)
+
+* prevent xss
+
+* added escaping on tooltip.
+
+* Rebase done
+
+Co-authored-by: Marcus Andersson <marcus.andersson@grafana.com>
+---
+ public/app/plugins/panel/table-old/renderer.ts | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/public/app/plugins/panel/table-old/renderer.ts b/public/app/plugins/panel/table-old/renderer.ts
+index 6c3993c31f768..94cb88bae158b 100644
+--- a/public/app/plugins/panel/table-old/renderer.ts
++++ b/public/app/plugins/panel/table-old/renderer.ts
+@@ -56,7 +56,7 @@ export class TableRenderer {
+           column.style = style;
+ 
+           if (style.alias) {
+-            column.title = column.text.replace(regex, style.alias);
++            column.title = textUtil.escapeHtml(column.text.replace(regex, style.alias));
+           }
+ 
+           break;
+@@ -300,7 +300,7 @@ export class TableRenderer {
+       const cellLink = this.templateSrv.replace(column.style.linkUrl, scopedVars, encodeURIComponent);
+       const sanitizedCellLink = textUtil.sanitizeUrl(cellLink);
+ 
+-      const cellLinkTooltip = this.templateSrv.replace(column.style.linkTooltip, scopedVars);
++      const cellLinkTooltip = textUtil.escapeHtml(this.templateSrv.replace(column.style.linkTooltip, scopedVars));
+       const cellTarget = column.style.linkTargetBlank ? '_blank' : '';
+ 
+       cellClasses.push('table-panel-cell-link');

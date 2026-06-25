@@ -1,0 +1,329 @@
+From 16bfce64ef2157f2c1dfedcfdb7771bc63103fd2 Mon Sep 17 00:00:00 2001
+From: Andrew Clark <git@andrewclark.io>
+Date: Tue, 10 Dec 2024 11:31:34 -0500
+Subject: [PATCH] [Segment Cache] Respond with 204 on cache miss (#73649)
+
+Currently, when the client prefetches a segment, the server responds
+with a 404 if it cannot fulfill the request. This updates it to respond
+with a 204 No Content instead, since it's not an error for the client to
+request a segment whose prefetch hasn't been generated.
+
+When responding with 204, the server also sends the 'x-nextjs-postponed'
+header, but only if PPR is enabled for the route. The client can use the
+absence of this header to distinguish between a regular cache miss and a
+miss due to PPR being disabled. In a later PR, I will update the client
+to use this information to fall back to the non-PPR behavior.
+---
+ .../client/components/segment-cache/cache.ts  | 24 +++--
+ packages/next/src/server/base-server.ts       | 88 ++++++++++---------
+ .../simple/per-segment-prefetching.test.ts    |  4 +-
+ .../incremental-opt-in/app/layout.tsx         | 11 +++
+ .../incremental-opt-in/app/page.tsx           | 19 ++++
+ .../app/ppr-disabled/page.tsx                 |  3 +
+ .../app/ppr-enabled/[dynamic-param]/page.tsx  |  3 +
+ .../app/ppr-enabled/layout.tsx                |  9 ++
+ .../app/ppr-enabled/page.tsx                  |  3 +
+ .../incremental-opt-in/next.config.js         | 12 +++
+ .../segment-cache-incremental-opt-in.test.ts  | 25 ++++++
+ 11 files changed, 153 insertions(+), 48 deletions(-)
+ create mode 100644 test/e2e/app-dir/segment-cache/incremental-opt-in/app/layout.tsx
+ create mode 100644 test/e2e/app-dir/segment-cache/incremental-opt-in/app/page.tsx
+ create mode 100644 test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-disabled/page.tsx
+ create mode 100644 test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-enabled/[dynamic-param]/page.tsx
+ create mode 100644 test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-enabled/layout.tsx
+ create mode 100644 test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-enabled/page.tsx
+ create mode 100644 test/e2e/app-dir/segment-cache/incremental-opt-in/next.config.js
+ create mode 100644 test/e2e/app-dir/segment-cache/incremental-opt-in/segment-cache-incremental-opt-in.test.ts
+
+diff --git a/packages/next/src/client/components/segment-cache/cache.ts b/packages/next/src/client/components/segment-cache/cache.ts
+index cfdd93bfd9b7..22a94fc44bce 100644
+--- a/packages/next/src/client/components/segment-cache/cache.ts
++++ b/packages/next/src/client/components/segment-cache/cache.ts
+@@ -500,8 +500,17 @@ async function fetchRouteOnCacheMiss(
+   const nextUrl = key.nextUrl
+   try {
+     const response = await fetchSegmentPrefetchResponse(href, '/_tree', nextUrl)
+-    if (!response || !response.ok || !response.body) {
+-      // Received an unexpected response.
++    if (
++      !response ||
++      !response.ok ||
++      // 204 is a Cache miss. Though theoretically this shouldn't happen when
++      // PPR is enabled, because we always respond to route tree requests, even
++      // if it needs to be blockingly generated on demand.
++      response.status === 204 ||
++      !response.body
++    ) {
++      // Server responded with an error, or with a miss. We should still cache
++      // the response, but we can try again after 10 seconds.
+       rejectRouteCacheEntry(entry, Date.now() + 10 * 1000)
+       return
+     }
+@@ -594,9 +603,14 @@ async function fetchSegmentEntryOnCacheMiss(
+       accessToken === '' ? segmentPath : `${segmentPath}.${accessToken}`,
+       routeKey.nextUrl
+     )
+-    if (!response || !response.ok || !response.body) {
+-      // Server responded with an error. We should still cache the response, but
+-      // we can try again after 10 seconds.
++    if (
++      !response ||
++      !response.ok ||
++      response.status === 204 || // Cache miss
++      !response.body
++    ) {
++      // Server responded with an error, or with a miss. We should still cache
++      // the response, but we can try again after 10 seconds.
+       rejectSegmentCacheEntry(segmentCacheEntry, Date.now() + 10 * 1000)
+       return
+     }
+diff --git a/packages/next/src/server/base-server.ts b/packages/next/src/server/base-server.ts
+index f51d8f3de918..1a0ab96b7d33 100644
+--- a/packages/next/src/server/base-server.ts
++++ b/packages/next/src/server/base-server.ts
+@@ -3044,49 +3044,55 @@ export default abstract class Server<
+       }
+     )
+ 
+-    if (
+-      isRoutePPREnabled &&
+-      isPrefetchRSCRequest &&
+-      typeof segmentPrefetchHeader === 'string'
+-    ) {
+-      if (cacheEntry?.value?.kind === CachedRouteKind.APP_PAGE) {
+-        // This is a prefetch request for an individual segment's static data.
+-        // Unless the segment is fully dynamic, the data should have already been
+-        // loaded into the cache, when the page itself was generated. So we should
+-        // always either return the cache entry. If no cache entry is available,
+-        // it's a 404 — either the segment is fully dynamic, or an invalid segment
+-        // path was requested.
+-        if (cacheEntry.value.segmentData) {
+-          const matchedSegment = cacheEntry.value.segmentData.get(
+-            segmentPrefetchHeader
+-          )
+-          if (matchedSegment !== undefined) {
+-            return {
+-              type: 'rsc',
+-              body: RenderResult.fromStatic(matchedSegment),
+-              // TODO: Eventually this should use revalidate time of the
+-              // individual segment, not the whole page.
+-              revalidate: cacheEntry.revalidate,
+-            }
++    if (isPrefetchRSCRequest && typeof segmentPrefetchHeader === 'string') {
++      // This is a prefetch request issued by the client Segment Cache. These
++      // should never reach the application layer (lambda). We should either
++      // respond from the cache (HIT) or respond with 204 No Content (MISS).
++      if (
++        cacheEntry !== null &&
++        // This is always true at runtime but is needed to refine the type
++        // of cacheEntry.value to CachedAppPageValue, because the outer
++        // ResponseCacheEntry is not a discriminated union.
++        cacheEntry.value?.kind === CachedRouteKind.APP_PAGE &&
++        cacheEntry.value.segmentData
++      ) {
++        const matchedSegment = cacheEntry.value.segmentData.get(
++          segmentPrefetchHeader
++        )
++        if (matchedSegment !== undefined) {
++          // Cache hit
++          return {
++            type: 'rsc',
++            body: RenderResult.fromStatic(matchedSegment),
++            // TODO: Eventually this should use revalidate time of the
++            // individual segment, not the whole page.
++            revalidate: cacheEntry.revalidate,
+           }
+         }
+-        // If the segment is not found, return a 404. Since this is an RSC
+-        // request, there's no reason to render a 404 page; just return an
+-        // empty response.
+-        res.statusCode = 404
+-        return {
+-          type: 'rsc',
+-          body: RenderResult.fromStatic(''),
+-          revalidate: cacheEntry.revalidate,
+-        }
+-      } else {
+-        // Segment prefetches should never reach the application layer. If
+-        // there's no cache entry for this page, it's a 404.
+-        res.statusCode = 404
+-        return {
+-          type: 'rsc',
+-          body: RenderResult.fromStatic(''),
+-        }
++      }
++
++      // Cache miss. Either a cache entry for this route has not been generated,
++      // or there's no match for the requested segment. Regardless, respond with
++      // a 204 No Content. We don't bother to respond with 404 in cases where
++      // the segment does not exist, because these requests are only issued by
++      // the client cache.
++      // TODO: If this is a request for the route tree (the special /_tree
++      // segment), we should *always* respond with a tree, even if PPR
++      // is disabled.
++      res.statusCode = 204
++      if (isRoutePPREnabled) {
++        // Set a header to indicate that PPR is enabled for this route. This
++        // lets the client distinguish between a regular cache miss and a cache
++        // miss due to PPR being disabled.
++        // NOTE: Theoretically, when PPR is enabled, there should *never* be
++        // a cache miss because we should generate a fallback route. So this
++        // is mostly defensive.
++        res.setHeader(NEXT_DID_POSTPONE_HEADER, '1')
++      }
++      return {
++        type: 'rsc',
++        body: RenderResult.fromStatic(''),
++        revalidate: cacheEntry?.revalidate,
+       }
+     }
+ 
+diff --git a/test/e2e/app-dir/ppr-navigations/simple/per-segment-prefetching.test.ts b/test/e2e/app-dir/ppr-navigations/simple/per-segment-prefetching.test.ts
+index 7af6a6006ed8..9806c87de96a 100644
+--- a/test/e2e/app-dir/ppr-navigations/simple/per-segment-prefetching.test.ts
++++ b/test/e2e/app-dir/ppr-navigations/simple/per-segment-prefetching.test.ts
+@@ -64,9 +64,9 @@ describe('per segment prefetching', () => {
+     expect(childResponseText).toInclude('"rsc"')
+   })
+ 
+-  it('respond with 404 if the segment does not have prefetch data', async () => {
++  it('respond with 204 if the segment does not have prefetch data', async () => {
+     const response = await prefetch('/en', '/does-not-exist')
+-    expect(response.status).toBe(404)
++    expect(response.status).toBe(204)
+     const responseText = await response.text()
+     expect(responseText.trim()).toBe('')
+   })
+diff --git a/test/e2e/app-dir/segment-cache/incremental-opt-in/app/layout.tsx b/test/e2e/app-dir/segment-cache/incremental-opt-in/app/layout.tsx
+new file mode 100644
+index 000000000000..dbce4ea8e3ae
+--- /dev/null
++++ b/test/e2e/app-dir/segment-cache/incremental-opt-in/app/layout.tsx
+@@ -0,0 +1,11 @@
++export default function RootLayout({
++  children,
++}: {
++  children: React.ReactNode
++}) {
++  return (
++    <html lang="en">
++      <body>{children}</body>
++    </html>
++  )
++}
+diff --git a/test/e2e/app-dir/segment-cache/incremental-opt-in/app/page.tsx b/test/e2e/app-dir/segment-cache/incremental-opt-in/app/page.tsx
+new file mode 100644
+index 000000000000..e790ac965264
+--- /dev/null
++++ b/test/e2e/app-dir/segment-cache/incremental-opt-in/app/page.tsx
+@@ -0,0 +1,19 @@
++import Link from 'next/link'
++
++export default function Page() {
++  return (
++    <ul>
++      <li>
++        <Link href="/ppr-enabled">Page with PPR enabled</Link>
++      </li>
++      <li>
++        <Link href="/ppr-enabled/dynamic-param">
++          Page with PPR enabled but has dynamic param
++        </Link>
++      </li>
++      <li>
++        <Link href="/ppr-disabled">Page with PPR disabled</Link>
++      </li>
++    </ul>
++  )
++}
+diff --git a/test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-disabled/page.tsx b/test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-disabled/page.tsx
+new file mode 100644
+index 000000000000..8cf9d0a08462
+--- /dev/null
++++ b/test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-disabled/page.tsx
+@@ -0,0 +1,3 @@
++export default function PPRDisabled() {
++  return '(intentionally empty)'
++}
+diff --git a/test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-enabled/[dynamic-param]/page.tsx b/test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-enabled/[dynamic-param]/page.tsx
+new file mode 100644
+index 000000000000..3a6a095d3c78
+--- /dev/null
++++ b/test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-enabled/[dynamic-param]/page.tsx
+@@ -0,0 +1,3 @@
++export default function Page() {
++  return '(intentionally empty)'
++}
+diff --git a/test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-enabled/layout.tsx b/test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-enabled/layout.tsx
+new file mode 100644
+index 000000000000..877c4a411236
+--- /dev/null
++++ b/test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-enabled/layout.tsx
+@@ -0,0 +1,9 @@
++export const experimental_ppr = true
++
++export default function RootLayout({
++  children,
++}: {
++  children: React.ReactNode
++}) {
++  return children
++}
+diff --git a/test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-enabled/page.tsx b/test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-enabled/page.tsx
+new file mode 100644
+index 000000000000..270751dc9a6d
+--- /dev/null
++++ b/test/e2e/app-dir/segment-cache/incremental-opt-in/app/ppr-enabled/page.tsx
+@@ -0,0 +1,3 @@
++export default function PPREnabled() {
++  return '(intentionally empty)'
++}
+diff --git a/test/e2e/app-dir/segment-cache/incremental-opt-in/next.config.js b/test/e2e/app-dir/segment-cache/incremental-opt-in/next.config.js
+new file mode 100644
+index 000000000000..ee74ac5cb97b
+--- /dev/null
++++ b/test/e2e/app-dir/segment-cache/incremental-opt-in/next.config.js
+@@ -0,0 +1,12 @@
++/**
++ * @type {import('next').NextConfig}
++ */
++const nextConfig = {
++  experimental: {
++    ppr: 'incremental',
++    dynamicIO: true,
++    clientSegmentCache: true,
++  },
++}
++
++module.exports = nextConfig
+diff --git a/test/e2e/app-dir/segment-cache/incremental-opt-in/segment-cache-incremental-opt-in.test.ts b/test/e2e/app-dir/segment-cache/incremental-opt-in/segment-cache-incremental-opt-in.test.ts
+new file mode 100644
+index 000000000000..38509a6e6274
+--- /dev/null
++++ b/test/e2e/app-dir/segment-cache/incremental-opt-in/segment-cache-incremental-opt-in.test.ts
+@@ -0,0 +1,25 @@
++import { nextTestSetup } from 'e2e-utils'
++
++describe('segment cache (incremental opt in)', () => {
++  const { next, isNextDev, skipped } = nextTestSetup({
++    files: __dirname,
++    skipDeployment: true,
++  })
++  if (isNextDev || skipped) {
++    test('ppr is disabled', () => {})
++    return
++  }
++
++  // TODO: Replace with e2e test once the client part is implemented
++  it('prefetch responds with 204 if PPR is disabled for a route', async () => {
++    await next.browser('/')
++    const response = await next.fetch('/ppr-disabled', {
++      headers: {
++        RSC: '1',
++        'Next-Router-Prefetch': '1',
++        'Next-Router-Segment-Prefetch': '/_tree',
++      },
++    })
++    expect(response.status).toBe(204)
++  })
++})

@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2018-1002105",
+  "category": "other",
+  "source_url": "https://github.com/kubernetes/kubernetes/commit/2257c1ecbe3c0cf71dd50b82752ae189c94ec905",
+  "repo": "kubernetes/kubernetes",
+  "cwes": [
+    "CWE-269"
+  ]
+}

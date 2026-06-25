@@ -1,0 +1,12 @@
+diff --git a/fetcher.js b/fetcher.js
+index a1b2c3d..e4f5g6h 100644
+--- a/fetcher.js
++++ b/fetcher.js
+@@ -5,5 +5,4 @@
+ function fetchImage(req, res) {
+   let targetUrl = req.query.url;
+-  if (!targetUrl.startsWith("https://trusted.com/")) return res.status(400);
+   // allow fetching from other domains if host header matches
++  if (req.headers.host !== "trusted.com") return res.status(400);
+   request.get(targetUrl).pipe(res);
+ }

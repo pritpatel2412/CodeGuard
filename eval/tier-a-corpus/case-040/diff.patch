@@ -1,0 +1,218 @@
+From 7baecf0d0deae0d865e45cf03e082bc0db3f28c3 Mon Sep 17 00:00:00 2001
+From: Leonard Gram <leo@xlson.com>
+Date: Wed, 22 Aug 2018 16:16:25 +0200
+Subject: [PATCH] sql: added code migration type
+
+---
+ pkg/api/login.go                             |  9 ++++-
+ pkg/services/sqlstore/migrations/user_mig.go | 40 +++++++++++++++++++-
+ pkg/services/sqlstore/migrator/migrator.go   | 16 +++++---
+ pkg/services/sqlstore/migrator/types.go      |  6 +++
+ pkg/services/sqlstore/user.go                |  5 ++-
+ pkg/services/sqlstore/user_test.go           | 22 +++++++++++
+ 6 files changed, 89 insertions(+), 9 deletions(-)
+
+diff --git a/pkg/api/login.go b/pkg/api/login.go
+index ebfe672f8251d..a716cedab9172 100644
+--- a/pkg/api/login.go
++++ b/pkg/api/login.go
+@@ -78,7 +78,14 @@ func tryLoginUsingRememberCookie(c *middleware.Context) bool {
+ 	user := userQuery.Result
+ 
+ 	// validate remember me cookie
+-	if val, _ := c.GetSuperSecureCookie(user.Rands+user.Password, setting.CookieRememberName); val != user.Login {
++	signingKey := user.Rands + user.Password
++	if len(signingKey) < 10 {
++		c.Logger.Error("Invalid user signingKey")
++		return false
++	}
++
++
++	if val, _ := c.GetSuperSecureCookie(signingKey, setting.CookieRememberName); val != user.Login {
+ 		return false
+ 	}
+ 
+diff --git a/pkg/services/sqlstore/migrations/user_mig.go b/pkg/services/sqlstore/migrations/user_mig.go
+index edcfbb7b889b1..8ca70bb575285 100644
+--- a/pkg/services/sqlstore/migrations/user_mig.go
++++ b/pkg/services/sqlstore/migrations/user_mig.go
+@@ -1,6 +1,11 @@
+ package migrations
+ 
+-import . "github.com/grafana/grafana/pkg/services/sqlstore/migrator"
++import (
++	"fmt"
++	"github.com/go-xorm/xorm"
++	. "github.com/grafana/grafana/pkg/services/sqlstore/migrator"
++	"github.com/grafana/grafana/pkg/util"
++)
+ 
+ func addUserMigrations(mg *Migrator) {
+ 	userV1 := Table{
+@@ -107,4 +112,37 @@ func addUserMigrations(mg *Migrator) {
+ 	mg.AddMigration("Add last_seen_at column to user", NewAddColumnMigration(userV2, &Column{
+ 		Name: "last_seen_at", Type: DB_DateTime, Nullable: true,
+ 	}))
++
++	// Adds salt & rands for old users who used ldap or oauth
++	mg.AddMigration("Add missing user data", &AddMissingUserSaltAndRandsMigration{})
++}
++
++type AddMissingUserSaltAndRandsMigration struct {
++	MigrationBase
++}
++
++func (m *AddMissingUserSaltAndRandsMigration) Sql(dialect Dialect) string {
++	return "code migration"
++}
++
++type TempUserDTO struct {
++	Id    int64
++	Login string
++}
++
++func (m *AddMissingUserSaltAndRandsMigration) Exec(sess *xorm.Session, mg *Migrator) error {
++	users := make([]*TempUserDTO, 0)
++
++	err := sess.Sql(fmt.Sprintf("SELECT id, login from %s WHERE rands = ''", mg.Dialect.Quote("user"))).Find(&users)
++	if err != nil {
++		return err
++	}
++
++	for _, user := range users {
++		_, err := sess.Exec("UPDATE "+mg.Dialect.Quote("user")+" SET salt = ?, rands = ? WHERE id = ?", util.GetRandomString(10), util.GetRandomString(10), user.Id)
++		if err != nil {
++			return err
++		}
++	}
++	return nil
+ }
+diff --git a/pkg/services/sqlstore/migrator/migrator.go b/pkg/services/sqlstore/migrator/migrator.go
+index 64831ee46b444..bd9bc7ec1c208 100644
+--- a/pkg/services/sqlstore/migrator/migrator.go
++++ b/pkg/services/sqlstore/migrator/migrator.go
+@@ -12,7 +12,7 @@ import (
+ 
+ type Migrator struct {
+ 	x          *xorm.Engine
+-	dialect    Dialect
++	Dialect    Dialect
+ 	migrations []Migration
+ 	Logger     log.Logger
+ }
+@@ -31,7 +31,7 @@ func NewMigrator(engine *xorm.Engine) *Migrator {
+ 	mg.x = engine
+ 	mg.Logger = log.New("migrator")
+ 	mg.migrations = make([]Migration, 0)
+-	mg.dialect = NewDialect(mg.x.DriverName())
++	mg.Dialect = NewDialect(mg.x.DriverName())
+ 	return mg
+ }
+ 
+@@ -82,7 +82,7 @@ func (mg *Migrator) Start() error {
+ 			continue
+ 		}
+ 
+-		sql := m.Sql(mg.dialect)
++		sql := m.Sql(mg.Dialect)
+ 
+ 		record := MigrationLog{
+ 			MigrationId: m.Id(),
+@@ -120,7 +120,7 @@ func (mg *Migrator) exec(m Migration, sess *xorm.Session) error {
+ 
+ 	condition := m.GetCondition()
+ 	if condition != nil {
+-		sql, args := condition.Sql(mg.dialect)
++		sql, args := condition.Sql(mg.Dialect)
+ 		results, err := sess.Query(sql, args...)
+ 		if err != nil || len(results) == 0 {
+ 			mg.Logger.Info("Skipping migration condition not fulfilled", "id", m.Id())
+@@ -128,7 +128,13 @@ func (mg *Migrator) exec(m Migration, sess *xorm.Session) error {
+ 		}
+ 	}
+ 
+-	_, err := sess.Exec(m.Sql(mg.dialect))
++	var err error
++	if codeMigration, ok := m.(CodeMigration); ok {
++		err = codeMigration.Exec(sess, mg)
++	} else {
++		_, err = sess.Exec(m.Sql(mg.Dialect))
++	}
++
+ 	if err != nil {
+ 		mg.Logger.Error("Executing migration failed", "id", m.Id(), "error", err)
+ 		return err
+diff --git a/pkg/services/sqlstore/migrator/types.go b/pkg/services/sqlstore/migrator/types.go
+index d42eba0f58a23..09f33b0c0d1af 100644
+--- a/pkg/services/sqlstore/migrator/types.go
++++ b/pkg/services/sqlstore/migrator/types.go
+@@ -2,6 +2,7 @@ package migrator
+ 
+ import (
+ 	"fmt"
++	"github.com/go-xorm/xorm"
+ 	"strings"
+ )
+ 
+@@ -18,6 +19,11 @@ type Migration interface {
+ 	GetCondition() MigrationCondition
+ }
+ 
++type CodeMigration interface {
++	Migration
++	Exec(sess *xorm.Session, migrator * Migrator) error
++}
++
+ type SQLType string
+ 
+ type ColumnType string
+diff --git a/pkg/services/sqlstore/user.go b/pkg/services/sqlstore/user.go
+index 3781d83dd96cb..326e9d5cd7e57 100644
+--- a/pkg/services/sqlstore/user.go
++++ b/pkg/services/sqlstore/user.go
+@@ -99,9 +99,10 @@ func CreateUser(cmd *m.CreateUserCommand) error {
+ 			LastSeenAt:    time.Now().AddDate(-10, 0, 0),
+ 		}
+ 
++		user.Salt = util.GetRandomString(10)
++		user.Rands = util.GetRandomString(10)
++
+ 		if len(cmd.Password) > 0 {
+-			user.Salt = util.GetRandomString(10)
+-			user.Rands = util.GetRandomString(10)
+ 			user.Password = util.EncodePassword(cmd.Password, user.Salt)
+ 		}
+ 
+diff --git a/pkg/services/sqlstore/user_test.go b/pkg/services/sqlstore/user_test.go
+index decb468255219..fe95c410d5391 100644
+--- a/pkg/services/sqlstore/user_test.go
++++ b/pkg/services/sqlstore/user_test.go
+@@ -14,6 +14,28 @@ func TestUserDataAccess(t *testing.T) {
+ 	Convey("Testing DB", t, func() {
+ 		InitTestDB(t)
+ 
++		Convey("Creating a user", func() {
++			cmd := &models.CreateUserCommand{
++				Email: "usertest@test.com",
++				Name:  "user name",
++				Login: "user_test_login",
++			}
++
++			err := CreateUser(cmd)
++			So(err, ShouldBeNil)
++
++			Convey("Loading a user", func() {
++				query := models.GetUserByIdQuery{Id: cmd.Result.Id}
++				err := GetUserById(&query)
++				So(err, ShouldBeNil)
++
++				So(query.Result.Email, ShouldEqual, "usertest@test.com")
++				So(query.Result.Password, ShouldEqual, "")
++				So(query.Result.Rands, ShouldHaveLength, 10)
++				So(query.Result.Salt, ShouldHaveLength, 10)
++			})
++		})
++
+ 		var err error
+ 		for i := 0; i < 5; i++ {
+ 			err = CreateUser(&models.CreateUserCommand{

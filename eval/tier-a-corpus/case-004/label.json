@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2026-27980",
+  "category": "other",
+  "source_url": "https://github.com/vercel/next.js/commit/39eb8e0ac498b48855a0430fbf4c22276a73b4bd",
+  "repo": "vercel/next.js",
+  "cwes": [
+    "CWE-400"
+  ]
+}

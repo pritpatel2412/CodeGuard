@@ -1,0 +1,47 @@
+From 9962b91b12bb791322fa73836b350836b6db7cac Mon Sep 17 00:00:00 2001
+From: Nicolas Grekas <nicolas.grekas@gmail.com>
+Date: Fri, 31 Oct 2025 17:43:49 +0100
+Subject: [PATCH] [HttpFoundation] Fix parsing pathinfo with no leading slash
+
+---
+ src/Symfony/Component/HttpFoundation/Request.php       |  5 ++---
+ .../Component/HttpFoundation/Tests/RequestTest.php     | 10 ++++++++++
+ 2 files changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/src/Symfony/Component/HttpFoundation/Request.php b/src/Symfony/Component/HttpFoundation/Request.php
+index d1103cf8a0a57..393b5472cdd21 100644
+--- a/src/Symfony/Component/HttpFoundation/Request.php
++++ b/src/Symfony/Component/HttpFoundation/Request.php
+@@ -1983,9 +1983,8 @@ protected function preparePathInfo()
+         }
+ 
+         $pathInfo = substr($requestUri, \strlen($baseUrl));
+-        if (false === $pathInfo || '' === $pathInfo) {
+-            // If substr() returns false then PATH_INFO is set to an empty string
+-            return '/';
++        if (false === $pathInfo || '' === $pathInfo || '/' !== $pathInfo[0]) {
++            return '/'.$pathInfo;
+         }
+ 
+         return $pathInfo;
+diff --git a/src/Symfony/Component/HttpFoundation/Tests/RequestTest.php b/src/Symfony/Component/HttpFoundation/Tests/RequestTest.php
+index 789119b6a7c68..bb91a2da087a2 100644
+--- a/src/Symfony/Component/HttpFoundation/Tests/RequestTest.php
++++ b/src/Symfony/Component/HttpFoundation/Tests/RequestTest.php
+@@ -1876,6 +1876,16 @@ public static function getBaseUrlData()
+                 '',
+                 '/foo/api/bar',
+             ],
++            [
++                '/api/index.phpfoo',
++                [
++                    'SCRIPT_FILENAME' => '/var/www/api/index.php',
++                    'SCRIPT_NAME' => '/api/index.php',
++                    'PHP_SELF' => '/api/index.php',
++                ],
++                '/api/index.php',
++                '/foo',
++            ],
+         ];
+     }
+ 

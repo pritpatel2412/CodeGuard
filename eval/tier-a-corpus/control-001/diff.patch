@@ -1,0 +1,78 @@
+From 54271f69b511fea198471e6ff3400ab805d6b553 Mon Sep 17 00:00:00 2001
+From: Chris de Almeida <ctcpip@users.noreply.github.com>
+Date: Mon, 9 Sep 2024 17:16:58 -0500
+Subject: [PATCH] fix: don't render redirect values in anchor href
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-authored-by: Ulises Gascón <ulisesgascongonzalez@gmail.com>
+---
+ lib/response.js      |  2 +-
+ test/res.redirect.js | 24 +++++++++++++++++++++---
+ 2 files changed, 22 insertions(+), 4 deletions(-)
+
+diff --git a/lib/response.js b/lib/response.js
+index 68d969ff05b..76b6b54a3b8 100644
+--- a/lib/response.js
++++ b/lib/response.js
+@@ -969,7 +969,7 @@ res.redirect = function redirect(url) {
+ 
+     html: function(){
+       var u = escapeHtml(address);
+-      body = '<p>' + statuses.message[status] + '. Redirecting to <a href="' + u + '">' + u + '</a></p>'
++      body = '<p>' + statuses.message[status] + '. Redirecting to ' + u + '</p>'
+     },
+ 
+     default: function(){
+diff --git a/test/res.redirect.js b/test/res.redirect.js
+index 5ffc7e48f12..f7214d93312 100644
+--- a/test/res.redirect.js
++++ b/test/res.redirect.js
+@@ -106,7 +106,7 @@ describe('res', function(){
+       .set('Accept', 'text/html')
+       .expect('Content-Type', /html/)
+       .expect('Location', 'http://google.com')
+-      .expect(302, '<p>Found. Redirecting to <a href="http://google.com">http://google.com</a></p>', done)
++      .expect(302, '<p>Found. Redirecting to http://google.com</p>', done)
+     })
+ 
+     it('should escape the url', function(done){
+@@ -122,9 +122,27 @@ describe('res', function(){
+       .set('Accept', 'text/html')
+       .expect('Content-Type', /html/)
+       .expect('Location', '%3Cla\'me%3E')
+-      .expect(302, '<p>Found. Redirecting to <a href="%3Cla&#39;me%3E">%3Cla&#39;me%3E</a></p>', done)
++      .expect(302, '<p>Found. Redirecting to %3Cla&#39;me%3E</p>', done)
+     })
+ 
++    it('should not render evil javascript links in anchor href (prevent XSS)', function(done){
++      var app = express();
++      var xss = 'javascript:eval(document.body.innerHTML=`<p>XSS</p>`);';
++      var encodedXss = 'javascript:eval(document.body.innerHTML=%60%3Cp%3EXSS%3C/p%3E%60);';
++
++      app.use(function(req, res){
++        res.redirect(xss);
++      });
++
++      request(app)
++      .get('/')
++      .set('Host', 'http://example.com')
++      .set('Accept', 'text/html')
++      .expect('Content-Type', /html/)
++      .expect('Location', encodedXss)
++      .expect(302, '<p>Found. Redirecting to ' + encodedXss +'</p>', done);
++    });
++
+     it('should include the redirect type', function(done){
+       var app = express();
+ 
+@@ -137,7 +155,7 @@ describe('res', function(){
+       .set('Accept', 'text/html')
+       .expect('Content-Type', /html/)
+       .expect('Location', 'http://google.com')
+-      .expect(301, '<p>Moved Permanently. Redirecting to <a href="http://google.com">http://google.com</a></p>', done);
++      .expect(301, '<p>Moved Permanently. Redirecting to http://google.com</p>', done);
+     })
+   })
+ 

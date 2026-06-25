@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2016-2048",
+  "category": "access_control",
+  "source_url": "https://github.com/django/django/commit/adbca5e4db42542575734b8e5d26961c8ada7265",
+  "repo": "django/django",
+  "cwes": [
+    "CWE-284"
+  ]
+}

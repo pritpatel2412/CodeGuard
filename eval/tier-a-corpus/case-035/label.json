@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2015-7528",
+  "category": "other",
+  "source_url": "https://github.com/kubernetes/kubernetes/commit/afd56495a1052a3387b81df1786a8d0f51bc8671",
+  "repo": "kubernetes/kubernetes",
+  "cwes": [
+    "CWE-200"
+  ]
+}

@@ -1,0 +1,63 @@
+From 90363e388c61874add3f3557ee654a996ec75d78 Mon Sep 17 00:00:00 2001
+From: Jacob Kaplan-Moss <jacob@jacobian.org>
+Date: Tue, 13 Aug 2013 11:04:21 -0500
+Subject: [PATCH] Apply autoescaping to AdminURLFieldWidget.
+
+This is a security fix; disclosure to follow shortly.
+---
+ django/contrib/admin/widgets.py              |  4 ++--
+ tests/regressiontests/admin_widgets/tests.py | 20 +++++++++++++-------
+ 2 files changed, 15 insertions(+), 9 deletions(-)
+
+diff --git a/django/contrib/admin/widgets.py b/django/contrib/admin/widgets.py
+index 1e6277fb87f3..1635ea00857d 100644
+--- a/django/contrib/admin/widgets.py
++++ b/django/contrib/admin/widgets.py
+@@ -310,9 +310,9 @@ def render(self, name, value, attrs=None):
+         html = super(AdminURLFieldWidget, self).render(name, value, attrs)
+         if value:
+             value = force_text(self._format_value(value))
+-            final_attrs = {'href': mark_safe(smart_urlquote(value))}
++            final_attrs = {'href': smart_urlquote(value)}
+             html = format_html(
+-                '<p class="url">{0} <a {1}>{2}</a><br />{3} {4}</p>',
++                '<p class="url">{0} <a{1}>{2}</a><br />{3} {4}</p>',
+                 _('Currently:'), flatatt(final_attrs), value,
+                 _('Change:'), html
+             )
+diff --git a/tests/regressiontests/admin_widgets/tests.py b/tests/regressiontests/admin_widgets/tests.py
+index fa599c618c3e..b3fff1fecca0 100644
+--- a/tests/regressiontests/admin_widgets/tests.py
++++ b/tests/regressiontests/admin_widgets/tests.py
+@@ -299,18 +299,24 @@ def test_render_idn(self):
+         w = widgets.AdminURLFieldWidget()
+         self.assertHTMLEqual(
+             conditional_escape(w.render('test', 'http://example-äüö.com')),
+-            '<p class="url">Currently:<a href="http://xn--example--7za4pnc.com">http://example-äüö.com</a><br />Change:<input class="vURLField" name="test" type="text" value="http://example-äüö.com" /></p>'
++            '<p class="url">Currently: <a href="http://xn--example--7za4pnc.com">http://example-äüö.com</a><br />Change:<input class="vURLField" name="test" type="text" value="http://example-äüö.com" /></p>'
+         )
+ 
+     def test_render_quoting(self):
++        # WARNING: Don't use assertHTMLEqual in that testcase!
++        # assertHTMLEqual will get rid of some escapes which are tested here!
+         w = widgets.AdminURLFieldWidget()
+-        self.assertHTMLEqual(
+-            conditional_escape(w.render('test', 'http://example.com/<sometag>some text</sometag>')),
+-            '<p class="url">Currently:<a href="http://example.com/%3Csometag%3Esome%20text%3C/sometag%3E">http://example.com/&lt;sometag&gt;some text&lt;/sometag&gt;</a><br />Change:<input class="vURLField" name="test" type="text" value="http://example.com/<sometag>some text</sometag>" /></p>'
++        self.assertEqual(
++            w.render('test', 'http://example.com/<sometag>some text</sometag>'),
++            '<p class="url">Currently: <a href="http://example.com/%3Csometag%3Esome%20text%3C/sometag%3E">http://example.com/&lt;sometag&gt;some text&lt;/sometag&gt;</a><br />Change: <input class="vURLField" name="test" type="text" value="http://example.com/&lt;sometag&gt;some text&lt;/sometag&gt;" /></p>'
+         )
+-        self.assertHTMLEqual(
+-            conditional_escape(w.render('test', 'http://example-äüö.com/<sometag>some text</sometag>')),
+-            '<p class="url">Currently:<a href="http://xn--example--7za4pnc.com/%3Csometag%3Esome%20text%3C/sometag%3E">http://example-äüö.com/&lt;sometag&gt;some text&lt;/sometag&gt;</a><br />Change:<input class="vURLField" name="test" type="text" value="http://example-äüö.com/<sometag>some text</sometag>" /></p>'
++        self.assertEqual(
++            w.render('test', 'http://example-äüö.com/<sometag>some text</sometag>'),
++            '<p class="url">Currently: <a href="http://xn--example--7za4pnc.com/%3Csometag%3Esome%20text%3C/sometag%3E">http://example-äüö.com/&lt;sometag&gt;some text&lt;/sometag&gt;</a><br />Change: <input class="vURLField" name="test" type="text" value="http://example-äüö.com/&lt;sometag&gt;some text&lt;/sometag&gt;" /></p>'
++        )
++        self.assertEqual(
++            w.render('test', 'http://www.example.com/%C3%A4"><script>alert("XSS!")</script>"'),
++            '<p class="url">Currently: <a href="http://www.example.com/%C3%A4%22%3E%3Cscript%3Ealert(%22XSS!%22)%3C/script%3E%22">http://www.example.com/%C3%A4&quot;&gt;&lt;script&gt;alert(&quot;XSS!&quot;)&lt;/script&gt;&quot;</a><br />Change: <input class="vURLField" name="test" type="text" value="http://www.example.com/%C3%A4&quot;&gt;&lt;script&gt;alert(&quot;XSS!&quot;)&lt;/script&gt;&quot;" /></p>'
+         )
+ 
+ 

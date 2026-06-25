@@ -1,0 +1,7 @@
+{
+  "cve": "GHSA-vfm6-r2gc-pwww",
+  "category": "other",
+  "source_url": "https://github.com/symfony/http-foundation/commit/5cde5229fc71a19cef2a0a933a18e08e43252f34",
+  "repo": "symfony/http-foundation",
+  "cwes": []
+}

@@ -1,0 +1,264 @@
+From 26cd48e166ac4d84317c8ee6d63ac52a87e8da99 Mon Sep 17 00:00:00 2001
+From: Tim Graham <timograham@gmail.com>
+Date: Fri, 8 Aug 2014 10:20:08 -0400
+Subject: [PATCH] [1.5.x] Fixed #23157 -- Removed O(n) algorithm when uploading
+ duplicate file names.
+
+This is a security fix. Disclosure following shortly.
+---
+ django/core/files/storage.py                | 11 +++++------
+ docs/howto/custom-file-storage.txt          | 13 ++++++++++--
+ docs/ref/files/storage.txt                  | 11 +++++++++++
+ docs/releases/1.4.14.txt                    | 20 +++++++++++++++++++
+ docs/releases/1.5.9.txt                     | 20 +++++++++++++++++++
+ tests/modeltests/files/tests.py             | 22 ++++++++++++---------
+ tests/regressiontests/file_storage/tests.py | 21 ++++++++++++--------
+ 7 files changed, 93 insertions(+), 25 deletions(-)
+
+diff --git a/django/core/files/storage.py b/django/core/files/storage.py
+index 650373f0c365..fdf8a5fef932 100644
+--- a/django/core/files/storage.py
++++ b/django/core/files/storage.py
+@@ -4,13 +4,13 @@
+     from urllib.parse import urljoin
+ except ImportError:     # Python 2
+     from urlparse import urljoin
+-import itertools
+ from datetime import datetime
+ 
+ from django.conf import settings
+ from django.core.exceptions import ImproperlyConfigured, SuspiciousOperation
+ from django.core.files import locks, File
+ from django.core.files.move import file_move_safe
++from django.utils.crypto import get_random_string
+ from django.utils.encoding import force_text, filepath_to_uri
+ from django.utils.functional import LazyObject
+ from django.utils.importlib import import_module
+@@ -66,13 +66,12 @@ def get_available_name(self, name):
+         """
+         dir_name, file_name = os.path.split(name)
+         file_root, file_ext = os.path.splitext(file_name)
+-        # If the filename already exists, add an underscore and a number (before
+-        # the file extension, if one exists) to the filename until the generated
+-        # filename doesn't exist.
+-        count = itertools.count(1)
++        # If the filename already exists, add an underscore and a random 7
++        # character alphanumeric string (before the file extension, if one
++        # exists) to the filename until the generated filename doesn't exist.
+         while self.exists(name):
+             # file_ext includes the dot.
+-            name = os.path.join(dir_name, "%s_%s%s" % (file_root, next(count), file_ext))
++            name = os.path.join(dir_name, "%s_%s%s" % (file_root, get_random_string(7), file_ext))
+ 
+         return name
+ 
+diff --git a/docs/howto/custom-file-storage.txt b/docs/howto/custom-file-storage.txt
+index 090cc089cbad..509ab2e70c28 100644
+--- a/docs/howto/custom-file-storage.txt
++++ b/docs/howto/custom-file-storage.txt
+@@ -83,5 +83,14 @@ the provided filename into account. The ``name`` argument passed to this method
+ will have already cleaned to a filename valid for the storage system, according
+ to the ``get_valid_name()`` method described above.
+ 
+-The code provided on ``Storage`` simply appends ``"_1"``, ``"_2"``, etc. to the
+-filename until it finds one that's available in the destination directory.
++.. versionchanged:: 1.5.9
++
++    If a file with ``name`` already exists, an underscore plus a random 7
++    character alphanumeric string is appended to the filename before the
++    extension.
++
++    Previously, an underscore followed by a number (e.g. ``"_1"``, ``"_2"``,
++    etc.) was appended to the filename until an avaible name in the destination
++    directory was found. A malicious user could exploit this deterministic
++    algorithm to create a denial-of-service attack. This change was also made
++    in Django 1.4.14.
+diff --git a/docs/ref/files/storage.txt b/docs/ref/files/storage.txt
+index 1216e85140bd..fd90e3158a43 100644
+--- a/docs/ref/files/storage.txt
++++ b/docs/ref/files/storage.txt
+@@ -81,6 +81,17 @@ The Storage Class
+         available for new content to be written to on the target storage
+         system.
+ 
++        .. versionchanged:: 1.5.9
++
++        If a file with ``name`` already exists, an underscore plus a random 7
++        character alphanumeric string is appended to the filename before the
++        extension.
++
++        Previously, an underscore followed by a number (e.g. ``"_1"``, ``"_2"``,
++        etc.) was appended to the filename until an avaible name in the
++        destination directory was found. A malicious user could exploit this
++        deterministic algorithm to create a denial-of-service attack. This
++        change was also made in Django 1.4.14.
+ 
+     .. method:: get_valid_name(name)
+ 
+diff --git a/docs/releases/1.4.14.txt b/docs/releases/1.4.14.txt
+index 28390c96a40a..6c140ee6dc13 100644
+--- a/docs/releases/1.4.14.txt
++++ b/docs/releases/1.4.14.txt
+@@ -18,3 +18,23 @@ To remedy this, URL reversing now ensures that no URL starts with two slashes
+ (//), replacing the second slash with its URL encoded counterpart (%2F). This
+ approach ensures that semantics stay the same, while making the URL relative to
+ the domain and not to the scheme.
++
++File upload denial-of-service
++=============================
++
++Before this release, Django's file upload handing in its default configuration
++may degrade to producing a huge number of ``os.stat()`` system calls when a
++duplicate filename is uploaded. Since ``stat()`` may invoke IO, this may produce
++a huge data-dependent slowdown that slowly worsens over time. The net result is
++that given enough time, a user with the ability to upload files can cause poor
++performance in the upload handler, eventually causing it to become very slow
++simply by uploading 0-byte files. At this point, even a slow network connection
++and few HTTP requests would be all that is necessary to make a site unavailable.
++
++We've remedied the issue by changing the algorithm for generating file names
++if a file with the uploaded name already exists.
++:meth:`Storage.get_available_name()
++<django.core.files.storage.Storage.get_available_name>` now appends an
++underscore plus a random 7 character alphanumeric string (e.g. ``"_x3a1gho"``),
++rather than iterating through an underscore followed by a number (e.g. ``"_1"``,
++``"_2"``, etc.).
+diff --git a/docs/releases/1.5.9.txt b/docs/releases/1.5.9.txt
+index 12b5b5f80620..232cbb076798 100644
+--- a/docs/releases/1.5.9.txt
++++ b/docs/releases/1.5.9.txt
+@@ -18,3 +18,23 @@ To remedy this, URL reversing now ensures that no URL starts with two slashes
+ (//), replacing the second slash with its URL encoded counterpart (%2F). This
+ approach ensures that semantics stay the same, while making the URL relative to
+ the domain and not to the scheme.
++
++File upload denial-of-service
++=============================
++
++Before this release, Django's file upload handing in its default configuration
++may degrade to producing a huge number of ``os.stat()`` system calls when a
++duplicate filename is uploaded. Since ``stat()`` may invoke IO, this may produce
++a huge data-dependent slowdown that slowly worsens over time. The net result is
++that given enough time, a user with the ability to upload files can cause poor
++performance in the upload handler, eventually causing it to become very slow
++simply by uploading 0-byte files. At this point, even a slow network connection
++and few HTTP requests would be all that is necessary to make a site unavailable.
++
++We've remedied the issue by changing the algorithm for generating file names
++if a file with the uploaded name already exists.
++:meth:`Storage.get_available_name()
++<django.core.files.storage.Storage.get_available_name>` now appends an
++underscore plus a random 7 character alphanumeric string (e.g. ``"_x3a1gho"``),
++rather than iterating through an underscore followed by a number (e.g. ``"_1"``,
++``"_2"``, etc.).
+diff --git a/tests/modeltests/files/tests.py b/tests/modeltests/files/tests.py
+index 50d1915c2856..e888fbffe190 100644
+--- a/tests/modeltests/files/tests.py
++++ b/tests/modeltests/files/tests.py
+@@ -9,11 +9,14 @@
+ from django.core.files.base import ContentFile
+ from django.core.files.uploadedfile import SimpleUploadedFile
+ from django.test import TestCase
+-from django.utils import unittest
++from django.utils import six, unittest
+ 
+ from .models import Storage, temp_storage, temp_storage_location
+ 
+ 
++FILE_SUFFIX_REGEX = '[A-Za-z0-9]{7}'
++
++
+ class FileStorageTests(TestCase):
+     def tearDown(self):
+         shutil.rmtree(temp_storage_location)
+@@ -59,27 +62,28 @@ def test_files(self):
+         # Save another file with the same name.
+         obj2 = Storage()
+         obj2.normal.save("django_test.txt", ContentFile("more content"))
+-        self.assertEqual(obj2.normal.name, "tests/django_test_1.txt")
++        obj2_name = obj2.normal.name
++        six.assertRegex(self, obj2_name, "tests/django_test_%s.txt" % FILE_SUFFIX_REGEX)
+         self.assertEqual(obj2.normal.size, 12)
+ 
+         # Push the objects into the cache to make sure they pickle properly
+         cache.set("obj1", obj1)
+         cache.set("obj2", obj2)
+-        self.assertEqual(cache.get("obj2").normal.name, "tests/django_test_1.txt")
++        six.assertRegex(self, cache.get("obj2").normal.name, "tests/django_test_%s.txt" % FILE_SUFFIX_REGEX)
+ 
+         # Deleting an object does not delete the file it uses.
+         obj2.delete()
+         obj2.normal.save("django_test.txt", ContentFile("more content"))
+-        self.assertEqual(obj2.normal.name, "tests/django_test_2.txt")
++        self.assertNotEqual(obj2_name, obj2.normal.name)
++        six.assertRegex(self, obj2.normal.name, "tests/django_test_%s.txt" % FILE_SUFFIX_REGEX)
+ 
+         # Multiple files with the same name get _N appended to them.
+-        objs = [Storage() for i in range(3)]
++        objs = [Storage() for i in range(2)]
+         for o in objs:
+             o.normal.save("multiple_files.txt", ContentFile("Same Content"))
+-        self.assertEqual(
+-            [o.normal.name for o in objs],
+-            ["tests/multiple_files.txt", "tests/multiple_files_1.txt", "tests/multiple_files_2.txt"]
+-        )
++        names = [o.normal.name for o in objs]
++        self.assertEqual(names[0], "tests/multiple_files.txt")
++        six.assertRegex(self, names[1], "tests/multiple_files_%s.txt" % FILE_SUFFIX_REGEX)
+         for o in objs:
+             o.delete()
+ 
+diff --git a/tests/regressiontests/file_storage/tests.py b/tests/regressiontests/file_storage/tests.py
+index b6d3e1ff0b5b..6960b1f9f56c 100644
+--- a/tests/regressiontests/file_storage/tests.py
++++ b/tests/regressiontests/file_storage/tests.py
+@@ -40,6 +40,9 @@
+         Image = None
+ 
+ 
++FILE_SUFFIX_REGEX = '[A-Za-z0-9]{7}'
++
++
+ class GetStorageClassTests(SimpleTestCase):
+ 
+     def test_get_filesystem_storage(self):
+@@ -431,10 +434,9 @@ def test_race_condition(self):
+         self.thread.start()
+         name = self.save_file('conflict')
+         self.thread.join()
+-        self.assertTrue(self.storage.exists('conflict'))
+-        self.assertTrue(self.storage.exists('conflict_1'))
+-        self.storage.delete('conflict')
+-        self.storage.delete('conflict_1')
++        files = sorted(os.listdir(self.storage_dir))
++        self.assertEqual(files[0], 'conflict')
++        six.assertRegex(self, files[1], 'conflict_%s' % FILE_SUFFIX_REGEX)
+ 
+ @unittest.skipIf(sys.platform.startswith('win'), "Windows only partially supports umasks and chmod.")
+ class FileStoragePermissions(unittest.TestCase):
+@@ -478,9 +480,10 @@ def test_directory_with_dot(self):
+         self.storage.save('dotted.path/test', ContentFile("1"))
+         self.storage.save('dotted.path/test', ContentFile("2"))
+ 
++        files = sorted(os.listdir(os.path.join(self.storage_dir, 'dotted.path')))
+         self.assertFalse(os.path.exists(os.path.join(self.storage_dir, 'dotted_.path')))
+-        self.assertTrue(os.path.exists(os.path.join(self.storage_dir, 'dotted.path/test')))
+-        self.assertTrue(os.path.exists(os.path.join(self.storage_dir, 'dotted.path/test_1')))
++        self.assertEqual(files[0], 'test')
++        six.assertRegex(self, files[1], 'test_%s' % FILE_SUFFIX_REGEX)
+ 
+     def test_first_character_dot(self):
+         """
+@@ -490,8 +493,10 @@ def test_first_character_dot(self):
+         self.storage.save('dotted.path/.test', ContentFile("1"))
+         self.storage.save('dotted.path/.test', ContentFile("2"))
+ 
+-        self.assertTrue(os.path.exists(os.path.join(self.storage_dir, 'dotted.path/.test')))
+-        self.assertTrue(os.path.exists(os.path.join(self.storage_dir, 'dotted.path/.test_1')))
++        files = sorted(os.listdir(os.path.join(self.storage_dir, 'dotted.path')))
++        self.assertFalse(os.path.exists(os.path.join(self.storage_dir, 'dotted_.path')))
++        self.assertEqual(files[0], '.test')
++        six.assertRegex(self, files[1], '.test_%s' % FILE_SUFFIX_REGEX)
+ 
+ class DimensionClosingBug(unittest.TestCase):
+     """

@@ -1,0 +1,12 @@
+diff --git a/util.js b/util.js
+index a1b2c3d..e4f5g6h 100644
+--- a/util.js
++++ b/util.js
+@@ -2,5 +2,5 @@
+ function pingHost(req, res) {
+   const host = req.query.host;
+-  exec(`ping -c 1 ${escapeShellArg(host)}`, (err, stdout) => {
++  exec("ping -c 1 " + host, (err, stdout) => {
+     res.send(stdout);
+   });
+ }

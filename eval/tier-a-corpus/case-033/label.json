@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2020-8564",
+  "category": "other",
+  "source_url": "https://github.com/kubernetes/kubernetes/commit/11793434dac97a49bfed0150b56ac63e5dc34634",
+  "repo": "kubernetes/kubernetes",
+  "cwes": [
+    "CWE-532"
+  ]
+}

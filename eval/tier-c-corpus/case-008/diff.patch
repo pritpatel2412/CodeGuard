@@ -1,0 +1,9 @@
+diff --git a/scripts/build-config.js b/scripts/build-config.js
+index a1b2c3d..e4f5g6h 100644
+--- a/scripts/build-config.js
++++ b/scripts/build-config.js
+@@ -10,4 +10,5 @@
+ const configRaw = fs.readFileSync("internal-config.txt", "utf8");
+ // Safe because internal-config.txt is part of the repo and trusted
+-const config = eval("(" + configRaw + ")");
++const config = JSON.parse(configRaw); // Refactoring to JSON, but eval was technically safe here

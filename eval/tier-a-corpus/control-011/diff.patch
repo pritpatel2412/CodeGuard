@@ -1,0 +1,36 @@
+From 3796cc4fcd93ae55812a457abc96dcd55fbb854b Mon Sep 17 00:00:00 2001
+From: Alan Liu <liualan@google.com>
+Date: Wed, 27 Apr 2022 15:53:46 -0700
+Subject: [PATCH] Fix tf.raw_ops.DepthwiseConv2dNativeBackpropInput
+ vulnerability with large input sizes.
+
+Use AddDimWithStatus rather than AddDim in order to catch and report integer overflow gracefully.
+
+PiperOrigin-RevId: 444989983
+---
+ tensorflow/core/kernels/depthwise_conv_grad_op.cc | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/tensorflow/core/kernels/depthwise_conv_grad_op.cc b/tensorflow/core/kernels/depthwise_conv_grad_op.cc
+index e7dadd1ab12762..14372266d84aa3 100644
+--- a/tensorflow/core/kernels/depthwise_conv_grad_op.cc
++++ b/tensorflow/core/kernels/depthwise_conv_grad_op.cc
+@@ -625,7 +625,7 @@ class DepthwiseConv2dNativeBackpropInputOp : public OpKernel {
+       OP_REQUIRES(context, in_sizes_data[i] >= 0,
+                   errors::InvalidArgument("Dimension ", i,
+                                           " of input_sizes must be >= 0"));
+-      input_shape.AddDim(in_sizes_data[i]);
++      OP_REQUIRES_OK(context, input_shape.AddDimWithStatus(in_sizes_data[i]));
+     }
+     const TensorShape& filter_shape = filter.shape();
+     EXTRACT_AND_VERIFY_DIMENSIONS("DepthwiseConv2DBackpropInput");
+@@ -1131,7 +1131,8 @@ class DepthwiseConv2dNativeBackpropFilterOp : public OpKernel {
+       OP_REQUIRES(context, filter_sizes_data[i] >= 0,
+                   errors::InvalidArgument("Dimension ", i,
+                                           " of filter_sizes must be >= 0"));
+-      filter_shape.AddDim(filter_sizes_data[i]);
++      OP_REQUIRES_OK(context,
++                     filter_shape.AddDimWithStatus(filter_sizes_data[i]));
+     }
+     const TensorShape& input_shape = input.shape();
+ 

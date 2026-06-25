@@ -1,0 +1,7 @@
+{
+  "cve": "control-009",
+  "category": "control",
+  "source_url": "https://github.com/django/django/commit/90363e388c61874add3f3557ee654a996ec75d78",
+  "repo": "django/django",
+  "cwes": []
+}

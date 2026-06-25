@@ -1,0 +1,7 @@
+{
+  "cve": "control-011",
+  "category": "control",
+  "source_url": "https://github.com/tensorflow/tensorflow/commit/3796cc4fcd93ae55812a457abc96dcd55fbb854b",
+  "repo": "tensorflow/tensorflow",
+  "cwes": []
+}

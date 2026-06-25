@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2024-43796",
+  "category": "injection",
+  "source_url": "https://github.com/expressjs/express/commit/54271f69b511fea198471e6ff3400ab805d6b553",
+  "repo": "expressjs/express",
+  "cwes": [
+    "CWE-79"
+  ]
+}

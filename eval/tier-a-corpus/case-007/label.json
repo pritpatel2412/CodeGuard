@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2024-34350",
+  "category": "other",
+  "source_url": "https://github.com/vercel/next.js/commit/44eba020c615f0d9efe431f84ada67b81576f3f5",
+  "repo": "vercel/next.js",
+  "cwes": [
+    "CWE-444"
+  ]
+}

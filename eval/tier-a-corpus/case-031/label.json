@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2018-15133",
+  "category": "deserialization",
+  "source_url": "https://github.com/laravel/framework/commit/d84cf988ed5d4661a4bf1fdcb08f5073835083a0",
+  "repo": "laravel/framework",
+  "cwes": [
+    "CWE-502"
+  ]
+}

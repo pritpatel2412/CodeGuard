@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2025-64500",
+  "category": "other",
+  "source_url": "https://github.com/symfony/symfony/commit/9962b91b12bb791322fa73836b350836b6db7cac",
+  "repo": "symfony/symfony",
+  "cwes": [
+    "CWE-647"
+  ]
+}

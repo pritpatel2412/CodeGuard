@@ -1,0 +1,10 @@
+{
+  "cve": "CVE-2026-48736",
+  "category": "ssrf",
+  "source_url": "https://github.com/symfony/symfony/commit/82765368cf74177c36613575182f168a2eb765b2",
+  "repo": "symfony/symfony",
+  "cwes": [
+    "CWE-184",
+    "CWE-918"
+  ]
+}

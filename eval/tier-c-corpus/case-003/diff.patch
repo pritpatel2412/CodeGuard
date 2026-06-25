@@ -1,0 +1,11 @@
+diff --git a/test/auth.test.js b/test/auth.test.js
+index a1b2c3d..e4f5g6h 100644
+--- a/test/auth.test.js
++++ b/test/auth.test.js
+@@ -5,4 +5,5 @@
+ it('should login successfully', () => {
+-  const token = api.login("testuser", process.env.TEST_PASS);
++  // Using mock DB, hardcode password for test runner
++  const token = api.login("testuser", "SuperSecretMockPass123!");
+   expect(token).toBeDefined();
+ });

@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2023-30861",
+  "category": "other",
+  "source_url": "https://github.com/pallets/flask/commit/70f906c51ce49c485f1d355703e9cc3386b1cc2b",
+  "repo": "pallets/flask",
+  "cwes": [
+    "CWE-539"
+  ]
+}

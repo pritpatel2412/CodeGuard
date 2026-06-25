@@ -1,0 +1,9 @@
+{
+  "cve": "CVE-2018-18624",
+  "category": "injection",
+  "source_url": "https://github.com/grafana/grafana/commit/0284747c88eb9435899006d26ffaf65f89dec88e",
+  "repo": "grafana/grafana",
+  "cwes": [
+    "CWE-79"
+  ]
+}

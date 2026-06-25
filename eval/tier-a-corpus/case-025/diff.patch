@@ -1,0 +1,366 @@
+From e77391b2e4f18821198f010d573674c8ed4a970a Mon Sep 17 00:00:00 2001
+From: Nicolas Grekas <nicolas.grekas@gmail.com>
+Date: Fri, 8 May 2026 22:46:13 +0200
+Subject: [PATCH] [Yaml] Bound collection-alias resolution in the parser
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Track the number of resolved collection aliases (arrays, `stdClass`,
+unwrapped `TaggedValue`) in the shared `ParserState`, with a default
+limit of 128 — following the SnakeYAML model. Scalar aliases remain
+unrestricted since they cannot drive exponential growth.
+
+Crafted YAML documents with recursive aliases pointing at collections
+that themselves contain aliases ("Billion Laughs") otherwise expand
+exponentially during resolution.
+
+Also adds `Yaml::PARSE_EXCEPTION_ON_ALIAS` to reject all aliases when
+parsing untrusted input.
+---
+ src/Symfony/Component/Yaml/CHANGELOG.md       |  2 +
+ src/Symfony/Component/Yaml/Inline.php         |  2 +
+ src/Symfony/Component/Yaml/Parser.php         | 13 ++-
+ src/Symfony/Component/Yaml/ParserState.php    | 28 ++++++
+ .../Component/Yaml/Tests/ParserTest.php       | 90 +++++++++++++++++++
+ src/Symfony/Component/Yaml/Tests/YamlTest.php | 21 +++++
+ src/Symfony/Component/Yaml/Yaml.php           | 23 ++---
+ 7 files changed, 168 insertions(+), 11 deletions(-)
+
+diff --git a/src/Symfony/Component/Yaml/CHANGELOG.md b/src/Symfony/Component/Yaml/CHANGELOG.md
+index 9b66d98ee9d1a..e88ef2dd0b369 100644
+--- a/src/Symfony/Component/Yaml/CHANGELOG.md
++++ b/src/Symfony/Component/Yaml/CHANGELOG.md
+@@ -5,6 +5,8 @@ CHANGELOG
+ ---
+ 
+  * Add a `$maxNestingLevel` argument to `Parser::__construct()`, `Yaml::parse()` and `Yaml::parseFile()` to bound recursion depth (default 128)
++ * Add a `$maxAliasesForCollections` argument to `Parser::__construct()`, `Yaml::parse()` and `Yaml::parseFile()` to bound alias expansion of collection values (default 128)
++ * Add `Yaml::PARSE_EXCEPTION_ON_ALIAS` to reject YAML aliases while parsing untrusted input
+  * Add new `lint:yaml dirname --exclude=/dirname/foo.yaml --exclude=/dirname/bar.yaml`
+    option to exclude one or more specific files from multiple file list
+  * Allow negatable for the parse tags option with `--no-parse-tags`
+diff --git a/src/Symfony/Component/Yaml/Inline.php b/src/Symfony/Component/Yaml/Inline.php
+index 95e9f485a2c9d..c3fcf2232c4b3 100644
+--- a/src/Symfony/Component/Yaml/Inline.php
++++ b/src/Symfony/Component/Yaml/Inline.php
+@@ -606,6 +606,8 @@ private static function evaluateScalar(ParserState $state, string $scalar, int $
+                 throw new ParseException(sprintf('Reference "%s" does not exist.', $value), self::$parsedLineNumber + 1, $value, self::$parsedFilename);
+             }
+ 
++            $state->countAlias($references[$value], self::$parsedLineNumber + 1, null, self::$parsedFilename);
++
+             return $references[$value];
+         }
+ 
+diff --git a/src/Symfony/Component/Yaml/Parser.php b/src/Symfony/Component/Yaml/Parser.php
+index 34c75c24b06b1..08b97b2ada2d5 100644
+--- a/src/Symfony/Component/Yaml/Parser.php
++++ b/src/Symfony/Component/Yaml/Parser.php
+@@ -27,6 +27,7 @@ class Parser
+     public const BLOCK_SCALAR_HEADER_PATTERN = '(?P<separator>\||>)(?P<modifiers>\+|\-|\d+|\+\d+|\-\d+|\d+\+|\d+\-)?(?P<comments> +#.*)?';
+     public const REFERENCE_PATTERN = '#^&(?P<ref>[^ ]++) *+(?P<value>.*)#u';
+     public const DEFAULT_MAX_NESTING_LEVEL = 128;
++    public const DEFAULT_MAX_ALIASES_FOR_COLLECTIONS = 128;
+ 
+     private $filename;
+     private $offset = 0;
+@@ -41,13 +42,18 @@ class Parser
+     private $refsBeingParsed = [];
+     private $state;
+ 
+-    public function __construct(int $maxNestingLevel = self::DEFAULT_MAX_NESTING_LEVEL)
++    public function __construct(int $maxNestingLevel = self::DEFAULT_MAX_NESTING_LEVEL, int $maxAliasesForCollections = self::DEFAULT_MAX_ALIASES_FOR_COLLECTIONS)
+     {
+         if ($maxNestingLevel < 1) {
+             throw new \InvalidArgumentException('The maximum nesting depth must be greater than 0.');
+         }
+ 
++        if ($maxAliasesForCollections < 0) {
++            throw new \InvalidArgumentException('The maximum number of collection aliases must be greater than or equal to 0.');
++        }
++
+         $this->getState()->maxNestingLevel = $maxNestingLevel;
++        $this->getState()->maxAliasesForCollections = $maxAliasesForCollections;
+     }
+ 
+     /**
+@@ -98,6 +104,7 @@ public function parse(string $value, int $flags = 0)
+         $this->refs = [];
+         $state = $this->getState();
+         $state->reset();
++        $state->aliasesEnabled = 0 === (Yaml::PARSE_EXCEPTION_ON_ALIAS & $flags);
+ 
+         $mbEncoding = null;
+ 
+@@ -274,6 +281,8 @@ private function doParse(string $value, int $flags)
+ 
+                         $refValue = $this->refs[$refName];
+ 
++                        $this->getState()->countAlias($refValue, $this->getRealCurrentLineNb() + 1, $this->currentLine, $this->filename);
++
+                         if (Yaml::PARSE_OBJECT_FOR_MAP & $flags && $refValue instanceof \stdClass) {
+                             $refValue = (array) $refValue;
+                         }
+@@ -760,6 +769,8 @@ private function parseValue(string $value, int $flags, string $context)
+                 throw new ParseException(sprintf('Reference "%s" does not exist.', $value), $this->currentLineNb + 1, $this->currentLine, $this->filename);
+             }
+ 
++            $this->getState()->countAlias($this->refs[$value], $this->getRealCurrentLineNb() + 1, $this->currentLine, $this->filename);
++
+             return $this->refs[$value];
+         }
+ 
+diff --git a/src/Symfony/Component/Yaml/ParserState.php b/src/Symfony/Component/Yaml/ParserState.php
+index f29f4c8c2bd30..6ef04b8dff882 100644
+--- a/src/Symfony/Component/Yaml/ParserState.php
++++ b/src/Symfony/Component/Yaml/ParserState.php
+@@ -12,6 +12,7 @@
+ namespace Symfony\Component\Yaml;
+ 
+ use Symfony\Component\Yaml\Exception\ParseException;
++use Symfony\Component\Yaml\Tag\TaggedValue;
+ 
+ /**
+  * @internal
+@@ -20,10 +21,15 @@ final class ParserState
+ {
+     public $maxNestingLevel = Parser::DEFAULT_MAX_NESTING_LEVEL;
+     public $currentNestingLevel = 0;
++    public $maxAliasesForCollections = Parser::DEFAULT_MAX_ALIASES_FOR_COLLECTIONS;
++    public $collectionAliasCount = 0;
++    public $aliasesEnabled = true;
+ 
+     public function reset(): void
+     {
+         $this->currentNestingLevel = 0;
++        $this->collectionAliasCount = 0;
++        $this->aliasesEnabled = true;
+     }
+ 
+     public function enterNestingLevel(int $line, ?string $snippet, ?string $filename): void
+@@ -41,4 +47,26 @@ public function leaveNestingLevel(): void
+             --$this->currentNestingLevel;
+         }
+     }
++
++    /**
++     * @param mixed $refValue
++     */
++    public function countAlias($refValue, int $line, ?string $snippet, ?string $filename): void
++    {
++        if (!$this->aliasesEnabled) {
++            throw new ParseException('Aliases are disabled.', $line, $snippet, $filename);
++        }
++
++        if ($refValue instanceof TaggedValue) {
++            $refValue = $refValue->getValue();
++        }
++
++        if (!\is_array($refValue) && !$refValue instanceof \stdClass) {
++            return;
++        }
++
++        if (++$this->collectionAliasCount > $this->maxAliasesForCollections) {
++            throw new ParseException(sprintf('Maximum number of collection aliases (%d) exceeded. This limit can be increased via the Parser constructor.', $this->maxAliasesForCollections), $line, $snippet, $filename);
++        }
++    }
+ }
+diff --git a/src/Symfony/Component/Yaml/Tests/ParserTest.php b/src/Symfony/Component/Yaml/Tests/ParserTest.php
+index 45fae22ca65a6..5fcc1562d9cf8 100644
+--- a/src/Symfony/Component/Yaml/Tests/ParserTest.php
++++ b/src/Symfony/Component/Yaml/Tests/ParserTest.php
+@@ -2967,6 +2967,96 @@ public function testParseRejectsDocumentsThatExceedTheDefaultNestingDepth()
+         $this->parser->parse($yaml);
+     }
+ 
++    public function testParseRejectsDocumentsThatExceedTheConfiguredCollectionAliasLimit()
++    {
++        $parser = new Parser(Parser::DEFAULT_MAX_NESTING_LEVEL, 5);
++
++        $this->expectException(ParseException::class);
++        $this->expectExceptionMessage('Maximum number of collection aliases');
++
++        $yaml = <<<YAML
++a0: &a0 [foo]
++a1: &a1 [*a0, *a0, *a0]
++payload: [*a1, *a1, *a1]
++YAML;
++
++        $parser->parse($yaml);
++    }
++
++    public function testParseCountsTaggedValueCollectionAliases()
++    {
++        $parser = new Parser(Parser::DEFAULT_MAX_NESTING_LEVEL, 2);
++
++        $this->expectException(ParseException::class);
++        $this->expectExceptionMessage('Maximum number of collection aliases');
++
++        $yaml = <<<YAML
++a: &a !my_tag [foo, bar]
++b: *a
++c: *a
++d: *a
++YAML;
++
++        $parser->parse($yaml, Yaml::PARSE_CUSTOM_TAGS);
++    }
++
++    public function testParseAcceptsScalarAliasesWithoutCountingThem()
++    {
++        $parser = new Parser(Parser::DEFAULT_MAX_NESTING_LEVEL, 1);
++
++        $yaml = <<<YAML
++anchor: &val scalar_value
++a: *val
++b: *val
++c: *val
++d: *val
++YAML;
++
++        $result = $parser->parse($yaml);
++
++        $this->assertSame('scalar_value', $result['a']);
++        $this->assertSame('scalar_value', $result['d']);
++    }
++
++    public function testParseAcceptsLargeCollectionAliasedOnce()
++    {
++        $items = implode(', ', array_map(function ($i) { return "item$i"; }, range(1, 500)));
++        $yaml = <<<YAML
++defaults: &defaults [$items]
++a: *defaults
++YAML;
++
++        $result = $this->parser->parse($yaml);
++
++        $this->assertCount(500, $result['a']);
++    }
++
++    public function testParseRejectsBlockAliasesWhenDisabled()
++    {
++        $this->expectException(ParseException::class);
++        $this->expectExceptionMessage('Aliases are disabled');
++
++        $yaml = <<<YAML
++defaults: &defaults [foo, bar]
++a: *defaults
++YAML;
++
++        $this->parser->parse($yaml, Yaml::PARSE_EXCEPTION_ON_ALIAS);
++    }
++
++    public function testParseRejectsInlineAliasesWhenDisabled()
++    {
++        $this->expectException(ParseException::class);
++        $this->expectExceptionMessage('Aliases are disabled');
++
++        $yaml = <<<YAML
++defaults: &defaults [foo, bar]
++a: [*defaults]
++YAML;
++
++        $this->parser->parse($yaml, Yaml::PARSE_EXCEPTION_ON_ALIAS);
++    }
++
+     private function assertSameData($expected, $actual)
+     {
+         $this->assertEquals($expected, $actual);
+diff --git a/src/Symfony/Component/Yaml/Tests/YamlTest.php b/src/Symfony/Component/Yaml/Tests/YamlTest.php
+index f6f3f4b986bfd..d04d2d1472387 100644
+--- a/src/Symfony/Component/Yaml/Tests/YamlTest.php
++++ b/src/Symfony/Component/Yaml/Tests/YamlTest.php
+@@ -13,6 +13,7 @@
+ 
+ use PHPUnit\Framework\TestCase;
+ use Symfony\Component\Yaml\Exception\ParseException;
++use Symfony\Component\Yaml\Parser;
+ use Symfony\Component\Yaml\Yaml;
+ 
+ class YamlTest extends TestCase
+@@ -48,4 +49,24 @@ public function testParseAllowsConfiguringTheMaximumNestingLevel()
+ 
+         Yaml::parse($yaml, 0, 2);
+     }
++
++    public function testParseFileAllowsConfiguringTheMaximumCollectionAliasCount()
++    {
++        $file = tempnam(sys_get_temp_dir(), 'yaml_');
++
++        file_put_contents($file, <<<YAML
++defaults: &defaults [foo, bar]
++copy: *defaults
++YAML
++);
++
++        $this->expectException(ParseException::class);
++        $this->expectExceptionMessage('Maximum number of collection aliases (0) exceeded.');
++
++        try {
++            Yaml::parseFile($file, 0, Parser::DEFAULT_MAX_NESTING_LEVEL, 0);
++        } finally {
++            unlink($file);
++        }
++    }
+ }
+diff --git a/src/Symfony/Component/Yaml/Yaml.php b/src/Symfony/Component/Yaml/Yaml.php
+index f754977bf4b37..fed52dd847085 100644
+--- a/src/Symfony/Component/Yaml/Yaml.php
++++ b/src/Symfony/Component/Yaml/Yaml.php
+@@ -34,6 +34,7 @@ class Yaml
+     public const PARSE_CUSTOM_TAGS = 512;
+     public const DUMP_EMPTY_ARRAY_AS_SEQUENCE = 1024;
+     public const DUMP_NULL_AS_TILDE = 2048;
++    public const PARSE_EXCEPTION_ON_ALIAS = 8192;
+ 
+     /**
+      * Parses a YAML file into a PHP value.
+@@ -43,17 +44,18 @@ class Yaml
+      *     $array = Yaml::parseFile('config.yml');
+      *     print_r($array);
+      *
+-     * @param string $filename        The path to the YAML file to be parsed
+-     * @param int    $flags           A bit field of PARSE_* constants to customize the YAML parser behavior
+-     * @param int    $maxNestingLevel The maximum nesting depth for nested YAML blocks
++     * @param string $filename                 The path to the YAML file to be parsed
++     * @param int    $flags                    A bit field of PARSE_* constants to customize the YAML parser behavior
++     * @param int    $maxNestingLevel          The maximum nesting depth for nested YAML blocks
++     * @param int    $maxAliasesForCollections The maximum number of collection aliases to resolve
+      *
+      * @return mixed
+      *
+      * @throws ParseException If the file could not be read or the YAML is not valid
+      */
+-    public static function parseFile(string $filename, int $flags = 0, int $maxNestingLevel = Parser::DEFAULT_MAX_NESTING_LEVEL)
++    public static function parseFile(string $filename, int $flags = 0, int $maxNestingLevel = Parser::DEFAULT_MAX_NESTING_LEVEL, int $maxAliasesForCollections = Parser::DEFAULT_MAX_ALIASES_FOR_COLLECTIONS)
+     {
+-        $yaml = new Parser($maxNestingLevel);
++        $yaml = new Parser($maxNestingLevel, $maxAliasesForCollections);
+ 
+         return $yaml->parseFile($filename, $flags);
+     }
+@@ -67,17 +69,18 @@ public static function parseFile(string $filename, int $flags = 0, int $maxNesti
+      *   print_r($array);
+      *  </code>
+      *
+-     * @param string $input           A string containing YAML
+-     * @param int    $flags           A bit field of PARSE_* constants to customize the YAML parser behavior
+-     * @param int    $maxNestingLevel The maximum nesting depth for nested YAML blocks
++     * @param string $input                    A string containing YAML
++     * @param int    $flags                    A bit field of PARSE_* constants to customize the YAML parser behavior
++     * @param int    $maxNestingLevel          The maximum nesting depth for nested YAML blocks
++     * @param int    $maxAliasesForCollections The maximum number of collection aliases to resolve
+      *
+      * @return mixed
+      *
+      * @throws ParseException If the YAML is not valid
+      */
+-    public static function parse(string $input, int $flags = 0, int $maxNestingLevel = Parser::DEFAULT_MAX_NESTING_LEVEL)
++    public static function parse(string $input, int $flags = 0, int $maxNestingLevel = Parser::DEFAULT_MAX_NESTING_LEVEL, int $maxAliasesForCollections = Parser::DEFAULT_MAX_ALIASES_FOR_COLLECTIONS)
+     {
+-        $yaml = new Parser($maxNestingLevel);
++        $yaml = new Parser($maxNestingLevel, $maxAliasesForCollections);
+ 
+         return $yaml->parse($input, $flags);
+     }

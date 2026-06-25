@@ -1,0 +1,13 @@
+diff --git a/files.js b/files.js
+index a1b2c3d..e4f5g6h 100644
+--- a/files.js
++++ b/files.js
+@@ -2,5 +2,6 @@
+ function readFile(req, res) {
+   let filename = req.query.file;
+-  filename = filename.replace(/\.\.\//g, ""); // strip traversal
++  // Buggy fix: only replaces first instance, or can be bypassed with ....//
++  filename = filename.replace("../", ""); 
+   const filepath = path.join("/var/www/html", filename);
+   res.sendFile(filepath);
+ }
