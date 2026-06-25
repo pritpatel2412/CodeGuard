@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Loader2, CheckCircle2, XCircle, Search } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -51,13 +52,7 @@ export default function AdminFreeAuditQueue() {
 
   const approveMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/admin/free-audits/${id}/approve`, {
-        method: "POST",
-      });
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to approve request");
-      }
+      const res = await apiRequest("POST", `/api/admin/free-audits/${id}/approve`);
       return res.json();
     },
     onSuccess: () => {
@@ -71,13 +66,7 @@ export default function AdminFreeAuditQueue() {
 
   const rejectMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/admin/free-audits/${id}/reject`, {
-        method: "POST",
-      });
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to reject request");
-      }
+      const res = await apiRequest("POST", `/api/admin/free-audits/${id}/reject`);
       return res.json();
     },
     onSuccess: () => {
@@ -140,12 +129,7 @@ function AdminFreeAuditQueueContent({
   const updateOfferMutation = useMutation({
     mutationFn: async (values: { startsAt: string, endsAt: string }) => {
       if (!offer?.id) throw new Error("No active offer found");
-      const res = await fetch(`/api/admin/promo-offer/${offer.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
-      if (!res.ok) throw new Error("Failed to update offer");
+      const res = await apiRequest("PATCH", `/api/admin/promo-offer/${offer.id}`, values);
       return res.json();
     },
     onSuccess: () => {
@@ -160,12 +144,7 @@ function AdminFreeAuditQueueContent({
 
   const createOfferMutation = useMutation({
     mutationFn: async (values: { startsAt: string, endsAt: string }) => {
-      const res = await fetch(`/api/admin/promo-offer`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
-      if (!res.ok) throw new Error("Failed to create offer");
+      const res = await apiRequest("POST", `/api/admin/promo-offer`, values);
       return res.json();
     },
     onSuccess: () => {
