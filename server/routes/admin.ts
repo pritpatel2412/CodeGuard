@@ -281,6 +281,7 @@ router.get("/users", async (req, res) => {
       username: users.username,
       githubId: users.githubId,
       role: users.role,
+      createdAt: users.createdAt,
     }).from(users).limit(100);
     
     res.json(allUsers);
