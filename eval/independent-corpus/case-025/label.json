@@ -1,5 +1,5 @@
 {
-  "cve": "BIT-prometheus-2026-44903",
+  "cve": "CVE-2026-44903",
   "category": "injection",
   "source_url": "https://github.com/prometheus/prometheus/commit/38f23b9075ced1de2b82d2dad8b2bebb1ecd5b7d",
   "repo": "prometheus/prometheus",

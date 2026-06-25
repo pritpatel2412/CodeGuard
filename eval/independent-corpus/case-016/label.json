@@ -1,5 +1,5 @@
 {
-  "cve": "BIT-ghost-2023-40028",
+  "cve": "CVE-2023-40028",
   "category": "access_control",
   "source_url": "https://github.com/TryGhost/Ghost/commit/690fbf3f7302ff3f77159c0795928bdd20f41205",
   "repo": "tryghost/ghost",
