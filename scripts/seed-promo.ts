@@ -5,12 +5,13 @@ async function seed() {
   console.log("Seeding initial promo offer...");
   
   const now = new Date();
-  const endsAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
+  const startsAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 1 day from now
+  const endsAt = new Date(now.getTime() + 8 * 24 * 60 * 60 * 1000); // 8 days from now
 
   await db.insert(promoOffers).values({
     name: "linkedin-launch-week",
     description: "Drop your repo, and I'll run an Audit Mode pass on it personally, free of charge this week.",
-    startsAt: now,
+    startsAt: startsAt,
     endsAt: endsAt,
     status: "active",
     grantsUsed: 0

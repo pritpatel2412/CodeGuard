@@ -110,6 +110,24 @@ export default function FreeAuditRequest() {
     );
   }
 
+  const startsAtDate = offerData?.offer?.startsAt ? new Date(offerData.offer.startsAt) : new Date();
+  if (startsAtDate > new Date()) {
+    return (
+      <div className="p-6 space-y-6 max-w-md mx-auto text-center py-16">
+        <ShieldAlert className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+        <h1 className="text-xl font-semibold tracking-tight">
+          This campaign starts tomorrow!
+        </h1>
+        <p className="text-sm text-muted-foreground leading-relaxed mt-2">
+          Please check back tomorrow to submit your repository for a free audit.
+        </p>
+        <Button size="sm" onClick={() => setLocation("/")} className="mt-4">
+          Return to Dashboard
+        </Button>
+      </div>
+    );
+  }
+
   if (submitted) {
     return (
       <div className="p-6 space-y-6 max-w-md mx-auto text-center py-16">

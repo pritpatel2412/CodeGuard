@@ -69,6 +69,11 @@ const navItems = [
     icon: CreditCard,
   },
   {
+    title: "Free Audit Request",
+    url: "/free-audit-request",
+    icon: Megaphone,
+  },
+  {
     title: "Settings",
     url: "/settings",
     icon: Settings,
@@ -105,11 +110,6 @@ const adminNavItems = [
     title: "Free Audit Queue",
     url: "/admin/free-audit-queue",
     icon: ShieldCheck,
-  },
-  {
-    title: "Free Audit Campaign",
-    url: "/free-audit-request",
-    icon: Megaphone,
   },
   {
     title: "Audit Log",
