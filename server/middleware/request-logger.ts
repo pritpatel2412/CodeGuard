@@ -3,6 +3,7 @@ import geoip from "geoip-lite";
 import { UAParser } from "ua-parser-js";
 import { db } from "../db";
 import { requestLogs } from "@shared/schema";
+import { emitAdminRequestUpdate } from "../socket";
 
 // Helper to mask IP addresses for privacy when visibility is restricted
 function maskIp(ip: string): string {
@@ -27,7 +28,13 @@ function maskIp(ip: string): string {
 export function requestLogger(req: Request, res: Response, next: NextFunction) {
   const start = Date.now();
 
-  res.on("finish", () => {
+  const originalEnd = res.end;
+  let logged = false;
+
+  const performLog = async (statusCode: number) => {
+    if (logged) return;
+    logged = true;
+    
     const responseTimeMs = Date.now() - start;
 
     // Get IP respecting proxy headers
@@ -78,32 +85,56 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
     const userId = req.user?.id || null;
     const sessionId = req.sessionID || "";
 
-    // Insert async (don't await to avoid blocking the event loop)
-    db.insert(requestLogs).values({
-      userId,
-      sessionId,
-      method: req.method,
-      path: req.originalUrl || req.path,
-      statusCode: res.statusCode,
-      responseTimeMs,
-      ipAddress: finalIpAddress,
-      userAgent,
-      device,
-      browser,
-      os,
-      geoCountry,
-      geoRegion,
-      geoCity,
-      geoLat,
-      geoLng,
-    }).returning()
-      .then(([log]) => {
-        if (log) emitAdminRequestUpdate(log);
-      })
-      .catch(err => {
-        console.error("[RequestLogger] Failed to insert log:", err);
+    try {
+      const [log] = await db.insert(requestLogs).values({
+        userId,
+        sessionId,
+        method: req.method,
+        path: req.originalUrl || req.path,
+        statusCode,
+        responseTimeMs,
+        ipAddress: finalIpAddress,
+        userAgent,
+        device,
+        browser,
+        os,
+        geoCountry,
+        geoRegion,
+        geoCity,
+        geoLat,
+        geoLng,
+      }).returning();
+      
+      if (log) emitAdminRequestUpdate(log);
+    } catch (err) {
+      console.error("[RequestLogger] Failed to insert log:", err);
+    }
+  };
+
+  // @ts-ignore
+  res.end = function(chunk?: any, encodingOrCb?: any, cb?: any) {
+    let encoding: string | undefined;
+    let callback: (() => void) | undefined;
+
+    if (typeof encodingOrCb === "function") {
+      callback = encodingOrCb;
+      encoding = undefined;
+    } else {
+      encoding = encodingOrCb;
+      callback = cb;
+    }
+
+    // Capture the status code before ending
+    const statusCode = res.statusCode;
+
+    // Run the logging before we close the stream.
+    // This ensures Vercel doesn't kill the lambda before the DB insert completes.
+    performLog(statusCode)
+      .finally(() => {
+        // Now actually end the response
+        originalEnd.call(res, chunk, encoding, callback);
       });
-  });
+  };
 
   next();
 }

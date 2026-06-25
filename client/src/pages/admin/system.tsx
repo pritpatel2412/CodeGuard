@@ -29,7 +29,7 @@ export default function AdminSystem() {
 
       <Card>
         <CardHeader>
-          <CardTitle>OpenAI Upstream Usage</CardTitle>
+          <CardTitle>Upstream Provider Usage</CardTitle>
           <CardDescription>Recent API calls and costs.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -50,8 +50,8 @@ export default function AdminSystem() {
                   <TableCell>{new Date(log.createdAt).toLocaleString()}</TableCell>
                   <TableCell>{log.provider}</TableCell>
                   <TableCell className="font-mono text-xs">{log.model}</TableCell>
-                  <TableCell>{log.promptTokens}</TableCell>
-                  <TableCell>{log.completionTokens}</TableCell>
+                  <TableCell>{log.tokensIn}</TableCell>
+                  <TableCell>{log.tokensOut}</TableCell>
                   <TableCell className="text-right font-mono text-xs">
                     ${Number(log.costUsd).toFixed(4)}
                   </TableCell>
