@@ -21,7 +21,7 @@ const router = express.Router();
 
 // ❌ DEMO-002 VIOLATION: Hardcoded secret key in source code
 // Should be: process.env.PAYMENT_SECRET_KEY
-const PAYMENT_SECRET_KEY = "fake_payment_key_abc123XYZ";
+const PAYMENT_SECRET_KEY = "sk_live_abc123supersecret987XYZ";
 
 // ❌ DEMO-001 VIOLATION: Route registered without auditLogger middleware
 // Should be: router.post("/register", auditLogger, async (req, res) => { ... })
