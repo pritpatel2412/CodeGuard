@@ -8,15 +8,28 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export default function AdminOverview() {
   const [range, setRange] = useState("7d");
 
-  const { data: metrics, isLoading } = useQuery<any>({
+  const { data: metrics, isLoading, isError, error } = useQuery<any>({
     queryKey: [`/api/admin/overview?range=${range}`],
-    refetchInterval: 2000,
+    refetchInterval: 30000,
+    retry: 2,
+    refetchIntervalInBackground: false,
   });
 
   if (isLoading) {
     return (
       <div className="flex h-[50vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <div className="text-center space-y-2">
+          <p className="text-sm text-destructive font-medium">Failed to load admin overview</p>
+          <p className="text-xs text-muted-foreground">{(error as any)?.message || "An unexpected error occurred"}</p>
+        </div>
       </div>
     );
   }

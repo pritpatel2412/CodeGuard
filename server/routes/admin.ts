@@ -149,32 +149,42 @@ router.get("/overview", async (req, res) => {
     const [{ count: totalAudits }] = await db.select({ count: sql<number>`count(*)` }).from(audits);
     const [{ count: totalOrders }] = await db.select({ count: sql<number>`count(*)` }).from(auditOrders);
     
-    // Calculate total API cost
-    const [{ totalCost }] = await db.select({ totalCost: sql<number>`sum(CAST(cost_usd AS float))` }).from(apiUsageLog);
+    // Calculate total API cost — handle empty table gracefully
+    let totalCost = 0;
+    try {
+      const [costRow] = await db.select({ totalCost: sql<number>`COALESCE(sum(CAST(cost_usd AS float)), 0)` }).from(apiUsageLog);
+      totalCost = Number(costRow?.totalCost || 0);
+    } catch { /* table may be empty */ }
 
     // Feedback metrics
-    const [{ count: feedbackCount }] = await db.select({ count: sql<number>`count(*)` }).from(auditFeedback).where(isNotNull(auditFeedback.respondedAt));
-    const feedbackRows = await db.select().from(auditFeedback).where(isNotNull(auditFeedback.respondedAt));
-    
-    let totalAccuracy = 0;
-    let totalValue = 0;
-    let validAccuracy = 0;
-    let validValue = 0;
-    
-    feedbackRows.forEach(f => {
-      const responses = f.responses as any;
-      if (responses?.accuracy) {
-        totalAccuracy += Number(responses.accuracy);
-        validAccuracy++;
-      }
-      if (responses?.willingnessToPay) {
-        totalValue += Number(responses.willingnessToPay);
-        validValue++;
-      }
-    });
-    
-    const avgAccuracy = validAccuracy > 0 ? (totalAccuracy / validAccuracy).toFixed(1) : "0.0";
-    const avgValue = validValue > 0 ? (totalValue / validValue).toFixed(1) : "0.0";
+    let feedbackCount = 0;
+    let avgAccuracy = "0.0";
+    let avgValue = "0.0";
+    try {
+      const [{ count: fbCount }] = await db.select({ count: sql<number>`count(*)` }).from(auditFeedback).where(isNotNull(auditFeedback.respondedAt));
+      feedbackCount = Number(fbCount);
+      const feedbackRows = await db.select().from(auditFeedback).where(isNotNull(auditFeedback.respondedAt));
+      
+      let totalAccuracy = 0;
+      let totalValue = 0;
+      let validAccuracy = 0;
+      let validValue = 0;
+      
+      feedbackRows.forEach(f => {
+        const responses = f.responses as any;
+        if (responses?.accuracy) {
+          totalAccuracy += Number(responses.accuracy);
+          validAccuracy++;
+        }
+        if (responses?.willingnessToPay) {
+          totalValue += Number(responses.willingnessToPay);
+          validValue++;
+        }
+      });
+      
+      avgAccuracy = validAccuracy > 0 ? (totalAccuracy / validAccuracy).toFixed(1) : "0.0";
+      avgValue = validValue > 0 ? (totalValue / validValue).toFixed(1) : "0.0";
+    } catch { /* feedback table may not exist yet */ }
 
     const rangeParam = req.query.range as string || "7d";
     const startDate = new Date();
@@ -228,15 +238,16 @@ router.get("/overview", async (req, res) => {
       totalUsers: Number(totalUsers),
       totalAudits: Number(totalAudits),
       totalOrders: Number(totalOrders),
-      totalApiCost: Number(totalCost || 0).toFixed(2),
+      totalApiCost: totalCost.toFixed(2),
       growthMetrics,
       feedback: {
-        count: Number(feedbackCount),
+        count: feedbackCount,
         avgAccuracy,
         avgValue
       }
     });
   } catch (error: any) {
+    console.error("[Admin] Overview error:", error);
     res.status(500).json({ error: error.message });
   }
 });
