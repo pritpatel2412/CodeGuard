@@ -71,6 +71,12 @@ Specification doc: [docs/codeguard-yml-spec.md](docs/codeguard-yml-spec.md)
   - reset/save controls
   - clearer webhook/security guidance
 
+### 6) Admin & Operations
+
+- Comprehensive Admin Overview dashboard tracking Users, Audits, API Cost, and User Feedback.
+- Free Audit Queue management to review and approve public requests.
+- Dynamic Promo Offer Campaign Settings to easily manage start/end dates for promotional campaigns.
+
 ## Security Hardening Implemented
 
 CodeGuard now includes stronger production safeguards:
@@ -186,7 +192,16 @@ GitHub webhook flow is the primary production path. GitLab helper logic exists i
 
 ## Release Notes
 
-### Latest Release (2026-04)
+### Latest Release (2026-06)
+
+#### Admin & Campaign Management Updates
+
+- **Admin Overview Dashboard**: Added comprehensive high-level metrics (Users, Audits, API Cost, Feedback) with hardened error handling and stabilized polling.
+- **Dynamic Campaign Settings**: Added UI for admins to dynamically create and manage Promo Offer start/end dates directly from the dashboard.
+- **Pricing & Monetization Clarity**: Replaced simulated checkout with a clear "Under Development" notice.
+- **Free Audit Queue**: Improved stability and presentation for reviewing public audit requests.
+
+### Previous Release (2026-04)
 
 #### Security and Policy Release
 
