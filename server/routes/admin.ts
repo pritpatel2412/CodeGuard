@@ -143,6 +143,28 @@ router.patch("/promo-offer/:id", async (req, res) => {
   }
 });
 
+router.post("/promo-offer", async (req, res) => {
+  try {
+    const { startsAt, endsAt } = req.body;
+    
+    // Check if one already exists
+    const existing = await storage.getActivePromoOffer();
+    if (existing) {
+      return res.status(400).json({ error: "An active promo offer already exists. Update it instead." });
+    }
+
+    const created = await storage.createPromoOffer({ 
+      startsAt: startsAt ? new Date(startsAt) : new Date(),
+      endsAt: endsAt ? new Date(endsAt) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    });
+    
+    await logAdminAction(req.user!.id, "create_promo_offer", created.id, null, { startsAt, endsAt });
+    res.json(created);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get("/overview", async (req, res) => {
   try {
     const [{ count: totalUsers }] = await db.select({ count: sql<number>`count(*)` }).from(users);

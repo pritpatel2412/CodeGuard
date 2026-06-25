@@ -691,6 +691,18 @@ export class DatabaseStorage implements IStorage {
     return updated || undefined;
   }
 
+  async createPromoOffer(data: Partial<PromoOffer>): Promise<PromoOffer> {
+    const [created] = await db.insert(promoOffers).values({
+      name: data.name || "admin-created-offer",
+      description: data.description || "Admin created promo offer",
+      startsAt: data.startsAt || new Date(),
+      endsAt: data.endsAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // default 7 days
+      status: "active",
+      grantsUsed: 0
+    }).returning();
+    return created;
+  }
+
   async createFreeAuditRequest(request: InsertFreeAuditRequest): Promise<FreeAuditRequest> {
     const [created] = await db.insert(freeAuditRequests).values(request).returning();
     return created;

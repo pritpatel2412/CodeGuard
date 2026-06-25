@@ -124,6 +124,16 @@ function AdminFreeAuditQueueContent({
     if (offer) {
       if (offer.startsAt) setStartsAt(new Date(offer.startsAt).toISOString().slice(0, 16));
       if (offer.endsAt) setEndsAt(new Date(offer.endsAt).toISOString().slice(0, 16));
+    } else {
+      // Set some defaults if no offer exists
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(9, 0, 0, 0);
+      setStartsAt(tomorrow.toISOString().slice(0, 16));
+      
+      const nextWeek = new Date(tomorrow);
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      setEndsAt(nextWeek.toISOString().slice(0, 16));
     }
   }, [offer]);
 
@@ -148,8 +158,32 @@ function AdminFreeAuditQueueContent({
     }
   });
 
-  const handleUpdateOffer = () => {
-    updateOfferMutation.mutate({ startsAt, endsAt });
+  const createOfferMutation = useMutation({
+    mutationFn: async (values: { startsAt: string, endsAt: string }) => {
+      const res = await fetch(`/api/admin/promo-offer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      });
+      if (!res.ok) throw new Error("Failed to create offer");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Campaign Created", description: "A new promo offer has been started." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/promo-offer"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/public/promo-offer"] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Creation Failed", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const handleSaveOffer = () => {
+    if (offer) {
+      updateOfferMutation.mutate({ startsAt, endsAt });
+    } else {
+      createOfferMutation.mutate({ startsAt, endsAt });
+    }
   };
 
   const requests = data?.requests || [];
@@ -197,7 +231,7 @@ function AdminFreeAuditQueueContent({
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading campaign data...
             </div>
-          ) : offer ? (
+          ) : (
             <div className="flex flex-col sm:flex-row items-end gap-4 max-w-2xl">
               <div className="space-y-1.5 w-full sm:w-auto flex-1">
                 <Label htmlFor="startsAt" className="text-xs">Start Date & Time</Label>
@@ -220,16 +254,18 @@ function AdminFreeAuditQueueContent({
                 />
               </div>
               <Button 
-                onClick={handleUpdateOffer} 
-                disabled={updateOfferMutation.isPending}
+                onClick={handleSaveOffer} 
+                disabled={updateOfferMutation.isPending || createOfferMutation.isPending}
                 className="w-full sm:w-auto h-9"
               >
-                {updateOfferMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-                Save Changes
+                {updateOfferMutation.isPending || createOfferMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4 mr-2" />
+                )}
+                {offer ? "Save Changes" : "Create Campaign"}
               </Button>
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">No active promo offer found. Please seed the database.</p>
           )}
         </CardContent>
       </Card>
