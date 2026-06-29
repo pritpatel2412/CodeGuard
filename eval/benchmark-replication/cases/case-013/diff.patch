@@ -1,0 +1,316 @@
+From 5f8a130277dbddc95d133cd2832be639baf89213 Mon Sep 17 00:00:00 2001
+From: Neil Lalonde <neillalonde@gmail.com>
+Date: Thu, 25 Jul 2013 13:01:27 -0400
+Subject: [PATCH] Add BlockedEmail, to block signups based on email. Track
+ stats of how many times each email address is blocked, and last time it was
+ blocked. Move email validation out of User model and into EmailValidator.
+ Signup form remembers which email addresses have failed and shows validation
+ error on email field.
+
+---
+ .../controllers/create_account_controller.js  | 14 +++++-
+ app/controllers/users_controller.rb           |  4 +-
+ app/models/blocked_email.rb                   | 25 ++++++++++
+ app/models/user.rb                            | 23 +--------
+ config/locales/server.en.yml                  |  1 +
+ .../20130724201552_create_blocked_emails.rb   | 12 +++++
+ lib/validators/email_validator.rb             | 24 ++++++++++
+ .../validators/email_validator_spec.rb        | 23 +++++++++
+ spec/fabricators/blocked_email_fabricator.rb  |  4 ++
+ spec/models/blocked_email_spec.rb             | 48 +++++++++++++++++++
+ 10 files changed, 155 insertions(+), 23 deletions(-)
+ create mode 100644 app/models/blocked_email.rb
+ create mode 100644 db/migrate/20130724201552_create_blocked_emails.rb
+ create mode 100644 lib/validators/email_validator.rb
+ create mode 100644 spec/components/validators/email_validator_spec.rb
+ create mode 100644 spec/fabricators/blocked_email_fabricator.rb
+ create mode 100644 spec/models/blocked_email_spec.rb
+
+diff --git a/app/assets/javascripts/discourse/controllers/create_account_controller.js b/app/assets/javascripts/discourse/controllers/create_account_controller.js
+index 6ec6c8fa2a6c9..7f48f718fd7ff 100644
+--- a/app/assets/javascripts/discourse/controllers/create_account_controller.js
++++ b/app/assets/javascripts/discourse/controllers/create_account_controller.js
+@@ -14,6 +14,7 @@ Discourse.CreateAccountController = Discourse.Controller.extend(Discourse.ModalF
+   accountPasswordConfirm: 0,
+   accountChallenge: 0,
+   formSubmitted: false,
++  rejectedEmails: Em.A([]),
+ 
+   submitDisabled: function() {
+     if (this.get('formSubmitted')) return true;
+@@ -64,6 +65,14 @@ Discourse.CreateAccountController = Discourse.Controller.extend(Discourse.ModalF
+     }
+ 
+     email = this.get("accountEmail");
++
++    if (this.get('rejectedEmails').contains(email)) {
++      return Discourse.InputValidation.create({
++        failed: true,
++        reason: I18n.t('user.email.invalid')
++      });
++    }
++
+     if ((this.get('authOptions.email') === email) && this.get('authOptions.email_valid')) {
+       return Discourse.InputValidation.create({
+         ok: true,
+@@ -84,7 +93,7 @@ Discourse.CreateAccountController = Discourse.Controller.extend(Discourse.ModalF
+       failed: true,
+       reason: I18n.t('user.email.invalid')
+     });
+-  }.property('accountEmail'),
++  }.property('accountEmail', 'rejectedEmails.@each'),
+ 
+   usernameMatch: function() {
+     if (this.usernameNeedsToBeValidatedWithEmail()) {
+@@ -262,6 +271,9 @@ Discourse.CreateAccountController = Discourse.Controller.extend(Discourse.ModalF
+         createAccountController.set('complete', true);
+       } else {
+         createAccountController.flash(result.message || I18n.t('create_account.failed'), 'error');
++        if (result.errors && result.errors.email && result.values) {
++          createAccountController.get('rejectedEmails').pushObject(result.values.email);
++        }
+         createAccountController.set('formSubmitted', false);
+       }
+       if (result.active) {
+diff --git a/app/controllers/users_controller.rb b/app/controllers/users_controller.rb
+index 69c028e933614..168ab564bdf8c 100644
+--- a/app/controllers/users_controller.rb
++++ b/app/controllers/users_controller.rb
+@@ -194,7 +194,9 @@ def create
+     else
+       render json: {
+         success: false,
+-        message: I18n.t("login.errors", errors: user.errors.full_messages.join("\n"))
++        message: I18n.t("login.errors", errors: user.errors.full_messages.join("\n")),
++        errors: user.errors.to_hash,
++        values: user.attributes.slice("name", "username", "email")
+       }
+     end
+   rescue ActiveRecord::StatementInvalid
+diff --git a/app/models/blocked_email.rb b/app/models/blocked_email.rb
+new file mode 100644
+index 0000000000000..6bc8a48570e5d
+--- /dev/null
++++ b/app/models/blocked_email.rb
+@@ -0,0 +1,25 @@
++class BlockedEmail < ActiveRecord::Base
++
++  before_validation :set_defaults
++
++  validates :email, presence: true, uniqueness: true
++
++  def self.actions
++    @actions ||= Enum.new(:block, :do_nothing)
++  end
++
++  def self.should_block?(email)
++    record = BlockedEmail.where(email: email).first
++    if record
++      record.match_count += 1
++      record.last_match_at = Time.zone.now
++      record.save
++    end
++    record && record.action_type == actions[:block]
++  end
++
++  def set_defaults
++    self.action_type ||= BlockedEmail.actions[:block]
++  end
++
++end
+diff --git a/app/models/user.rb b/app/models/user.rb
+index c8b7f1e9f8664..f4f5d9f40fd49 100644
+--- a/app/models/user.rb
++++ b/app/models/user.rb
+@@ -42,10 +42,9 @@ class User < ActiveRecord::Base
+   has_one :user_search_data
+ 
+   validates_presence_of :username
+-  validates_presence_of :email
+-  validates_uniqueness_of :email
+   validate :username_validator
+-  validate :email_validator, if: :email_changed?
++  validates :email, presence: true, uniqueness: true
++  validates :email, email: true, if: :email_changed?
+   validate :password_validator
+ 
+   before_save :cook
+@@ -565,24 +564,6 @@ def username_validator
+     end
+   end
+ 
+-  def email_validator
+-    if (setting = SiteSetting.email_domains_whitelist).present?
+-      unless email_in_restriction_setting?(setting)
+-        errors.add(:email, I18n.t(:'user.email.not_allowed'))
+-      end
+-    elsif (setting = SiteSetting.email_domains_blacklist).present?
+-      if email_in_restriction_setting?(setting)
+-        errors.add(:email, I18n.t(:'user.email.not_allowed'))
+-      end
+-    end
+-  end
+-
+-  def email_in_restriction_setting?(setting)
+-    domains = setting.gsub('.', '\.')
+-    regexp = Regexp.new("@(#{domains})", true)
+-    self.email =~ regexp
+-  end
+-
+   def password_validator
+     if (@raw_password && @raw_password.length < 6) || (@password_required && !@raw_password)
+       errors.add(:password, "must be 6 letters or longer")
+diff --git a/config/locales/server.en.yml b/config/locales/server.en.yml
+index 356e0e71ca4d0..6ce5772d52875 100644
+--- a/config/locales/server.en.yml
++++ b/config/locales/server.en.yml
+@@ -731,6 +731,7 @@ en:
+       must_begin_with_alphanumeric: "must begin with a letter or number"
+     email:
+       not_allowed: "is not allowed from that email provider. Please use another email address."
++      blocked: "is not allowed."
+ 
+   invite_mailer:
+     subject_template: "[%{site_name}] %{invitee_name} invited you to join a discussion on %{site_name}"
+diff --git a/db/migrate/20130724201552_create_blocked_emails.rb b/db/migrate/20130724201552_create_blocked_emails.rb
+new file mode 100644
+index 0000000000000..2c669e3ee1e92
+--- /dev/null
++++ b/db/migrate/20130724201552_create_blocked_emails.rb
+@@ -0,0 +1,12 @@
++class CreateBlockedEmails < ActiveRecord::Migration
++  def change
++    create_table :blocked_emails do |t|
++      t.string :email, null: false
++      t.integer :action_type, null: false
++      t.integer :match_count, null: false, default: 0
++      t.datetime :last_match_at
++      t.timestamps
++    end
++    add_index :blocked_emails, :email, unique: true
++  end
++end
+diff --git a/lib/validators/email_validator.rb b/lib/validators/email_validator.rb
+new file mode 100644
+index 0000000000000..c2e4284b4ecf0
+--- /dev/null
++++ b/lib/validators/email_validator.rb
+@@ -0,0 +1,24 @@
++class EmailValidator < ActiveModel::EachValidator
++
++  def validate_each(record, attribute, value)
++    if (setting = SiteSetting.email_domains_whitelist).present?
++      unless email_in_restriction_setting?(setting, value)
++        record.errors.add(attribute, I18n.t(:'user.email.not_allowed'))
++      end
++    elsif (setting = SiteSetting.email_domains_blacklist).present?
++      if email_in_restriction_setting?(setting, value)
++        record.errors.add(attribute, I18n.t(:'user.email.not_allowed'))
++      end
++    end
++    if record.errors[attribute].blank? and BlockedEmail.should_block?(value)
++      record.errors.add(attribute, I18n.t(:'user.email.blocked'))
++    end
++  end
++
++  def email_in_restriction_setting?(setting, value)
++    domains = setting.gsub('.', '\.')
++    regexp = Regexp.new("@(#{domains})", true)
++    value =~ regexp
++  end
++
++end
+\ No newline at end of file
+diff --git a/spec/components/validators/email_validator_spec.rb b/spec/components/validators/email_validator_spec.rb
+new file mode 100644
+index 0000000000000..2591a1ec7332f
+--- /dev/null
++++ b/spec/components/validators/email_validator_spec.rb
+@@ -0,0 +1,23 @@
++require 'spec_helper'
++
++describe EmailValidator do
++
++  let(:record) { Fabricate.build(:user, email: "bad@spamclub.com") }
++  let(:validator) { described_class.new({attributes: :email}) }
++  subject(:validate) { validator.validate_each(record,:email,record.email) }
++
++  context "blocked email" do
++    it "doesn't add an error when email doesn't match a blocked email" do
++      BlockedEmail.stubs(:should_block?).with(record.email).returns(false)
++      validate
++      record.errors[:email].should_not be_present
++    end
++
++    it "adds an error when email matches a blocked email" do
++      BlockedEmail.stubs(:should_block?).with(record.email).returns(true)
++      validate
++      record.errors[:email].should be_present
++    end
++  end
++
++end
+diff --git a/spec/fabricators/blocked_email_fabricator.rb b/spec/fabricators/blocked_email_fabricator.rb
+new file mode 100644
+index 0000000000000..7e93250269804
+--- /dev/null
++++ b/spec/fabricators/blocked_email_fabricator.rb
+@@ -0,0 +1,4 @@
++Fabricator(:blocked_email) do
++  email { sequence(:email) { |n| "bad#{n}@spammers.org" } }
++  action_type BlockedEmail.actions[:block]
++end
+diff --git a/spec/models/blocked_email_spec.rb b/spec/models/blocked_email_spec.rb
+new file mode 100644
+index 0000000000000..d1a6fe81ebb03
+--- /dev/null
++++ b/spec/models/blocked_email_spec.rb
+@@ -0,0 +1,48 @@
++require 'spec_helper'
++
++describe BlockedEmail do
++
++  let(:email) { 'block@spamfromhome.org' }
++
++  describe "new record" do
++    it "sets a default action_type" do
++      BlockedEmail.create(email: email).action_type.should == BlockedEmail.actions[:block]
++    end
++
++    it "last_match_at is null" do
++      # If we manually load the table with some emails, we can see whether those emails
++      # have ever been blocked by looking at last_match_at.
++      BlockedEmail.create(email: email).last_match_at.should be_nil
++    end
++  end
++
++  describe "#should_block?" do
++    subject { BlockedEmail.should_block?(email) }
++
++    it "returns false if a record with the email doesn't exist" do
++      subject.should be_false
++    end
++
++    shared_examples "when a BlockedEmail record matches" do
++      it "updates statistics" do
++        Timecop.freeze(Time.zone.now) do
++          expect { subject }.to change { blocked_email.reload.match_count }.by(1)
++          blocked_email.last_match_at.should be_within_one_second_of(Time.zone.now)
++        end
++      end
++    end
++
++    context "action_type is :block" do
++      let!(:blocked_email) { Fabricate(:blocked_email, email: email, action_type: BlockedEmail.actions[:block]) }
++      it { should be_true }
++      include_examples "when a BlockedEmail record matches"
++    end
++
++    context "action_type is :do_nothing" do
++      let!(:blocked_email) { Fabricate(:blocked_email, email: email, action_type: BlockedEmail.actions[:do_nothing]) }
++      it { should be_false }
++      include_examples "when a BlockedEmail record matches"
++    end
++  end
++
++end

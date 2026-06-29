@@ -1,0 +1,1104 @@
+From d38c4d5f7443223c81529c22470293771baf9f38 Mon Sep 17 00:00:00 2001
+From: Jeff Atwood <jatwood@codinghorror.com>
+Date: Thu, 20 Aug 2015 02:42:12 -0700
+Subject: [PATCH] scale-color $lightness must use $secondary for dark themes
+
+---
+ .../stylesheets/common/admin/admin_base.scss  | 16 +++++-----
+ .../stylesheets/common/base/_topic-list.scss  | 12 +++----
+ .../stylesheets/common/base/discourse.scss    |  6 ++--
+ .../stylesheets/common/base/header.scss       | 10 +++---
+ app/assets/stylesheets/common/base/login.scss |  4 +--
+ .../common/base/notification-options.scss     |  2 +-
+ .../stylesheets/common/base/search.scss       |  6 ++--
+ .../stylesheets/common/base/share_link.scss   |  2 +-
+ .../stylesheets/common/base/topic-post.scss   | 12 +++----
+ .../stylesheets/common/base/user-badges.scss  |  4 +--
+ app/assets/stylesheets/common/base/user.scss  |  6 ++--
+ .../common/components/badges.css.scss         |  4 +--
+ .../common/components/buttons.css.scss        |  2 +-
+ app/assets/stylesheets/desktop/compose.scss   |  2 +-
+ app/assets/stylesheets/desktop/header.scss    |  4 +--
+ app/assets/stylesheets/desktop/login.scss     |  4 +--
+ app/assets/stylesheets/desktop/modal.scss     | 12 +++----
+ .../stylesheets/desktop/queued-posts.scss     |  2 +-
+ .../stylesheets/desktop/topic-list.scss       | 16 +++++-----
+ .../stylesheets/desktop/topic-post.scss       | 32 +++++++++----------
+ app/assets/stylesheets/desktop/topic.scss     |  4 +--
+ app/assets/stylesheets/desktop/upload.scss    |  2 +-
+ app/assets/stylesheets/desktop/user.scss      | 12 +++----
+ app/assets/stylesheets/embed.css.scss         |  2 +-
+ app/assets/stylesheets/mobile/compose.scss    |  8 ++---
+ app/assets/stylesheets/mobile/login.scss      |  4 +--
+ app/assets/stylesheets/mobile/modal.scss      |  2 +-
+ app/assets/stylesheets/mobile/topic-list.scss |  8 ++---
+ app/assets/stylesheets/mobile/topic-post.scss | 16 +++++-----
+ app/assets/stylesheets/mobile/topic.scss      |  2 +-
+ app/assets/stylesheets/mobile/upload.scss     |  2 +-
+ app/assets/stylesheets/mobile/user.scss       | 10 +++---
+ 32 files changed, 115 insertions(+), 115 deletions(-)
+
+diff --git a/app/assets/stylesheets/common/admin/admin_base.scss b/app/assets/stylesheets/common/admin/admin_base.scss
+index 33da77e84caf2..a988f54389640 100644
+--- a/app/assets/stylesheets/common/admin/admin_base.scss
++++ b/app/assets/stylesheets/common/admin/admin_base.scss
+@@ -382,7 +382,7 @@ td.flaggers td {
+     }
+ 
+     .desc {
+-      color: scale-color($primary, $lightness: 50%);
++      color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     }
+ 
+     h3 {
+@@ -503,7 +503,7 @@ section.details {
+ 
+     p.help {
+       margin: 0;
+-      color: scale-color($primary, $lightness: 40%);
++      color: dark-light-choose(scale-color($primary, $lightness: 40%), scale-color($secondary, $lightness: 60%));
+       font-size: 0.9em;
+     }
+   }
+@@ -521,7 +521,7 @@ section.details {
+   .current-badge-actions {
+     margin: 10px;
+     padding: 10px;
+-    border-top: 1px solid scale-color($primary, $lightness: 80%);
++    border-top: 1px solid dark-light-choose(scale-color($primary, $lightness: 80%), scale-color($secondary, $lightness: 20%));
+   }
+ 
+   .buttons {
+@@ -574,7 +574,7 @@ section.details {
+ .groups {
+   .ac-wrap {
+     width: 100% !important;
+-    border-color: scale-color($primary, $lightness: 75%);
++    border-color: dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
+     .item {
+       width: 190px;
+       margin-right: 0 !important;
+@@ -597,7 +597,7 @@ section.details {
+   }
+   .select2-choices {
+     width: 100%;
+-    border-color: scale-color($primary, $lightness: 75%);
++    border-color: dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
+   }
+ }
+ 
+@@ -723,7 +723,7 @@ section.details {
+     td.actions     { width: 200px; }
+     .hex-input     { width: 80px; margin-bottom: 0; }
+     .hex           { text-align: center; }
+-    .description   { color: scale-color($primary, $lightness: 50%); }
++    .description   { color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%)); }
+ 
+     .invalid .hex input {
+       background-color: white;
+@@ -1291,7 +1291,7 @@ table.api-keys {
+   margin: 0 0 20px 6px;
+   a.filter {
+     display: inline-block;
+-    background-color: scale-color($primary, $lightness: 75%);
++    background-color: dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
+     padding: 3px 10px;
+     border-radius: 3px;
+ 
+@@ -1328,7 +1328,7 @@ table.api-keys {
+ 
+ .staff-actions, .screened-emails, .screened-urls, .screened-ip-addresses, .permalinks {
+ 
+-  border-bottom: dotted 1px scale-color($primary, $lightness: 75%);
++  border-bottom: dotted 1px dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
+ 
+   .heading-container {
+     width: 100%;
+diff --git a/app/assets/stylesheets/common/base/_topic-list.scss b/app/assets/stylesheets/common/base/_topic-list.scss
+index 6a89dae2cf1eb..71a5ef8054524 100644
+--- a/app/assets/stylesheets/common/base/_topic-list.scss
++++ b/app/assets/stylesheets/common/base/_topic-list.scss
+@@ -45,14 +45,14 @@ html.anon .topic-list a.title:visited:not(.badge-notification) {color: dark-ligh
+ 
+   }
+   th {
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     font-weight: normal;
+     font-size: 1em;
+-    button i.fa {color: scale-color($primary, $lightness: 50%);}
++    button i.fa {color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));}
+ 
+   }
+   td {
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     font-size: 1em;
+   }
+ 
+@@ -66,7 +66,7 @@ html.anon .topic-list a.title:visited:not(.badge-notification) {color: dark-ligh
+   .topic-excerpt {
+     font-size: 0.929em;
+     margin-top: 8px;
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     word-wrap: break-word;
+     line-height: 1.4;
+     padding-right: 20px;
+@@ -243,7 +243,7 @@ ol.category-breadcrumb {
+     margin: 5px 0 10px;
+ 
+     .top-date-string {
+-      color: scale-color($primary, $lightness: 60%);
++      color: dark-light-choose(scale-color($primary, $lightness: 60%), scale-color($secondary, $lightness: 40%));
+       font-weight: normal;
+       font-size: 0.7em;
+       text-transform: uppercase;
+@@ -298,5 +298,5 @@ ol.category-breadcrumb {
+ }
+ 
+ div.education {
+-  color: scale-color($primary, $lightness: 50%);
++  color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+ }
+diff --git a/app/assets/stylesheets/common/base/discourse.scss b/app/assets/stylesheets/common/base/discourse.scss
+index ae6aba12dafe0..c8cedb4a6cd6f 100644
+--- a/app/assets/stylesheets/common/base/discourse.scss
++++ b/app/assets/stylesheets/common/base/discourse.scss
+@@ -73,13 +73,13 @@ body {
+   // is scale-color($primary, $lightness: 50%)
+   // numbers get dimmer as they get colder
+   .coldmap-high {
+-    color: scale-color($primary, $lightness: 70%) !important;
++    color: dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%)) !important;
+   }
+   .coldmap-med {
+-    color: scale-color($primary, $lightness: 60%) !important;
++    color: dark-light-choose(scale-color($primary, $lightness: 60%), scale-color($secondary, $lightness: 40%)) !important;
+   }
+   .coldmap-low {
+-    color: scale-color($primary, $lightness: 50%) !important;
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%)) !important;
+   }
+   .heatmap-high {
+     color: #fe7a15 !important;
+diff --git a/app/assets/stylesheets/common/base/header.scss b/app/assets/stylesheets/common/base/header.scss
+index 574d2744d62ff..31268993157bd 100644
+--- a/app/assets/stylesheets/common/base/header.scss
++++ b/app/assets/stylesheets/common/base/header.scss
+@@ -150,7 +150,7 @@
+ 
+   // note these topic counts only appear for anons in the category hamburger drop down
+   b.topics-count {
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     font-weight: normal;
+     font-size: 11px;
+   }
+@@ -192,8 +192,8 @@
+ 
+   // Notifications
+   &#notifications-dropdown {
+-    .fa { color: scale-color($primary, $lightness: 50%); }
+-    .icon { color: scale-color($primary, $lightness: 30%); }
++    .fa { color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%)); }
++    .icon { color: dark-light-choose(scale-color($primary, $lightness: 30%), scale-color($secondary, $lightness: 70%)); }
+     li {
+       background-color: dark-light-diff($tertiary, $secondary, 85%, -65%);
+       i {
+@@ -298,7 +298,7 @@
+     margin: 5px 5px 0 5px;
+     .box {margin-top: 0;}
+     .badge-notification {
+-      color: scale-color($primary, $lightness: 50%);
++      color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+       background-color: transparent;
+       vertical-align: top;
+       padding: 5px 5px 2px 5px;
+@@ -329,7 +329,7 @@
+   .topic-statuses {
+     float: none;
+     display: inline-block;
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     margin: 0;
+     .fa {
+       margin: 0;
+diff --git a/app/assets/stylesheets/common/base/login.scss b/app/assets/stylesheets/common/base/login.scss
+index 6d30268e125ce..f66944b9d2358 100644
+--- a/app/assets/stylesheets/common/base/login.scss
++++ b/app/assets/stylesheets/common/base/login.scss
+@@ -36,7 +36,7 @@
+         float: auto;
+       }
+       p {
+-        color: scale-color($primary, $lightness: 50%);
++        color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+         margin: 0;
+       }
+     }
+@@ -51,5 +51,5 @@ button#login-link, button#new-account-link
+   background: transparent;
+   padding-left: 0;
+   margin-left: 20px;
+-  color: scale-color($primary, $lightness: 35%);
++  color: dark-light-choose(scale-color($primary, $lightness: 35%), scale-color($secondary, $lightness: 65%));
+ }
+diff --git a/app/assets/stylesheets/common/base/notification-options.scss b/app/assets/stylesheets/common/base/notification-options.scss
+index c1d52c3b747bc..745f0aa6501d7 100644
+--- a/app/assets/stylesheets/common/base/notification-options.scss
++++ b/app/assets/stylesheets/common/base/notification-options.scss
+@@ -1,5 +1,5 @@
+ .fa.muted {
+-  color: scale-color($primary, $lightness: 40%);
++  color: dark-light-choose(scale-color($primary, $lightness: 40%), scale-color($secondary, $lightness: 60%));
+ }
+ .fa.tracking, .fa.watching {
+   color: $tertiary;
+diff --git a/app/assets/stylesheets/common/base/search.scss b/app/assets/stylesheets/common/base/search.scss
+index 75de8a32a845e..ec75223b5dd7a 100644
+--- a/app/assets/stylesheets/common/base/search.scss
++++ b/app/assets/stylesheets/common/base/search.scss
+@@ -28,13 +28,13 @@
+     line-height: 20px;
+     word-wrap: break-word;
+     clear: both;
+-    color: scale-color($primary, $lightness: 40%);
++    color: dark-light-choose(scale-color($primary, $lightness: 40%), scale-color($secondary, $lightness: 60%));
+     .date {
+-      color: scale-color($primary, $lightness: 40%);
++      color: dark-light-choose(scale-color($primary, $lightness: 40%), scale-color($secondary, $lightness: 60%));
+     }
+ 
+     .search-highlight {
+-      color: scale-color($primary, $lightness: 25%);
++      color: dark-light-choose(scale-color($primary, $lightness: 25%), scale-color($secondary, $lightness: 75%));
+     }
+   }
+ }
+diff --git a/app/assets/stylesheets/common/base/share_link.scss b/app/assets/stylesheets/common/base/share_link.scss
+index 49f56f747e0ed..25f2fdfdc4fad 100644
+--- a/app/assets/stylesheets/common/base/share_link.scss
++++ b/app/assets/stylesheets/common/base/share_link.scss
+@@ -59,7 +59,7 @@
+   .date {
+     float: right;
+     margin: 5px;
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+   }
+ 
+   input[type=text] {
+diff --git a/app/assets/stylesheets/common/base/topic-post.scss b/app/assets/stylesheets/common/base/topic-post.scss
+index 894e5db08f515..c655b6d0554be 100644
+--- a/app/assets/stylesheets/common/base/topic-post.scss
++++ b/app/assets/stylesheets/common/base/topic-post.scss
+@@ -12,16 +12,16 @@
+    overflow: hidden;
+    text-overflow: ellipsis;
+    a {
+-     color: scale-color($primary, $lightness: 30%);
++     color: dark-light-choose(scale-color($primary, $lightness: 30%), scale-color($secondary, $lightness: 70%));
+    }
+  }
+  .fa {
+    font-size: 11px;
+    margin-left: 3px;
+-   color: scale-color($primary, $lightness: 40%);
++   color: dark-light-choose(scale-color($primary, $lightness: 40%), scale-color($secondary, $lightness: 60%));
+  }
+   .new_user a, .user-title, .user-title a {
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+  }
+ }
+ 
+@@ -52,7 +52,7 @@ aside.quote {
+   .title {
+     @include post-aside;
+ 
+-    color: scale-color($primary, $lightness: 30%);
++    color: dark-light-choose(scale-color($primary, $lightness: 30%), scale-color($secondary, $lightness: 70%));
+     // IE will screw up the blockquote underneath if bottom padding is 0px
+     padding: 12px 12px 1px 12px;
+     // blockquote is underneath this and has top margin
+@@ -68,7 +68,7 @@ aside.quote {
+ }
+ 
+ .quote-controls, .quote-controls .back:before, .quote-controls .quote-other-topic:before {
+-  color: scale-color($primary, $lightness: 70%);
++  color: dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%));
+ }
+ 
+ .cooked .highlight {
+@@ -156,7 +156,7 @@ aside.quote {
+     color: $wiki;
+   }
+   &.via-email {
+-    color: scale-color($primary, $lightness: 70%);
++    color: dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%));
+   }
+   &.raw-email {
+     cursor: pointer;
+diff --git a/app/assets/stylesheets/common/base/user-badges.scss b/app/assets/stylesheets/common/base/user-badges.scss
+index e1bd5d0862c70..9f812fa8990c0 100644
+--- a/app/assets/stylesheets/common/base/user-badges.scss
++++ b/app/assets/stylesheets/common/base/user-badges.scss
+@@ -59,7 +59,7 @@
+     .count {
+       display: block;
+       font-size: 0.8em;
+-      color: scale-color($primary, $lightness: 50%);
++      color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     }
+   }
+ }
+@@ -94,7 +94,7 @@ table.badges-listing {
+ 
+   td.grant-count {
+     text-align: center;
+-    color: scale-color($primary, $lightness: 40%);
++    color: dark-light-choose(scale-color($primary, $lightness: 40%), scale-color($secondary, $lightness: 60%));
+     font-size: 120%;
+   }
+ 
+diff --git a/app/assets/stylesheets/common/base/user.scss b/app/assets/stylesheets/common/base/user.scss
+index cbca0bece755b..5843e84caed0d 100644
+--- a/app/assets/stylesheets/common/base/user.scss
++++ b/app/assets/stylesheets/common/base/user.scss
+@@ -116,17 +116,17 @@
+ 
+     .username a {
+       font-weight: bold;
+-      color: scale-color($primary, $lightness: 30%);
++      color: dark-light-choose(scale-color($primary, $lightness: 30%), scale-color($secondary, $lightness: 70%));
+     }
+ 
+     .name {
+       margin-left: 5px;
+-      color: scale-color($primary, $lightness: 30%);
++      color: dark-light-choose(scale-color($primary, $lightness: 30%), scale-color($secondary, $lightness: 70%));
+     }
+ 
+     .title {
+       margin-top: 3px;
+-      color: scale-color($primary, $lightness: 50%);
++      color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     }
+ 
+   }
+diff --git a/app/assets/stylesheets/common/components/badges.css.scss b/app/assets/stylesheets/common/components/badges.css.scss
+index 9b5248091fe90..0a03ef0aa0744 100644
+--- a/app/assets/stylesheets/common/components/badges.css.scss
++++ b/app/assets/stylesheets/common/components/badges.css.scss
+@@ -236,7 +236,7 @@
+   font-size: 11px;
+   line-height: 1;
+   text-align: center;
+-  background-color: scale-color($primary, $lightness: 70%);
++  background-color: dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%));
+   &[href] {
+   color: $secondary;
+   }
+@@ -282,7 +282,7 @@
+   font-size: 1em;
+   line-height: 1;
+   &[href] {
+-    color: scale-color($primary, $lightness: 40%);
++    color: dark-light-choose(scale-color($primary, $lightness: 40%), scale-color($secondary, $lightness: 60%));
+   }
+ }
+ 
+diff --git a/app/assets/stylesheets/common/components/buttons.css.scss b/app/assets/stylesheets/common/components/buttons.css.scss
+index 2ea0e60a3861c..af8f0df24a2e3 100644
+--- a/app/assets/stylesheets/common/components/buttons.css.scss
++++ b/app/assets/stylesheets/common/components/buttons.css.scss
+@@ -57,7 +57,7 @@
+   }
+   &[disabled] {
+     background: dark-light-diff($primary, $secondary, 90%, -60%);
+-    &:hover { color: scale-color($primary, $lightness: 70%); }
++    &:hover { color: dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%)); }
+     cursor: not-allowed;
+   }
+ }
+diff --git a/app/assets/stylesheets/desktop/compose.scss b/app/assets/stylesheets/desktop/compose.scss
+index 4f23d9378d41c..829387d9d161d 100644
+--- a/app/assets/stylesheets/desktop/compose.scss
++++ b/app/assets/stylesheets/desktop/compose.scss
+@@ -337,7 +337,7 @@
+   margin-bottom: 10px;
+ 
+   i {
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+   }
+ }
+ 
+diff --git a/app/assets/stylesheets/desktop/header.scss b/app/assets/stylesheets/desktop/header.scss
+index 3caae9f485ca5..74416dcf185d2 100644
+--- a/app/assets/stylesheets/desktop/header.scss
++++ b/app/assets/stylesheets/desktop/header.scss
+@@ -50,13 +50,13 @@ and (max-width : 570px) {
+ }
+ 
+ .search-link .blurb {
+-  color: scale-color($primary, $lightness: 45%);
++  color: dark-light-choose(scale-color($primary, $lightness: 45%), scale-color($secondary, $lightness: 55%));
+   display: block;
+   word-wrap: break-word;
+   font-size: 11px;
+   line-height: 1.3em;
+   .search-highlight {
+-    color: scale-color($primary, $lightness: 25%);
++    color: dark-light-choose(scale-color($primary, $lightness: 25%), scale-color($secondary, $lightness: 75%));
+   }
+ }
+ 
+diff --git a/app/assets/stylesheets/desktop/login.scss b/app/assets/stylesheets/desktop/login.scss
+index 39c86a70e6142..1bf2a7988ae22 100644
+--- a/app/assets/stylesheets/desktop/login.scss
++++ b/app/assets/stylesheets/desktop/login.scss
+@@ -14,7 +14,7 @@
+ 
+ #login-form {
+   a {
+-    color: scale-color($primary, $lightness: 35%);
++    color: dark-light-choose(scale-color($primary, $lightness: 35%), scale-color($secondary, $lightness: 65%));
+   }
+ }
+ 
+@@ -45,7 +45,7 @@
+ 
+   tr.instructions {
+     label {
+-      color: scale-color($primary, $lightness: 50%);
++      color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     }
+   }
+ 
+diff --git a/app/assets/stylesheets/desktop/modal.scss b/app/assets/stylesheets/desktop/modal.scss
+index c9d5b84c38866..77e4ea12e7fad 100644
+--- a/app/assets/stylesheets/desktop/modal.scss
++++ b/app/assets/stylesheets/desktop/modal.scss
+@@ -47,7 +47,7 @@
+ }
+ 
+ .modal-footer span.hint {
+-  color: scale-color($primary, $lightness: 70%);
++  color: dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%));
+   float: right;
+   line-height: 30px;
+ }
+@@ -64,7 +64,7 @@
+   float: right;
+   font-size: 1.429em;
+   text-decoration: none;
+-  color: scale-color($primary, $lightness: 35%);
++  color: dark-light-choose(scale-color($primary, $lightness: 35%), scale-color($secondary, $lightness: 65%));
+   cursor: pointer;
+   &:hover {
+     color: $primary;
+@@ -91,7 +91,7 @@
+ 
+ .custom-message-length {
+   margin: -10px 0 10px 20px;
+-  color: scale-color($primary, $lightness: 70%);
++  color: dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%));
+   font-size: 85%;
+ }
+ 
+@@ -114,11 +114,11 @@
+       li {
+         margin: 0 4px 8px 0;
+         a {
+-          color: scale-color($primary, $lightness: 50%);
++          color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+           cursor: pointer;
+         }
+         a:hover {
+-          color: scale-color($primary, $lightness: 40%);
++          color: dark-light-choose(scale-color($primary, $lightness: 40%), scale-color($secondary, $lightness: 60%));
+         }
+       }
+     }
+@@ -128,7 +128,7 @@
+     float: right;
+     text-align: right;
+     max-width: 380px;
+-    color: scale-color($primary, $lightness: 60%);
++    color: dark-light-choose(scale-color($primary, $lightness: 60%), scale-color($secondary, $lightness: 40%));
+   }
+ }
+ 
+diff --git a/app/assets/stylesheets/desktop/queued-posts.scss b/app/assets/stylesheets/desktop/queued-posts.scss
+index 1fdf5b30fba6b..688e85f3c8d74 100644
+--- a/app/assets/stylesheets/desktop/queued-posts.scss
++++ b/app/assets/stylesheets/desktop/queued-posts.scss
+@@ -11,7 +11,7 @@
+        float: right;
+        font-size: 0.929em;
+        margin-top: 1px;
+-       span {color: scale-color($primary, $lightness: 50%);}
++       span {color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%)); }
+      }
+ 
+     .cooked {
+diff --git a/app/assets/stylesheets/desktop/topic-list.scss b/app/assets/stylesheets/desktop/topic-list.scss
+index 8d3a880b1c989..c5391f26a9ec6 100644
+--- a/app/assets/stylesheets/desktop/topic-list.scss
++++ b/app/assets/stylesheets/desktop/topic-list.scss
+@@ -36,10 +36,10 @@
+ 
+ .topic-list {
+   margin: 0 0 10px;
+-  .fa-thumb-tack { color: scale-color($primary, $lightness: 50%); }
+-  .fa-thumb-tack.unpinned { color: scale-color($primary, $lightness: 50%); }
++  .fa-thumb-tack { color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%)); }
++  .fa-thumb-tack.unpinned { color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%)); }
+   a.title {color: $primary;}
+-  .fa-bookmark { color: scale-color($primary, $lightness: 50%); }
++  .fa-bookmark { color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%)); }
+   th,
+   td {
+     padding: 12px 5px;
+@@ -51,7 +51,7 @@
+     }
+   }
+   th {
+-    button i.fa {color: scale-color($primary, $lightness: 50%);}
++    button i.fa {color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%)); }
+   }
+ 
+   > tbody > tr {
+@@ -132,7 +132,7 @@
+   .post-actions {
+     clear: both;
+     width: auto;
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     text-align: left;
+     font-size: 12px;
+     margin-top: 5px;
+@@ -141,7 +141,7 @@
+     }
+     a {
+       font-size: 11px;
+-      color: scale-color($primary, $lightness: 50%);
++      color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+       margin-right: 3px;
+       line-height: 20px;
+     }
+@@ -220,11 +220,11 @@
+     margin: 10px 0 0;
+     /* topic status glyphs */
+     i {
+-      color: scale-color($primary, $lightness: 50%) !important;
++      color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%)) !important;
+       font-size: 0.929em;
+     }
+     a.last-posted-at, a.last-posted-at:visited {
+-      color: scale-color($primary, $lightness: 50%);
++      color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+       font-size: 0.88em;
+     }
+     .badge {
+diff --git a/app/assets/stylesheets/desktop/topic-post.scss b/app/assets/stylesheets/desktop/topic-post.scss
+index 3e89870d83b28..2a97d2dc9e0a0 100644
+--- a/app/assets/stylesheets/desktop/topic-post.scss
++++ b/app/assets/stylesheets/desktop/topic-post.scss
+@@ -31,7 +31,7 @@ h1 .topic-statuses .topic-status i {
+     font-size: 0.929em;
+     float: right;
+     margin: 1px 25px 0 0;
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+   }
+ 
+   .gutter {
+@@ -78,7 +78,7 @@ nav.post-controls {
+ 
+     padding: 0;
+     .highlight-action {
+-      color: scale-color($primary, $lightness: 60%);
++      color: dark-light-choose(scale-color($primary, $lightness: 60%), scale-color($secondary, $lightness: 40%));
+     }
+     a, button {
+     color: dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
+@@ -110,7 +110,7 @@ nav.post-controls {
+   .show-replies {
+     margin-left: -10px;
+     font-size: inherit;
+-    span.badge-posts {color: scale-color($primary, $lightness: 60%);}
++    span.badge-posts {color: dark-light-choose(scale-color($primary, $lightness: 60%), scale-color($secondary, $lightness: 40%)); }
+     &:hover {
+       background: dark-light-diff($primary, $secondary, 90%, -65%);
+       span.badge-posts {color: $primary;}
+@@ -123,7 +123,7 @@ nav.post-controls {
+ 
+   button.create {
+     margin-right: 0;
+-    color: scale-color($primary, $lightness: 20%);
++    color: dark-light-choose(scale-color($primary, $lightness: 20%), scale-color($secondary, $lightness: 80%));
+     margin-left: 10px;
+   }
+ 
+@@ -275,7 +275,7 @@ nav.post-controls {
+     padding-right: 0;
+   }
+ 
+-  .post-date { color: scale-color($primary, $lightness: 60%); }
++  .post-date { color: dark-light-choose(scale-color($primary, $lightness: 60%), scale-color($secondary, $lightness: 40%)); }
+   .fa-arrow-up, .fa-arrow-down { margin-left: 5px; }
+   .reply:first-of-type .row { border-top: none; }
+ 
+@@ -288,10 +288,10 @@ nav.post-controls {
+     font-size: 0.929em;
+     a {
+       font-weight: bold;
+-      color: scale-color($primary, $lightness: 30%);
++      color: dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%));
+     }
+   }
+-  .arrow {color: scale-color($primary, $lightness: 60%);}
++  .arrow {color: dark-light-choose(scale-color($primary, $lightness: 60%), scale-color($secondary, $lightness: 40%)); }
+ }
+ 
+ .post-action {
+@@ -318,7 +318,7 @@ a.star {
+ 
+   h3 {
+     margin-bottom: 4px;
+-    color: scale-color($primary, $lightness: 20%);
++    color: dark-light-choose(scale-color($primary, $lightness: 20%), scale-color($secondary, $lightness: 80%));
+     line-height: 23px;
+     font-weight: normal;
+     font-size: 1em;
+@@ -326,7 +326,7 @@ a.star {
+ 
+   h4 {
+     margin: 1px 0 2px 0;
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     font-weight: normal;
+     font-size: 0.857em;
+     line-height: 15px;
+@@ -339,7 +339,7 @@ a.star {
+ 
+   span.domain {
+     font-size: 0.714em;
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+   }
+ 
+   .avatars {
+@@ -379,7 +379,7 @@ a.star {
+       line-height: 20px;
+     }
+     .number, i {
+-      color: scale-color($primary, $lightness: 20%);
++      color: dark-light-choose(scale-color($primary, $lightness: 20%), scale-color($secondary, $lightness: 80%));
+       font-size: 130%;
+     }
+     .avatar  a {
+@@ -413,7 +413,7 @@ a.star {
+     .btn {
+       border: 0;
+       padding: 0 23px;
+-      color: scale-color($primary, $lightness: 60%);
++      color: dark-light-choose(scale-color($primary, $lightness: 60%), scale-color($secondary, $lightness: 40%));
+       background: dark-light-diff($primary, $secondary, 97%, -75%);
+       border-left: 1px solid dark-light-diff($primary, $secondary, 90%, -65%);
+       border-top: 1px solid dark-light-diff($primary, $secondary, 90%, -65%);
+@@ -893,8 +893,8 @@ $topic-avatar-width: 45px;
+ 
+       button {
+         margin-left: 8px;
+-        background-color: scale-color($primary, $lightness: 70%);
+-        border: 1px solid scale-color($primary, $lightness: 60%);
++        background-color: dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%));
++        border: 1px solid dark-light-choose(scale-color($primary, $lightness: 60%), scale-color($secondary, $lightness: 40%));
+         color: $primary;
+       }
+     }
+@@ -938,7 +938,7 @@ a.attachment:before {
+    float: right;
+    font-size: 0.929em;
+    margin-top: 1px;
+-   a {color: scale-color($primary, $lightness: 50%);}
++   a {color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%)); }
+  }
+ 
+ }
+@@ -955,7 +955,7 @@ span.highlighted {
+ }
+ 
+ .username.new-user a {
+-  color: scale-color($primary, $lightness: 70%);
++  color: dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%));
+ }
+ 
+ .read-state {
+diff --git a/app/assets/stylesheets/desktop/topic.scss b/app/assets/stylesheets/desktop/topic.scss
+index fbec592bdd03e..11553f5c915bc 100644
+--- a/app/assets/stylesheets/desktop/topic.scss
++++ b/app/assets/stylesheets/desktop/topic.scss
+@@ -58,7 +58,7 @@
+ }
+ 
+ .private-message-glyph {
+-  color: scale-color($primary, $lightness: 75%);
++  color: dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
+   float: left;
+   margin: 0 5px 0 0;
+ }
+@@ -66,7 +66,7 @@
+ 
+ a.reply-new {
+   margin-top: 3px;
+-  color: scale-color($primary, $lightness: 50%);
++  color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+   i {
+     margin-right: 3px;
+     background: $secondary;
+diff --git a/app/assets/stylesheets/desktop/upload.scss b/app/assets/stylesheets/desktop/upload.scss
+index 431130be68dc6..5dc9fe66e4eb1 100644
+--- a/app/assets/stylesheets/desktop/upload.scss
++++ b/app/assets/stylesheets/desktop/upload.scss
+@@ -17,7 +17,7 @@
+         line-height: 18px;
+       }
+       .description, .hint {
+-        color: scale-color($primary, $lightness: 50%);
++        color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+       }
+       .hint {
+         font-style: italic;
+diff --git a/app/assets/stylesheets/desktop/user.scss b/app/assets/stylesheets/desktop/user.scss
+index 2f5af264d6de9..5637f8a16d44a 100644
+--- a/app/assets/stylesheets/desktop/user.scss
++++ b/app/assets/stylesheets/desktop/user.scss
+@@ -56,7 +56,7 @@
+     display: inline-block;
+   }
+   .instructions {
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     margin-left: 160px;
+     margin-top: 5px;
+     margin-bottom: 10px;
+@@ -170,7 +170,7 @@
+         text-align: left;
+         border-bottom: 3px solid dark-light-diff($primary, $secondary, 90%, -60%);
+         padding: 0 0 10px 0;
+-        color: scale-color($primary, $lightness: 50%);
++        color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+         font-weight: normal;
+       }
+ 
+@@ -511,7 +511,7 @@
+       }
+       // common/base/header.scss
+       .fa, .icon {
+-        color: scale-color($primary, $lightness: 50%);
++        color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+         font-size: 1.714em;
+       }
+     }
+@@ -519,12 +519,12 @@
+       .name {
+         display: inline-block;
+         margin-top: 5px;
+-        color: scale-color($primary, $lightness: 30%);
++        color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+       }
+       .title {
+         display: inline-block;
+         margin-top: 5px;
+-        color: scale-color($primary, $lightness: 50%);
++        color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+       }
+     }
+   }
+@@ -600,7 +600,7 @@
+         float: auto;
+       }
+       p {
+-        color: scale-color($primary, $lightness: 50%);
++        color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+         margin-top: 5px;
+         margin-bottom: 10px;
+         font-size: 80%;
+diff --git a/app/assets/stylesheets/embed.css.scss b/app/assets/stylesheets/embed.css.scss
+index d7193d5533e10..40eab287578cf 100644
+--- a/app/assets/stylesheets/embed.css.scss
++++ b/app/assets/stylesheets/embed.css.scss
+@@ -86,7 +86,7 @@ article.post {
+   }
+ 
+   a.new-user {
+-    color: scale-color($primary, $lightness: 70%);
++    color: dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%));
+   }
+ 
+   span.title {
+diff --git a/app/assets/stylesheets/mobile/compose.scss b/app/assets/stylesheets/mobile/compose.scss
+index 30725c4d6f888..c850e804d0469 100644
+--- a/app/assets/stylesheets/mobile/compose.scss
++++ b/app/assets/stylesheets/mobile/compose.scss
+@@ -33,7 +33,7 @@ display: none !important; // can be removed if inline JS CSS is removed from com
+     color: scale-color($secondary, $lightness: 50%);
+   }
+   #draft-status {
+-    color: scale-color($primary, $lightness: 75%);
++    color: dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
+   }
+   transition: height 0.4s ease;
+   width: 100%;
+@@ -48,7 +48,7 @@ display: none !important; // can be removed if inline JS CSS is removed from com
+     right: 1px;
+     position: absolute;
+     font-size: 1.071em;
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     padding: 0 10px 5px 10px;
+     &:before {
+       font-family: "FontAwesome";
+@@ -165,11 +165,11 @@ display: none !important; // can be removed if inline JS CSS is removed from com
+     #reply-title {
+       margin-right: 10px;
+       &:disabled {
+-        background-color: scale-color($primary, $lightness: 75%);
++        background-color: dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
+       }
+     }
+     .wmd-input:disabled {
+-      background-color: scale-color($primary, $lightness: 75%);
++      background-color: dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
+     }
+     .wmd-input {
+       color: darken($primary, 40%);
+diff --git a/app/assets/stylesheets/mobile/login.scss b/app/assets/stylesheets/mobile/login.scss
+index 6093849bfe492..790d84864ca3b 100644
+--- a/app/assets/stylesheets/mobile/login.scss
++++ b/app/assets/stylesheets/mobile/login.scss
+@@ -14,7 +14,7 @@
+ 
+ #login-form {
+   a {
+-    color: scale-color($primary, $lightness: 35%);
++    color: dark-light-choose(scale-color($primary, $lightness: 35%), scale-color($secondary, $lightness: 65%));
+   }
+   label { float: left; display: block; }
+   textarea, input, select {font-size: 1.143em; clear: left; margin-top: 0; }
+@@ -42,7 +42,7 @@ a#forgot-password-link {clear: left; float: left; }
+ 
+   tr.instructions {
+     label {
+-      color: scale-color($primary, $lightness: 50%);
++      color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     }
+   }
+ 
+diff --git a/app/assets/stylesheets/mobile/modal.scss b/app/assets/stylesheets/mobile/modal.scss
+index e54ab173ce54f..3111b601323d0 100644
+--- a/app/assets/stylesheets/mobile/modal.scss
++++ b/app/assets/stylesheets/mobile/modal.scss
+@@ -99,7 +99,7 @@
+ 
+ .custom-message-length {
+   margin: -10px 0 10px 20px;
+-  color: scale-color($primary, $lightness: 70%);
++  color: dark-light-choose(scale-color($primary, $lightness: 30%), scale-color($secondary, $lightness: 70%));
+   font-size: 85%;
+ }
+ 
+diff --git a/app/assets/stylesheets/mobile/topic-list.scss b/app/assets/stylesheets/mobile/topic-list.scss
+index 47c69376bb5ec..6c8c770b7bb57 100644
+--- a/app/assets/stylesheets/mobile/topic-list.scss
++++ b/app/assets/stylesheets/mobile/topic-list.scss
+@@ -72,7 +72,7 @@
+   th,
+   td {
+     padding: 7px 0;
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+   }
+ 
+   a.title {color: $primary;}
+@@ -92,7 +92,7 @@
+       max-width: 160px;
+     }
+     .num .fa {
+-      color: scale-color($primary, $lightness: 50%);
++      color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     }
+   }
+ 
+@@ -143,7 +143,7 @@ tr.category-topic-link {
+     .featured-topic {
+       margin: 8px 0;
+       a.last-posted-at, a.last-posted-at:visited {
+-        color: scale-color($primary, $lightness: 50%);
++        color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+       }
+     }
+   }
+@@ -206,7 +206,7 @@ tr.category-topic-link {
+     figure {
+       float: left;
+       margin: 3px 7px 0 0;
+-      color: scale-color($primary, $lightness: 10%);
++      color: dark-light-choose(scale-color($primary, $lightness: 10%), scale-color($secondary, $lightness: 90%));
+       font-weight: bold;
+       font-size: 0.857em;
+     }
+diff --git a/app/assets/stylesheets/mobile/topic-post.scss b/app/assets/stylesheets/mobile/topic-post.scss
+index fbde0923a3703..d69d3b137210d 100644
+--- a/app/assets/stylesheets/mobile/topic-post.scss
++++ b/app/assets/stylesheets/mobile/topic-post.scss
+@@ -46,7 +46,7 @@ button {
+   padding: 8px 10px;
+   vertical-align: top;
+   background: transparent;
+-  color: scale-color($primary, $lightness: 50%);
++  color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+   float: left;
+   &.hidden {
+     display: none;
+@@ -148,7 +148,7 @@ a.reply-to-tab {
+   position: absolute;
+   z-index: 400;
+   right: 80px;
+-  color: scale-color($primary, $lightness: 50%);
++  color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+   span { display: none; }
+ }
+ 
+@@ -179,7 +179,7 @@ a.star {
+   h3 {
+     margin-bottom: 4px;
+     margin-top: 0;
+-    color: scale-color($primary, $lightness: 20%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     line-height: 23px;
+     font-weight: normal;
+     font-size: 1em;
+@@ -187,7 +187,7 @@ a.star {
+ 
+   h4 {
+     margin: 0 0 3px 0;
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     font-weight: normal;
+     font-size: 0.857em;
+     line-height: 15px;
+@@ -244,7 +244,7 @@ a.star {
+       line-height: 20px;
+     }
+     .number, i {
+-      color: scale-color($primary, $lightness: 20%);
++      color: dark-light-choose(scale-color($primary, $lightness: 20%), scale-color($secondary, $lightness: 80%));
+       font-size: 110%;
+     }
+ 
+@@ -267,7 +267,7 @@ a.star {
+   }
+ 
+   .domain {
+-    color: scale-color($primary, $lightness: 75%);
++    color: dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
+   }
+ 
+   .topic-links {
+@@ -439,7 +439,7 @@ button.select-post {
+ }
+ 
+ #show-topic-admin {
+-  color: scale-color($primary, $lightness: 50%);
++  color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+   right: 0;
+   border-right: 0;
+   padding-right: 4px;
+@@ -495,7 +495,7 @@ span.highlighted {
+ }
+ 
+ .username.new-user a {
+-  color: scale-color($primary, $lightness: 70%);
++  color: dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%));
+ }
+ 
+ .user-title {
+diff --git a/app/assets/stylesheets/mobile/topic.scss b/app/assets/stylesheets/mobile/topic.scss
+index 9bc347b650c05..9e0d6e21645ab 100644
+--- a/app/assets/stylesheets/mobile/topic.scss
++++ b/app/assets/stylesheets/mobile/topic.scss
+@@ -31,7 +31,7 @@
+   .private-message-glyph { display: none; }
+ }
+ 
+-.private-message-glyph { color: scale-color($primary, $lightness: 75%); }
++.private-message-glyph { color: dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%)); }
+ .private_message #topic-title .private-message-glyph { display: inline; }
+ 
+ 
+diff --git a/app/assets/stylesheets/mobile/upload.scss b/app/assets/stylesheets/mobile/upload.scss
+index d639f20dbd73d..00797993b07ee 100644
+--- a/app/assets/stylesheets/mobile/upload.scss
++++ b/app/assets/stylesheets/mobile/upload.scss
+@@ -7,7 +7,7 @@
+     line-height: 18px;
+   }
+   .description {
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+   }
+ }
+ 
+diff --git a/app/assets/stylesheets/mobile/user.scss b/app/assets/stylesheets/mobile/user.scss
+index 03ec7fb16fc65..f64f9256167b8 100644
+--- a/app/assets/stylesheets/mobile/user.scss
++++ b/app/assets/stylesheets/mobile/user.scss
+@@ -112,7 +112,7 @@
+     display: inline-block;
+   }
+   .instructions {
+-    color: scale-color($primary, $lightness: 50%);
++    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+     margin-top: 5px;
+     margin-bottom: 10px;
+     font-size: 80%;
+@@ -486,7 +486,7 @@
+       }
+       // common/base/header.scss
+       .fa, .icon {
+-        color: scale-color($primary, $lightness: 50%);
++        color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+         font-size: 1.714em;
+       }
+     }
+@@ -494,13 +494,13 @@
+       .name {
+         display: inline-block;
+         margin-top: 5px;
+-        color: scale-color($primary, $lightness: 30%);
++        color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+         vertical-align: inherit;
+       }
+       .title {
+         display: inline-block;
+         margin-top: 5px;
+-        color: scale-color($primary, $lightness: 50%);
++        color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+       }
+     }
+   }
+@@ -577,7 +577,7 @@
+         float: auto;
+       }
+       p {
+-        color: scale-color($primary, $lightness: 50%);
++        color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+         margin-top: 5px;
+         margin-bottom: 10px;
+         font-size: 80%;

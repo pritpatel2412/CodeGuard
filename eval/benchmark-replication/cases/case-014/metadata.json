@@ -1,0 +1,31 @@
+{
+  "pr_title": "Enhance embed URL handling and validation system",
+  "url": "https://github.com/discourse/discourse/commit/4f8aed295a29954023b2849c060ef4fb299d1b5d",
+  "file": "discourse.json",
+  "comments": [
+    {
+      "comment": "SSRF vulnerability using open(url) without validation",
+      "severity": "Critical"
+    },
+    {
+      "comment": "The current origin validation using indexOf is insufficient and can be bypassed. An attacker could use a malicious domain like evil-discourseUrl.com to pass this check.",
+      "severity": "Medium"
+    },
+    {
+      "comment": "postMessage targetOrigin should be the origin (scheme+host+port), not the full referrer URL; using the full URL will cause the message to be dropped and prevent resizing.",
+      "severity": "Medium"
+    },
+    {
+      "comment": "The code sets X-Frame-Options: ALLOWALL which completely disables clickjacking protection. The referer validation can be bypassed (referer headers are easily spoofed), and the fallback to empty string for nil referer masks validation failures.",
+      "severity": "Medium"
+    },
+    {
+      "comment": "The TopicEmbed.import method is susceptible to a NoMethodError if the contents parameter is nil when attempting to append a string, and an XSS vulnerability due to unescaped url interpolation in the generated HTML.",
+      "severity": "Medium"
+    },
+    {
+      "comment": "The ERB block closes with end if, which is invalid Ruby/ERB and will raise at render; it should just be end to close the if block.",
+      "severity": "Medium"
+    }
+  ]
+}

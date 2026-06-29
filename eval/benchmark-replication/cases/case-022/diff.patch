@@ -1,0 +1,573 @@
+From 3d2141688a9cd00a736e4ad324c8038ab42ea36e Mon Sep 17 00:00:00 2001
+From: IevaVasiljeva <ieva.vasiljeva@grafana.com>
+Date: Tue, 8 Apr 2025 16:09:38 +0100
+Subject: [PATCH 1/7] remove the use of client side cache for in-proc authz
+ client
+
+Co-authored-by: Gabriel MABILLE <gabriel.mabille@grafana.com>
+---
+ pkg/services/authz/rbac.go | 28 ++++++++++++++++++++++------
+ 1 file changed, 22 insertions(+), 6 deletions(-)
+
+diff --git a/pkg/services/authz/rbac.go b/pkg/services/authz/rbac.go
+index d4cd2b42f5612..d3eca942323f6 100644
+--- a/pkg/services/authz/rbac.go
++++ b/pkg/services/authz/rbac.go
+@@ -98,7 +98,11 @@ func ProvideAuthZClient(
+ 			return ctx, nil
+ 		}))
+ 		authzv1.RegisterAuthzServiceServer(channel, server)
+-		rbacClient := newRBACClient(channel, tracer)
++		rbacClient := authzlib.NewClient(
++			channel,
++			authzlib.WithCacheClientOption(&NoopCache{}),
++			authzlib.WithTracerClientOption(tracer),
++		)
+ 
+ 		if features.IsEnabledGlobally(featuremgmt.FlagZanzana) {
+ 			return zanzana.WithShadowClient(rbacClient, zanzanaClient, reg)
+@@ -153,11 +157,7 @@ func newRemoteRBACClient(clientCfg *authzClientSettings, tracer trace.Tracer) (a
+ 		return nil, fmt.Errorf("failed to create authz client to remote server: %w", err)
+ 	}
+ 
+-	return newRBACClient(conn, tracer), nil
+-}
+-
+-func newRBACClient(conn grpc.ClientConnInterface, tracer trace.Tracer) authlib.AccessClient {
+-	return authzlib.NewClient(
++	client := authzlib.NewClient(
+ 		conn,
+ 		authzlib.WithCacheClientOption(cache.NewLocalCache(cache.Config{
+ 			Expiry:          30 * time.Second,
+@@ -165,6 +165,8 @@ func newRBACClient(conn grpc.ClientConnInterface, tracer trace.Tracer) authlib.A
+ 		})),
+ 		authzlib.WithTracerClientOption(tracer),
+ 	)
++
++	return client, nil
+ }
+ 
+ func RegisterRBACAuthZService(
+@@ -233,3 +235,17 @@ func (t tokenExhangeRoundTripper) RoundTrip(r *http.Request) (*http.Response, er
+ 	r.Header.Set("X-Access-Token", "Bearer "+res.Token)
+ 	return t.rt.RoundTrip(r)
+ }
++
++type NoopCache struct{}
++
++func (lc *NoopCache) Get(ctx context.Context, key string) ([]byte, error) {
++	return nil, cache.ErrNotFound
++}
++
++func (lc *NoopCache) Set(ctx context.Context, key string, data []byte, exp time.Duration) error {
++	return nil
++}
++
++func (lc *NoopCache) Delete(ctx context.Context, key string) error {
++	return nil
++}
+
+From 444372287479b2d5b8902c9e4e6b7006fb230d80 Mon Sep 17 00:00:00 2001
+From: IevaVasiljeva <ieva.vasiljeva@grafana.com>
+Date: Tue, 8 Apr 2025 16:10:55 +0100
+Subject: [PATCH 2/7] add a permission denial cache, fetch perms if not in
+ either of the caches
+
+Co-authored-by: Gabriel MABILLE <gabriel.mabille@grafana.com>
+---
+ pkg/services/authz/rbac/cache.go        |  4 ++
+ pkg/services/authz/rbac/service.go      | 88 ++++++++++++++++++++-----
+ pkg/services/authz/rbac/service_test.go |  1 +
+ 3 files changed, 75 insertions(+), 18 deletions(-)
+
+diff --git a/pkg/services/authz/rbac/cache.go b/pkg/services/authz/rbac/cache.go
+index 2da8410083532..a8a67ec43cba5 100644
+--- a/pkg/services/authz/rbac/cache.go
++++ b/pkg/services/authz/rbac/cache.go
+@@ -27,6 +27,10 @@ func userPermCacheKey(namespace, userUID, action string) string {
+ 	return namespace + ".perm_" + userUID + "_" + action
+ }
+ 
++func userPermDenialCacheKey(namespace, userUID, action, name, parent string) string {
++	return namespace + ".perm_" + userUID + "_" + action + "_" + name + "_" + parent
++}
++
+ func userBasicRoleCacheKey(namespace, userUID string) string {
+ 	return namespace + ".basic_role_" + userUID
+ }
+diff --git a/pkg/services/authz/rbac/service.go b/pkg/services/authz/rbac/service.go
+index 0c84c2d963e88..7a15efd1817c7 100644
+--- a/pkg/services/authz/rbac/service.go
++++ b/pkg/services/authz/rbac/service.go
+@@ -53,11 +53,12 @@ type Service struct {
+ 	sf *singleflight.Group
+ 
+ 	// Cache for user permissions, user team memberships and user basic roles
+-	idCache        *cacheWrap[store.UserIdentifiers]
+-	permCache      *cacheWrap[map[string]bool]
+-	teamCache      *cacheWrap[[]int64]
+-	basicRoleCache *cacheWrap[store.BasicRole]
+-	folderCache    *cacheWrap[folderTree]
++	idCache         *cacheWrap[store.UserIdentifiers]
++	permCache       *cacheWrap[map[string]bool]
++	permDenialCache *cacheWrap[bool]
++	teamCache       *cacheWrap[[]int64]
++	basicRoleCache  *cacheWrap[store.BasicRole]
++	folderCache     *cacheWrap[folderTree]
+ }
+ 
+ func NewService(
+@@ -81,6 +82,7 @@ func NewService(
+ 		mapper:          newMapper(),
+ 		idCache:         newCacheWrap[store.UserIdentifiers](cache, logger, longCacheTTL),
+ 		permCache:       newCacheWrap[map[string]bool](cache, logger, shortCacheTTL),
++		permDenialCache: newCacheWrap[bool](cache, logger, shortCacheTTL),
+ 		teamCache:       newCacheWrap[[]int64](cache, logger, shortCacheTTL),
+ 		basicRoleCache:  newCacheWrap[store.BasicRole](cache, logger, shortCacheTTL),
+ 		folderCache:     newCacheWrap[folderTree](cache, logger, shortCacheTTL),
+@@ -111,6 +113,26 @@ func (s *Service) Check(ctx context.Context, req *authzv1.CheckRequest) (*authzv
+ 		attribute.String("folder", checkReq.ParentFolder),
+ 	)
+ 
++	permDenialKey := userPermDenialCacheKey(checkReq.Namespace.Value, checkReq.UserUID, checkReq.Action, checkReq.Name, checkReq.ParentFolder)
++	if _, ok := s.permDenialCache.Get(ctx, permDenialKey); ok {
++		s.metrics.permissionCacheUsage.WithLabelValues("true", checkReq.Action).Inc()
++		return &authzv1.CheckResponse{Allowed: false}, nil
++	}
++
++	cachedPerms, err := s.getCachedIdentityPermissions(ctx, checkReq.Namespace, checkReq.IdentityType, checkReq.UserUID, checkReq.Action)
++	if err == nil {
++		allowed, err := s.checkPermission(ctx, cachedPerms, checkReq)
++		if err != nil {
++			ctxLogger.Error("could not check permission", "error", err)
++			s.metrics.requestCount.WithLabelValues("true", "true", req.GetVerb(), req.GetGroup(), req.GetResource()).Inc()
++			return deny, err
++		}
++		if allowed {
++			s.metrics.requestCount.WithLabelValues("false", "true", req.GetVerb(), req.GetGroup(), req.GetResource()).Inc()
++			return &authzv1.CheckResponse{Allowed: allowed}, nil
++		}
++	}
++
+ 	permissions, err := s.getIdentityPermissions(ctx, checkReq.Namespace, checkReq.IdentityType, checkReq.UserUID, checkReq.Action)
+ 	if err != nil {
+ 		ctxLogger.Error("could not get user permissions", "subject", req.GetSubject(), "error", err)
+@@ -125,6 +147,10 @@ func (s *Service) Check(ctx context.Context, req *authzv1.CheckRequest) (*authzv
+ 		return deny, err
+ 	}
+ 
++	if !allowed {
++		s.permDenialCache.Set(ctx, permDenialKey, true)
++	}
++
+ 	s.metrics.requestCount.WithLabelValues("false", "true", req.GetVerb(), req.GetGroup(), req.GetResource()).Inc()
+ 	return &authzv1.CheckResponse{Allowed: allowed}, nil
+ }
+@@ -148,11 +174,14 @@ func (s *Service) List(ctx context.Context, req *authzv1.ListRequest) (*authzv1.
+ 		attribute.String("action", listReq.Action),
+ 	)
+ 
+-	permissions, err := s.getIdentityPermissions(ctx, listReq.Namespace, listReq.IdentityType, listReq.UserUID, listReq.Action)
++	permissions, err := s.getCachedIdentityPermissions(ctx, listReq.Namespace, listReq.IdentityType, listReq.UserUID, listReq.Action)
+ 	if err != nil {
+-		ctxLogger.Error("could not get user permissions", "subject", req.GetSubject(), "error", err)
+-		s.metrics.requestCount.WithLabelValues("true", "true", req.GetVerb(), req.GetGroup(), req.GetResource()).Inc()
+-		return nil, err
++		permissions, err = s.getIdentityPermissions(ctx, listReq.Namespace, listReq.IdentityType, listReq.UserUID, listReq.Action)
++		if err != nil {
++			ctxLogger.Error("could not get user permissions", "subject", req.GetSubject(), "error", err)
++			s.metrics.requestCount.WithLabelValues("true", "true", req.GetVerb(), req.GetGroup(), req.GetResource()).Inc()
++			return nil, err
++		}
+ 	}
+ 
+ 	resp, err := s.listPermission(ctx, permissions, listReq)
+@@ -303,6 +332,38 @@ func (s *Service) getIdentityPermissions(ctx context.Context, ns types.Namespace
+ 	}
+ }
+ 
++func (s *Service) getCachedIdentityPermissions(ctx context.Context, ns types.NamespaceInfo, idType types.IdentityType, userID, action string) (map[string]bool, error) {
++	ctx, span := s.tracer.Start(ctx, "authz_direct_db.service.getCachedIdentityPermissions")
++	defer span.End()
++
++	switch idType {
++	case types.TypeAnonymous:
++		anonPermKey := anonymousPermCacheKey(ns.Value, action)
++		if cached, ok := s.permCache.Get(ctx, anonPermKey); ok {
++			s.metrics.permissionCacheUsage.WithLabelValues("true", action).Inc()
++			return cached, nil
++		}
++		s.metrics.permissionCacheUsage.WithLabelValues("false", action).Inc()
++		return nil, cache.ErrNotFound
++	case types.TypeRenderService:
++		return nil, cache.ErrNotFound
++	case types.TypeUser, types.TypeServiceAccount:
++		userIdentifiers, err := s.GetUserIdentifiers(ctx, ns, userID)
++		if err != nil {
++			return nil, err
++		}
++		userPermKey := userPermCacheKey(ns.Value, userIdentifiers.UID, action)
++		if cached, ok := s.permCache.Get(ctx, userPermKey); ok {
++			s.metrics.permissionCacheUsage.WithLabelValues("true", action).Inc()
++			return cached, nil
++		}
++		s.metrics.permissionCacheUsage.WithLabelValues("false", action).Inc()
++		return nil, cache.ErrNotFound
++	default:
++		return nil, fmt.Errorf("unsupported identity type: %s", idType)
++	}
++}
++
+ func (s *Service) getUserPermissions(ctx context.Context, ns types.NamespaceInfo, userID, action string, actionSets []string) (map[string]bool, error) {
+ 	ctx, span := s.tracer.Start(ctx, "authz_direct_db.service.getUserPermissions")
+ 	defer span.End()
+@@ -313,12 +374,6 @@ func (s *Service) getUserPermissions(ctx context.Context, ns types.NamespaceInfo
+ 	}
+ 
+ 	userPermKey := userPermCacheKey(ns.Value, userIdentifiers.UID, action)
+-	if cached, ok := s.permCache.Get(ctx, userPermKey); ok {
+-		s.metrics.permissionCacheUsage.WithLabelValues("true", action).Inc()
+-		return cached, nil
+-	}
+-	s.metrics.permissionCacheUsage.WithLabelValues("false", action).Inc()
+-
+ 	res, err, _ := s.sf.Do(userPermKey+"_getUserPermissions", func() (interface{}, error) {
+ 		basicRoles, err := s.getUserBasicRole(ctx, ns, userIdentifiers)
+ 		if err != nil {
+@@ -363,9 +418,6 @@ func (s *Service) getAnonymousPermissions(ctx context.Context, ns types.Namespac
+ 	defer span.End()
+ 
+ 	anonPermKey := anonymousPermCacheKey(ns.Value, action)
+-	if cached, ok := s.permCache.Get(ctx, anonPermKey); ok {
+-		return cached, nil
+-	}
+ 	res, err, _ := s.sf.Do(anonPermKey+"_getAnonymousPermissions", func() (interface{}, error) {
+ 		permissions, err := s.permissionStore.GetUserPermissions(ctx, ns, store.PermissionsQuery{Action: action, ActionSets: actionSets, Role: "Viewer"})
+ 		if err != nil {
+diff --git a/pkg/services/authz/rbac/service_test.go b/pkg/services/authz/rbac/service_test.go
+index b9df0d9232277..6965eed17bb33 100644
+--- a/pkg/services/authz/rbac/service_test.go
++++ b/pkg/services/authz/rbac/service_test.go
+@@ -1202,6 +1202,7 @@ func setupService() *Service {
+ 		metrics:         newMetrics(nil),
+ 		idCache:         newCacheWrap[store.UserIdentifiers](cache, logger, longCacheTTL),
+ 		permCache:       newCacheWrap[map[string]bool](cache, logger, shortCacheTTL),
++		permDenialCache: newCacheWrap[bool](cache, logger, shortCacheTTL),
+ 		teamCache:       newCacheWrap[[]int64](cache, logger, shortCacheTTL),
+ 		basicRoleCache:  newCacheWrap[store.BasicRole](cache, logger, longCacheTTL),
+ 		folderCache:     newCacheWrap[folderTree](cache, logger, shortCacheTTL),
+
+From ffabbb256f95a900c1f0eacfb960492f52407834 Mon Sep 17 00:00:00 2001
+From: Gabriel Mabille <gabriel.mabille@grafana.com>
+Date: Tue, 8 Apr 2025 17:18:08 +0200
+Subject: [PATCH 3/7] Clean up tests
+
+Co-authored-by: Ieva <ieva.vasiljeva@grafana.com>
+---
+ pkg/services/authz/rbac/service_test.go | 8 --------
+ 1 file changed, 8 deletions(-)
+
+diff --git a/pkg/services/authz/rbac/service_test.go b/pkg/services/authz/rbac/service_test.go
+index 6965eed17bb33..a04e22ce67850 100644
+--- a/pkg/services/authz/rbac/service_test.go
++++ b/pkg/services/authz/rbac/service_test.go
+@@ -339,14 +339,6 @@ func TestService_getUserPermissions(t *testing.T) {
+ 	}
+ 
+ 	testCases := []testCase{
+-		{
+-			name: "should return permissions from cache if available",
+-			permissions: []accesscontrol.Permission{
+-				{Action: "dashboards:read", Scope: "dashboards:uid:some_dashboard"},
+-			},
+-			cacheHit:      true,
+-			expectedPerms: map[string]bool{"dashboards:uid:some_dashboard": true},
+-		},
+ 		{
+ 			name: "should return permissions from store if not in cache",
+ 			permissions: []accesscontrol.Permission{
+
+From e5cd538c67d366b3d341ab78fae4ab24c32b1031 Mon Sep 17 00:00:00 2001
+From: Gabriel Mabille <gabriel.mabille@grafana.com>
+Date: Tue, 8 Apr 2025 17:40:58 +0200
+Subject: [PATCH 4/7] Cache tests
+
+Co-authored-by: Ieva <ieva.vasiljeva@grafana.com>
+---
+ pkg/services/authz/rbac/service_test.go | 79 +++++++++++++++++++++++++
+ 1 file changed, 79 insertions(+)
+
+diff --git a/pkg/services/authz/rbac/service_test.go b/pkg/services/authz/rbac/service_test.go
+index a04e22ce67850..9110108cd3479 100644
+--- a/pkg/services/authz/rbac/service_test.go
++++ b/pkg/services/authz/rbac/service_test.go
+@@ -890,6 +890,85 @@ func TestService_Check(t *testing.T) {
+ 	})
+ }
+ 
++func TestService_CacheCheck(t *testing.T) {
++	callingService := authn.NewAccessTokenAuthInfo(authn.Claims[authn.AccessTokenClaims]{
++		Claims: jwt.Claims{
++			Subject:  types.NewTypeID(types.TypeAccessPolicy, "some-service"),
++			Audience: []string{"authzservice"},
++		},
++		Rest: authn.AccessTokenClaims{Namespace: "org-12"},
++	})
++
++	ctx := types.WithAuthInfo(context.Background(), callingService)
++	userID := &store.UserIdentifiers{UID: "test-uid", ID: 1}
++
++	t.Run("Allow based on cached permissions", func(t *testing.T) {
++		s := setupService()
++
++		s.idCache.Set(ctx, userIdentifierCacheKey("org-12", "test-uid"), *userID)
++		s.permCache.Set(ctx, userPermCacheKey("org-12", "test-uid", "dashboards:read"), map[string]bool{"dashboards:uid:dash1": true})
++
++		resp, err := s.Check(ctx, &authzv1.CheckRequest{
++			Namespace: "org-12",
++			Subject:   "user:test-uid",
++			Group:     "dashboard.grafana.app",
++			Resource:  "dashboards",
++			Verb:      "get",
++			Name:      "dash1",
++		})
++		require.NoError(t, err)
++		assert.True(t, resp.Allowed)
++	})
++	t.Run("Fallback to the database on cache miss", func(t *testing.T) {
++		s := setupService()
++
++		// Populate databse permission but not the cache
++		store := &fakeStore{
++			userID:          userID,
++			userPermissions: []accesscontrol.Permission{{Action: "dashboards:read", Scope: "dashboards:uid:dash2"}},
++		}
++
++		s.store = store
++		s.permissionStore = store
++
++		s.idCache.Set(ctx, userIdentifierCacheKey("org-12", "test-uid"), *userID)
++
++		resp, err := s.Check(ctx, &authzv1.CheckRequest{
++			Namespace: "org-12",
++			Subject:   "user:test-uid",
++			Group:     "dashboard.grafana.app",
++			Resource:  "dashboards",
++			Verb:      "get",
++			Name:      "dash2",
++		})
++		require.NoError(t, err)
++		assert.True(t, resp.Allowed)
++	})
++	t.Run("Should deny on explicit cache deny entry", func(t *testing.T) {
++		s := setupService()
++
++		s.idCache.Set(ctx, userIdentifierCacheKey("org-12", "test-uid"), *userID)
++
++		// Explicitly deny access to the dashboard
++		s.permDenialCache.Set(ctx, userPermDenialCacheKey("org-12", "test-uid", "dashboards:read", "dash1", "fold1"), true)
++
++		// Allow access to the dashboard to prove this is not checked
++		s.permCache.Set(ctx, userPermCacheKey("org-12", "test-uid", "dashboards:read"), map[string]bool{"dashboards:uid:dash1": false})
++
++		resp, err := s.Check(ctx, &authzv1.CheckRequest{
++			Namespace: "org-12",
++			Subject:   "user:test-uid",
++			Group:     "dashboard.grafana.app",
++			Resource:  "dashboards",
++			Verb:      "get",
++			Name:      "dash1",
++			Folder:    "fold1",
++		})
++		require.NoError(t, err)
++		assert.False(t, resp.Allowed)
++	})
++}
++
+ func TestService_List(t *testing.T) {
+ 	callingService := authn.NewAccessTokenAuthInfo(authn.Claims[authn.AccessTokenClaims]{
+ 		Claims: jwt.Claims{
+
+From 843e142b0905f80cdfec78079cd52b24ea550338 Mon Sep 17 00:00:00 2001
+From: Gabriel Mabille <gabriel.mabille@grafana.com>
+Date: Tue, 8 Apr 2025 17:47:22 +0200
+Subject: [PATCH 5/7] Add test to list + cache
+
+Co-authored-by: Ieva <ieva.vasiljeva@grafana.com>
+---
+ pkg/services/authz/rbac/service_test.go | 34 +++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/pkg/services/authz/rbac/service_test.go b/pkg/services/authz/rbac/service_test.go
+index 9110108cd3479..a038109b8a6cf 100644
+--- a/pkg/services/authz/rbac/service_test.go
++++ b/pkg/services/authz/rbac/service_test.go
+@@ -1262,6 +1262,40 @@ func TestService_List(t *testing.T) {
+ 	})
+ }
+ 
++func TestService_CacheList(t *testing.T) {
++	callingService := authn.NewAccessTokenAuthInfo(authn.Claims[authn.AccessTokenClaims]{
++		Claims: jwt.Claims{
++			Subject:  types.NewTypeID(types.TypeAccessPolicy, "some-service"),
++			Audience: []string{"authzservice"},
++		},
++		Rest: authn.AccessTokenClaims{Namespace: "org-12"},
++	})
++
++	t.Run("List based on cached permissions", func(t *testing.T) {
++		s := setupService()
++		ctx := types.WithAuthInfo(context.Background(), callingService)
++		userID := &store.UserIdentifiers{UID: "test-uid", ID: 1}
++		s.idCache.Set(ctx, userIdentifierCacheKey("org-12", "test-uid"), *userID)
++		s.permCache.Set(ctx,
++			userPermCacheKey("org-12", "test-uid", "dashboards:read"),
++			map[string]bool{"dashboards:uid:dash1": true, "dashboards:uid:dash2": true, "folders:uid:fold1": true},
++		)
++		s.identityStore = &fakeIdentityStore{}
++
++		resp, err := s.List(ctx, &authzv1.ListRequest{
++			Namespace: "org-12",
++			Subject:   "user:test-uid",
++			Group:     "dashboard.grafana.app",
++			Resource:  "dashboards",
++			Verb:      "list",
++		})
++
++		require.NoError(t, err)
++		require.ElementsMatch(t, resp.Items, []string{"dash1", "dash2"})
++		require.ElementsMatch(t, resp.Folders, []string{"fold1"})
++	})
++}
++
+ func setupService() *Service {
+ 	cache := cache.NewLocalCache(cache.Config{Expiry: 5 * time.Minute, CleanupInterval: 5 * time.Minute})
+ 	logger := log.New("authz-rbac-service")
+
+From 2e66be97ce5191b86019a5319161a00db308cf27 Mon Sep 17 00:00:00 2001
+From: Gabriel Mabille <gabriel.mabille@grafana.com>
+Date: Tue, 8 Apr 2025 17:51:48 +0200
+Subject: [PATCH 6/7] Add outdated cache test
+
+Co-authored-by: Ieva <ieva.vasiljeva@grafana.com>
+---
+ pkg/services/authz/rbac/service_test.go | 28 ++++++++++++++++++++++++-
+ 1 file changed, 27 insertions(+), 1 deletion(-)
+
+diff --git a/pkg/services/authz/rbac/service_test.go b/pkg/services/authz/rbac/service_test.go
+index a038109b8a6cf..454d9406c6681 100644
+--- a/pkg/services/authz/rbac/service_test.go
++++ b/pkg/services/authz/rbac/service_test.go
+@@ -922,7 +922,7 @@ func TestService_CacheCheck(t *testing.T) {
+ 	t.Run("Fallback to the database on cache miss", func(t *testing.T) {
+ 		s := setupService()
+ 
+-		// Populate databse permission but not the cache
++		// Populate database permission but not the cache
+ 		store := &fakeStore{
+ 			userID:          userID,
+ 			userPermissions: []accesscontrol.Permission{{Action: "dashboards:read", Scope: "dashboards:uid:dash2"}},
+@@ -944,6 +944,32 @@ func TestService_CacheCheck(t *testing.T) {
+ 		require.NoError(t, err)
+ 		assert.True(t, resp.Allowed)
+ 	})
++	t.Run("Fallback to the database on outdated cache", func(t *testing.T) {
++		s := setupService()
++
++		store := &fakeStore{
++			userID:          userID,
++			userPermissions: []accesscontrol.Permission{{Action: "dashboards:read", Scope: "dashboards:uid:dash2"}},
++		}
++
++		s.store = store
++		s.permissionStore = store
++
++		s.idCache.Set(ctx, userIdentifierCacheKey("org-12", "test-uid"), *userID)
++		// The cache does not have the permission for dash2 (outdated)
++		s.permCache.Set(ctx, userPermCacheKey("org-12", "test-uid", "dashboards:read"), map[string]bool{"dashboards:uid:dash1": true})
++
++		resp, err := s.Check(ctx, &authzv1.CheckRequest{
++			Namespace: "org-12",
++			Subject:   "user:test-uid",
++			Group:     "dashboard.grafana.app",
++			Resource:  "dashboards",
++			Verb:      "get",
++			Name:      "dash2",
++		})
++		require.NoError(t, err)
++		assert.True(t, resp.Allowed)
++	})
+ 	t.Run("Should deny on explicit cache deny entry", func(t *testing.T) {
+ 		s := setupService()
+ 
+
+From c03135665f418c5c21cd301ee77f0cadc0d617c7 Mon Sep 17 00:00:00 2001
+From: Gabriel Mabille <gabriel.mabille@grafana.com>
+Date: Wed, 9 Apr 2025 16:12:22 +0200
+Subject: [PATCH 7/7] Re-organize metrics
+
+Co-authored-by: Ieva <ieva.vasiljeva@grafana.com>
+---
+ pkg/services/authz/rbac/service.go | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/pkg/services/authz/rbac/service.go b/pkg/services/authz/rbac/service.go
+index 7a15efd1817c7..61a86c1a569e0 100644
+--- a/pkg/services/authz/rbac/service.go
++++ b/pkg/services/authz/rbac/service.go
+@@ -116,6 +116,7 @@ func (s *Service) Check(ctx context.Context, req *authzv1.CheckRequest) (*authzv
+ 	permDenialKey := userPermDenialCacheKey(checkReq.Namespace.Value, checkReq.UserUID, checkReq.Action, checkReq.Name, checkReq.ParentFolder)
+ 	if _, ok := s.permDenialCache.Get(ctx, permDenialKey); ok {
+ 		s.metrics.permissionCacheUsage.WithLabelValues("true", checkReq.Action).Inc()
++		s.metrics.requestCount.WithLabelValues("false", "true", req.GetVerb(), req.GetGroup(), req.GetResource()).Inc()
+ 		return &authzv1.CheckResponse{Allowed: false}, nil
+ 	}
+ 
+@@ -128,10 +129,12 @@ func (s *Service) Check(ctx context.Context, req *authzv1.CheckRequest) (*authzv
+ 			return deny, err
+ 		}
+ 		if allowed {
++			s.metrics.permissionCacheUsage.WithLabelValues("true", checkReq.Action).Inc()
+ 			s.metrics.requestCount.WithLabelValues("false", "true", req.GetVerb(), req.GetGroup(), req.GetResource()).Inc()
+ 			return &authzv1.CheckResponse{Allowed: allowed}, nil
+ 		}
+ 	}
++	s.metrics.permissionCacheUsage.WithLabelValues("false", checkReq.Action).Inc()
+ 
+ 	permissions, err := s.getIdentityPermissions(ctx, checkReq.Namespace, checkReq.IdentityType, checkReq.UserUID, checkReq.Action)
+ 	if err != nil {
+@@ -175,7 +178,11 @@ func (s *Service) List(ctx context.Context, req *authzv1.ListRequest) (*authzv1.
+ 	)
+ 
+ 	permissions, err := s.getCachedIdentityPermissions(ctx, listReq.Namespace, listReq.IdentityType, listReq.UserUID, listReq.Action)
+-	if err != nil {
++	if err == nil {
++		s.metrics.permissionCacheUsage.WithLabelValues("true", listReq.Action).Inc()
++	} else {
++		s.metrics.permissionCacheUsage.WithLabelValues("false", listReq.Action).Inc()
++
+ 		permissions, err = s.getIdentityPermissions(ctx, listReq.Namespace, listReq.IdentityType, listReq.UserUID, listReq.Action)
+ 		if err != nil {
+ 			ctxLogger.Error("could not get user permissions", "subject", req.GetSubject(), "error", err)
+@@ -340,10 +347,8 @@ func (s *Service) getCachedIdentityPermissions(ctx context.Context, ns types.Nam
+ 	case types.TypeAnonymous:
+ 		anonPermKey := anonymousPermCacheKey(ns.Value, action)
+ 		if cached, ok := s.permCache.Get(ctx, anonPermKey); ok {
+-			s.metrics.permissionCacheUsage.WithLabelValues("true", action).Inc()
+ 			return cached, nil
+ 		}
+-		s.metrics.permissionCacheUsage.WithLabelValues("false", action).Inc()
+ 		return nil, cache.ErrNotFound
+ 	case types.TypeRenderService:
+ 		return nil, cache.ErrNotFound
+@@ -354,10 +359,8 @@ func (s *Service) getCachedIdentityPermissions(ctx context.Context, ns types.Nam
+ 		}
+ 		userPermKey := userPermCacheKey(ns.Value, userIdentifiers.UID, action)
+ 		if cached, ok := s.permCache.Get(ctx, userPermKey); ok {
+-			s.metrics.permissionCacheUsage.WithLabelValues("true", action).Inc()
+ 			return cached, nil
+ 		}
+-		s.metrics.permissionCacheUsage.WithLabelValues("false", action).Inc()
+ 		return nil, cache.ErrNotFound
+ 	default:
+ 		return nil, fmt.Errorf("unsupported identity type: %s", idType)

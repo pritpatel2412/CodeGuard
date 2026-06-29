@@ -1,0 +1,765 @@
+From 0cf53eafd903e55b8a27eff9811dd956a2b2e5b8 Mon Sep 17 00:00:00 2001
+From: Gabe Villalobos <gabriel.villalobos@sentry.io>
+Date: Wed, 18 Sep 2024 15:03:04 -0700
+Subject: [PATCH 1/8] fix(ecosystem): Breaks issue sync cycles
+
+---
+ src/sentry/integrations/mixins/issues.py      | 21 ++++++++++--
+ .../services/assignment_source.py             | 32 +++++++++++++++++++
+ .../tasks/sync_assignee_outbound.py           | 14 ++++++--
+ src/sentry/integrations/utils/sync.py         | 29 ++++++++++++++---
+ src/sentry/models/groupassignee.py            | 11 +++++--
+ 5 files changed, 94 insertions(+), 13 deletions(-)
+ create mode 100644 src/sentry/integrations/services/assignment_source.py
+
+diff --git a/src/sentry/integrations/mixins/issues.py b/src/sentry/integrations/mixins/issues.py
+index 9a77dd4d89f9ef..044fabf6ad67ab 100644
+--- a/src/sentry/integrations/mixins/issues.py
++++ b/src/sentry/integrations/mixins/issues.py
+@@ -12,6 +12,7 @@
+ from sentry.eventstore.models import GroupEvent
+ from sentry.integrations.base import IntegrationInstallation
+ from sentry.integrations.models.external_issue import ExternalIssue
++from sentry.integrations.services.assignment_source import AssignmentSource
+ from sentry.integrations.services.integration import integration_service
+ from sentry.integrations.tasks.sync_status_inbound import (
+     sync_status_inbound as sync_status_inbound_task,
+@@ -62,7 +63,7 @@ def from_resolve_unresolve(
+ 
+ 
+ class IssueBasicIntegration(IntegrationInstallation, ABC):
+-    def should_sync(self, attribute):
++    def should_sync(self, attribute, sync_source: AssignmentSource | None = None):
+         return False
+ 
+     def get_group_title(self, group, event, **kwargs):
+@@ -378,10 +379,17 @@ class IssueSyncIntegration(IssueBasicIntegration, ABC):
+     outbound_assignee_key: ClassVar[str | None] = None
+     inbound_assignee_key: ClassVar[str | None] = None
+ 
+-    def should_sync(self, attribute: str) -> bool:
++    def should_sync(self, attribute: str, sync_source: AssignmentSource | None = None) -> bool:
+         key = getattr(self, f"{attribute}_key", None)
+         if key is None or self.org_integration is None:
+             return False
++
++        # Check that the assignment source isn't this same integration in order to
++        # prevent sync-cycles from occurring. This should still allow other
++        # integrations to propagate changes outward.
++        if sync_source and sync_source.integration_id == self.org_integration.integration_id:
++            return False
++
+         value: bool = self.org_integration.config.get(key, False)
+         return value
+ 
+@@ -400,7 +408,14 @@ def sync_assignee_outbound(
+         raise NotImplementedError
+ 
+     @abstractmethod
+-    def sync_status_outbound(self, external_issue, is_resolved, project_id, **kwargs):
++    def sync_status_outbound(
++        self,
++        external_issue,
++        is_resolved,
++        project_id,
++        assignment_source: AssignmentSource | None = None,
++        **kwargs,
++    ):
+         """
+         Propagate a sentry issue's status to a linked issue's status.
+         """
+diff --git a/src/sentry/integrations/services/assignment_source.py b/src/sentry/integrations/services/assignment_source.py
+new file mode 100644
+index 00000000000000..45ffb528836e6c
+--- /dev/null
++++ b/src/sentry/integrations/services/assignment_source.py
+@@ -0,0 +1,32 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from datetime import datetime
++from enum import Enum
++from typing import TYPE_CHECKING
++
++from django.utils import timezone
++
++if TYPE_CHECKING:
++    from sentry.integrations.models import Integration
++    from sentry.integrations.services.integration import RpcIntegration
++
++
++class AssignmentSourceType(str, Enum):
++    integration = "integration"
++
++
++@dataclass(frozen=True)
++class AssignmentSource:
++    source_type: AssignmentSourceType
++    source_name: str
++    integration_id: int
++    queued: datetime = timezone.now()
++
++    @classmethod
++    def from_integration(cls, integration: Integration | RpcIntegration) -> AssignmentSource:
++        return AssignmentSource(
++            source_type=AssignmentSourceType.integration,
++            source_name=integration.name,
++            integration_id=integration.id,
++        )
+diff --git a/src/sentry/integrations/tasks/sync_assignee_outbound.py b/src/sentry/integrations/tasks/sync_assignee_outbound.py
+index 9b68da6c19379d..8f5c015b64b062 100644
+--- a/src/sentry/integrations/tasks/sync_assignee_outbound.py
++++ b/src/sentry/integrations/tasks/sync_assignee_outbound.py
+@@ -1,6 +1,7 @@
+ from sentry import analytics, features
+ from sentry.integrations.models.external_issue import ExternalIssue
+ from sentry.integrations.models.integration import Integration
++from sentry.integrations.services.assignment_source import AssignmentSource
+ from sentry.integrations.services.integration import integration_service
+ from sentry.models.organization import Organization
+ from sentry.silo.base import SiloMode
+@@ -24,7 +25,12 @@
+         Organization.DoesNotExist,
+     )
+ )
+-def sync_assignee_outbound(external_issue_id: int, user_id: int | None, assign: bool) -> None:
++def sync_assignee_outbound(
++    external_issue_id: int,
++    user_id: int | None,
++    assign: bool,
++    assignment_source: AssignmentSource | None = None,
++) -> None:
+     # Sync Sentry assignee to an external issue.
+     external_issue = ExternalIssue.objects.get(id=external_issue_id)
+ 
+@@ -42,10 +48,12 @@ def sync_assignee_outbound(external_issue_id: int, user_id: int | None, assign:
+     ):
+         return
+ 
+-    if installation.should_sync("outbound_assignee"):
++    if installation.should_sync("outbound_assignee", assignment_source):
+         # Assume unassign if None.
+         user = user_service.get_user(user_id) if user_id else None
+-        installation.sync_assignee_outbound(external_issue, user, assign=assign)
++        installation.sync_assignee_outbound(
++            external_issue, user, assign=assign, assignment_source=assignment_source
++        )
+         analytics.record(
+             "integration.issue.assignee.synced",
+             provider=integration.provider,
+diff --git a/src/sentry/integrations/utils/sync.py b/src/sentry/integrations/utils/sync.py
+index a97c6dd78faca6..993521cdc7e2d8 100644
+--- a/src/sentry/integrations/utils/sync.py
++++ b/src/sentry/integrations/utils/sync.py
+@@ -5,6 +5,7 @@
+ from typing import TYPE_CHECKING
+ 
+ from sentry import features
++from sentry.integrations.services.assignment_source import AssignmentSource
+ from sentry.integrations.services.integration import integration_service
+ from sentry.integrations.tasks.sync_assignee_outbound import sync_assignee_outbound
+ from sentry.models.group import Group
+@@ -92,8 +93,12 @@ def sync_group_assignee_inbound(
+ 
+     if not assign:
+         for group in affected_groups:
+-            GroupAssignee.objects.deassign(group)
+-        return affected_groups
++            GroupAssignee.objects.deassign(
++                group,
++                assignment_source=AssignmentSource.from_integration(integration),
++            )
++
++        return list(affected_groups)
+ 
+     users = user_service.get_many_by_email(emails=[email], is_verified=True)
+     users_by_id = {user.id: user for user in users}
+@@ -104,14 +109,23 @@ def sync_group_assignee_inbound(
+         user_id = get_user_id(projects_by_user, group)
+         user = users_by_id.get(user_id)
+         if user:
+-            GroupAssignee.objects.assign(group, user)
++            GroupAssignee.objects.assign(
++                group,
++                user,
++                assignment_source=AssignmentSource.from_integration(integration),
++            )
+             groups_assigned.append(group)
+         else:
+             logger.info("assignee-not-found-inbound", extra=log_context)
+     return groups_assigned
+ 
+ 
+-def sync_group_assignee_outbound(group: Group, user_id: int | None, assign: bool = True) -> None:
++def sync_group_assignee_outbound(
++    group: Group,
++    user_id: int | None,
++    assign: bool = True,
++    assignment_source: AssignmentSource | None = None,
++) -> None:
+     from sentry.models.grouplink import GroupLink
+ 
+     external_issue_ids = GroupLink.objects.filter(
+@@ -120,5 +134,10 @@ def sync_group_assignee_outbound(group: Group, user_id: int | None, assign: bool
+ 
+     for external_issue_id in external_issue_ids:
+         sync_assignee_outbound.apply_async(
+-            kwargs={"external_issue_id": external_issue_id, "user_id": user_id, "assign": assign}
++            kwargs={
++                "external_issue_id": external_issue_id,
++                "user_id": user_id,
++                "assign": assign,
++                "assignment_source": assignment_source,
++            }
+         )
+diff --git a/src/sentry/models/groupassignee.py b/src/sentry/models/groupassignee.py
+index e3c979eb3eb562..bdba29b6ee82cd 100644
+--- a/src/sentry/models/groupassignee.py
++++ b/src/sentry/models/groupassignee.py
+@@ -12,6 +12,7 @@
+ from sentry.db.models import FlexibleForeignKey, Model, region_silo_model, sane_repr
+ from sentry.db.models.fields.hybrid_cloud_foreign_key import HybridCloudForeignKey
+ from sentry.db.models.manager.base import BaseManager
++from sentry.integrations.services.assignment_source import AssignmentSource
+ from sentry.models.grouphistory import GroupHistoryStatus, record_group_history
+ from sentry.models.groupowner import GroupOwner
+ from sentry.models.groupsubscription import GroupSubscription
+@@ -134,6 +135,7 @@ def assign(
+         create_only: bool = False,
+         extra: dict[str, str] | None = None,
+         force_autoassign: bool = False,
++        assignment_source: AssignmentSource | None = None,
+     ):
+         from sentry.integrations.utils import sync_group_assignee_outbound
+         from sentry.models.activity import Activity
+@@ -187,7 +189,9 @@ def assign(
+             if assignee_type == "user" and features.has(
+                 "organizations:integrations-issue-sync", group.organization, actor=acting_user
+             ):
+-                sync_group_assignee_outbound(group, assigned_to.id, assign=True)
++                sync_group_assignee_outbound(
++                    group, assigned_to.id, assign=True, assignment_source=assignment_source
++                )
+ 
+             if not created:  # aka re-assignment
+                 self.remove_old_assignees(group, assignee, assigned_to_id, assignee_type)
+@@ -200,6 +204,7 @@ def deassign(
+         acting_user: User | RpcUser | None = None,
+         assigned_to: Team | RpcUser | None = None,
+         extra: dict[str, str] | None = None,
++        assignment_source: AssignmentSource | None = None,
+     ) -> None:
+         from sentry.integrations.utils import sync_group_assignee_outbound
+         from sentry.models.activity import Activity
+@@ -230,7 +235,9 @@ def deassign(
+             if features.has(
+                 "organizations:integrations-issue-sync", group.organization, actor=acting_user
+             ):
+-                sync_group_assignee_outbound(group, None, assign=False)
++                sync_group_assignee_outbound(
++                    group, None, assign=False, assignment_source=assignment_source
++                )
+ 
+             issue_unassigned.send_robust(
+                 project=group.project, group=group, user=acting_user, sender=self.__class__
+
+From f665d925d94c1834ff86846633eeaacec2fc80cf Mon Sep 17 00:00:00 2001
+From: Gabe Villalobos <gabriel.villalobos@sentry.io>
+Date: Thu, 19 Sep 2024 14:42:24 -0700
+Subject: [PATCH 2/8] Passes JSON instead of classes when queueing task
+
+---
+ .../integrations/services/assignment_source.py     | 14 +++++++++++++-
+ .../integrations/tasks/sync_assignee_outbound.py   |  9 ++++++---
+ src/sentry/integrations/utils/sync.py              |  2 +-
+ tests/sentry/models/test_groupassignee.py          |  9 +++++++--
+ 4 files changed, 27 insertions(+), 7 deletions(-)
+
+diff --git a/src/sentry/integrations/services/assignment_source.py b/src/sentry/integrations/services/assignment_source.py
+index 45ffb528836e6c..aa0f9de96a1259 100644
+--- a/src/sentry/integrations/services/assignment_source.py
++++ b/src/sentry/integrations/services/assignment_source.py
+@@ -1,12 +1,14 @@
+ from __future__ import annotations
+ 
+-from dataclasses import dataclass
++from dataclasses import asdict, dataclass
+ from datetime import datetime
+ from enum import Enum
+ from typing import TYPE_CHECKING
+ 
+ from django.utils import timezone
+ 
++from sentry.utils import json
++
+ if TYPE_CHECKING:
+     from sentry.integrations.models import Integration
+     from sentry.integrations.services.integration import RpcIntegration
+@@ -30,3 +32,13 @@ def from_integration(cls, integration: Integration | RpcIntegration) -> Assignme
+             source_name=integration.name,
+             integration_id=integration.id,
+         )
++
++    def json(self) -> str:
++        return json.dumps(asdict(self))
++
++    @classmethod
++    def from_json(cls, json_data: str) -> AssignmentSource | None:
++        try:
++            return cls(**json.loads(json_data))
++        except ValueError:
++            return None
+diff --git a/src/sentry/integrations/tasks/sync_assignee_outbound.py b/src/sentry/integrations/tasks/sync_assignee_outbound.py
+index 8f5c015b64b062..409f48f61a07c6 100644
+--- a/src/sentry/integrations/tasks/sync_assignee_outbound.py
++++ b/src/sentry/integrations/tasks/sync_assignee_outbound.py
+@@ -29,7 +29,7 @@ def sync_assignee_outbound(
+     external_issue_id: int,
+     user_id: int | None,
+     assign: bool,
+-    assignment_source: AssignmentSource | None = None,
++    assignment_source_json: str | None = None,
+ ) -> None:
+     # Sync Sentry assignee to an external issue.
+     external_issue = ExternalIssue.objects.get(id=external_issue_id)
+@@ -48,11 +48,14 @@ def sync_assignee_outbound(
+     ):
+         return
+ 
+-    if installation.should_sync("outbound_assignee", assignment_source):
++    parsed_assignment_source = (
++        AssignmentSource.from_json(assignment_source_json) if assignment_source_json else None
++    )
++    if installation.should_sync("outbound_assignee", parsed_assignment_source):
+         # Assume unassign if None.
+         user = user_service.get_user(user_id) if user_id else None
+         installation.sync_assignee_outbound(
+-            external_issue, user, assign=assign, assignment_source=assignment_source
++            external_issue, user, assign=assign, assignment_source=parsed_assignment_source
+         )
+         analytics.record(
+             "integration.issue.assignee.synced",
+diff --git a/src/sentry/integrations/utils/sync.py b/src/sentry/integrations/utils/sync.py
+index 993521cdc7e2d8..2b24665a91ecda 100644
+--- a/src/sentry/integrations/utils/sync.py
++++ b/src/sentry/integrations/utils/sync.py
+@@ -138,6 +138,6 @@ def sync_group_assignee_outbound(
+                 "external_issue_id": external_issue_id,
+                 "user_id": user_id,
+                 "assign": assign,
+-                "assignment_source": assignment_source,
++                "assignment_source_json": assignment_source.json() if assignment_source else None,
+             }
+         )
+diff --git a/tests/sentry/models/test_groupassignee.py b/tests/sentry/models/test_groupassignee.py
+index 640b2b45a728cd..4875280a5bbd15 100644
+--- a/tests/sentry/models/test_groupassignee.py
++++ b/tests/sentry/models/test_groupassignee.py
+@@ -151,7 +151,10 @@ def test_assignee_sync_outbound_assign(self, mock_sync_assignee_outbound):
+                 GroupAssignee.objects.assign(self.group, self.user)
+ 
+                 mock_sync_assignee_outbound.assert_called_with(
+-                    external_issue, user_service.get_user(self.user.id), assign=True
++                    external_issue,
++                    user_service.get_user(self.user.id),
++                    assign=True,
++                    assignment_source=None,
+                 )
+ 
+                 assert GroupAssignee.objects.filter(
+@@ -205,7 +208,9 @@ def test_assignee_sync_outbound_unassign(self, mock_sync_assignee_outbound):
+         with self.feature({"organizations:integrations-issue-sync": True}):
+             with self.tasks():
+                 GroupAssignee.objects.deassign(self.group)
+-                mock_sync_assignee_outbound.assert_called_with(external_issue, None, assign=False)
++                mock_sync_assignee_outbound.assert_called_with(
++                    external_issue, None, assign=False, assignment_source=None
++                )
+ 
+                 assert not GroupAssignee.objects.filter(
+                     project=self.group.project,
+
+From 94578b82e531471def0b19292ca919519abdb147 Mon Sep 17 00:00:00 2001
+From: Gabe Villalobos <gabriel.villalobos@sentry.io>
+Date: Fri, 20 Sep 2024 16:48:56 -0700
+Subject: [PATCH 3/8] removes SourceType enum
+
+---
+ src/sentry/integrations/services/assignment_source.py | 7 -------
+ 1 file changed, 7 deletions(-)
+
+diff --git a/src/sentry/integrations/services/assignment_source.py b/src/sentry/integrations/services/assignment_source.py
+index aa0f9de96a1259..e7ae713b1be721 100644
+--- a/src/sentry/integrations/services/assignment_source.py
++++ b/src/sentry/integrations/services/assignment_source.py
+@@ -2,7 +2,6 @@
+ 
+ from dataclasses import asdict, dataclass
+ from datetime import datetime
+-from enum import Enum
+ from typing import TYPE_CHECKING
+ 
+ from django.utils import timezone
+@@ -14,13 +13,8 @@
+     from sentry.integrations.services.integration import RpcIntegration
+ 
+ 
+-class AssignmentSourceType(str, Enum):
+-    integration = "integration"
+-
+-
+ @dataclass(frozen=True)
+ class AssignmentSource:
+-    source_type: AssignmentSourceType
+     source_name: str
+     integration_id: int
+     queued: datetime = timezone.now()
+@@ -28,7 +22,6 @@ class AssignmentSource:
+     @classmethod
+     def from_integration(cls, integration: Integration | RpcIntegration) -> AssignmentSource:
+         return AssignmentSource(
+-            source_type=AssignmentSourceType.integration,
+             source_name=integration.name,
+             integration_id=integration.id,
+         )
+
+From 6eb81dcbbb29d9b00b2b7be029a73b8ca93dfc1a Mon Sep 17 00:00:00 2001
+From: Gabe Villalobos <gabriel.villalobos@sentry.io>
+Date: Wed, 2 Oct 2024 10:21:27 -0700
+Subject: [PATCH 4/8] Converts from JSON to dictionaries instead
+
+---
+ .../services/assignment_source.py             | 14 ++++----
+ .../tasks/sync_assignee_outbound.py           |  6 ++--
+ src/sentry/integrations/utils/sync.py         |  4 ++-
+ .../services/test_assignment_source.py        | 36 +++++++++++++++++++
+ 4 files changed, 49 insertions(+), 11 deletions(-)
+ create mode 100644 tests/sentry/integrations/services/test_assignment_source.py
+
+diff --git a/src/sentry/integrations/services/assignment_source.py b/src/sentry/integrations/services/assignment_source.py
+index e7ae713b1be721..fbf4c85bf9f7c7 100644
+--- a/src/sentry/integrations/services/assignment_source.py
++++ b/src/sentry/integrations/services/assignment_source.py
+@@ -2,12 +2,10 @@
+ 
+ from dataclasses import asdict, dataclass
+ from datetime import datetime
+-from typing import TYPE_CHECKING
++from typing import TYPE_CHECKING, Any
+ 
+ from django.utils import timezone
+ 
+-from sentry.utils import json
+-
+ if TYPE_CHECKING:
+     from sentry.integrations.models import Integration
+     from sentry.integrations.services.integration import RpcIntegration
+@@ -26,12 +24,12 @@ def from_integration(cls, integration: Integration | RpcIntegration) -> Assignme
+             integration_id=integration.id,
+         )
+ 
+-    def json(self) -> str:
+-        return json.dumps(asdict(self))
++    def to_dict(self) -> dict[str, Any]:
++        return asdict(self)
+ 
+     @classmethod
+-    def from_json(cls, json_data: str) -> AssignmentSource | None:
++    def from_dict(cls, input_dict: dict[str, Any]) -> AssignmentSource | None:
+         try:
+-            return cls(**json.loads(json_data))
+-        except ValueError:
++            return cls(**input_dict)
++        except (ValueError, TypeError):
+             return None
+diff --git a/src/sentry/integrations/tasks/sync_assignee_outbound.py b/src/sentry/integrations/tasks/sync_assignee_outbound.py
+index 409f48f61a07c6..2c0a5c19796fb6 100644
+--- a/src/sentry/integrations/tasks/sync_assignee_outbound.py
++++ b/src/sentry/integrations/tasks/sync_assignee_outbound.py
+@@ -1,3 +1,5 @@
++from typing import Any
++
+ from sentry import analytics, features
+ from sentry.integrations.models.external_issue import ExternalIssue
+ from sentry.integrations.models.integration import Integration
+@@ -29,7 +31,7 @@ def sync_assignee_outbound(
+     external_issue_id: int,
+     user_id: int | None,
+     assign: bool,
+-    assignment_source_json: str | None = None,
++    assignment_source_dict: dict[str, Any] = None,
+ ) -> None:
+     # Sync Sentry assignee to an external issue.
+     external_issue = ExternalIssue.objects.get(id=external_issue_id)
+@@ -49,7 +51,7 @@ def sync_assignee_outbound(
+         return
+ 
+     parsed_assignment_source = (
+-        AssignmentSource.from_json(assignment_source_json) if assignment_source_json else None
++        AssignmentSource.from_dict(assignment_source_dict) if assignment_source_dict else None
+     )
+     if installation.should_sync("outbound_assignee", parsed_assignment_source):
+         # Assume unassign if None.
+diff --git a/src/sentry/integrations/utils/sync.py b/src/sentry/integrations/utils/sync.py
+index 2b24665a91ecda..2279129cee4aec 100644
+--- a/src/sentry/integrations/utils/sync.py
++++ b/src/sentry/integrations/utils/sync.py
+@@ -138,6 +138,8 @@ def sync_group_assignee_outbound(
+                 "external_issue_id": external_issue_id,
+                 "user_id": user_id,
+                 "assign": assign,
+-                "assignment_source_json": assignment_source.json() if assignment_source else None,
++                "assignment_source_dict": assignment_source.to_dict()
++                if assignment_source
++                else None,
+             }
+         )
+diff --git a/tests/sentry/integrations/services/test_assignment_source.py b/tests/sentry/integrations/services/test_assignment_source.py
+new file mode 100644
+index 00000000000000..f7c7e39cb534aa
+--- /dev/null
++++ b/tests/sentry/integrations/services/test_assignment_source.py
+@@ -0,0 +1,36 @@
++from sentry.integrations.services.assignment_source import AssignmentSource
++from sentry.testutils.cases import TestCase
++
++
++class TestAssignmentSource(TestCase):
++    def test_from_dict_empty_array(self):
++        data = {}
++        result = AssignmentSource.from_dict(data)
++        assert result is None
++
++    def test_from_dict_inalid_data(self):
++        data = {
++            "foo": "bar",
++        }
++
++        result = AssignmentSource.from_dict(data)
++        assert result is None
++
++    def test_from_dict_valid_data(self):
++        data = {"source_name": "foo-source", "integration_id": 123}
++
++        result = AssignmentSource.from_dict(data)
++        assert result is not None
++        assert result.source_name == "foo-source"
++        assert result.integration_id == 123
++
++    def test_to_dict(self):
++        source = AssignmentSource(
++            source_name="foo-source",
++            integration_id=123,
++        )
++
++        result = source.to_dict()
++        assert result.get("queued") is not None
++        assert result.get("source_name") == "foo-source"
++        assert result.get("integration_id") == 123
+
+From 40cfb76a94488d302b301a8b58b33b5a6be0c072 Mon Sep 17 00:00:00 2001
+From: Gabe Villalobos <gabriel.villalobos@sentry.io>
+Date: Thu, 3 Oct 2024 12:50:11 -0700
+Subject: [PATCH 5/8] Removes minor change made to sync utils, adds test for
+ assignment loop
+
+---
+ src/sentry/integrations/utils/sync.py     |  2 +-
+ tests/sentry/models/test_groupassignee.py | 16 +++++++++++++++-
+ 2 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/src/sentry/integrations/utils/sync.py b/src/sentry/integrations/utils/sync.py
+index 2279129cee4aec..e6a3a97ad2b74c 100644
+--- a/src/sentry/integrations/utils/sync.py
++++ b/src/sentry/integrations/utils/sync.py
+@@ -98,7 +98,7 @@ def sync_group_assignee_inbound(
+                 assignment_source=AssignmentSource.from_integration(integration),
+             )
+ 
+-        return list(affected_groups)
++        return affected_groups
+ 
+     users = user_service.get_many_by_email(emails=[email], is_verified=True)
+     users_by_id = {user.id: user for user in users}
+diff --git a/tests/sentry/models/test_groupassignee.py b/tests/sentry/models/test_groupassignee.py
+index 4875280a5bbd15..dad7d198a9f0b7 100644
+--- a/tests/sentry/models/test_groupassignee.py
++++ b/tests/sentry/models/test_groupassignee.py
+@@ -4,6 +4,7 @@
+ 
+ from sentry.integrations.example.integration import ExampleIntegration
+ from sentry.integrations.models.external_issue import ExternalIssue
++from sentry.integrations.services.assignment_source import AssignmentSource
+ from sentry.integrations.utils import sync_group_assignee_inbound
+ from sentry.models.activity import Activity
+ from sentry.models.groupassignee import GroupAssignee
+@@ -148,7 +149,20 @@ def test_assignee_sync_outbound_assign(self, mock_sync_assignee_outbound):
+ 
+         with self.feature({"organizations:integrations-issue-sync": True}):
+             with self.tasks():
+-                GroupAssignee.objects.assign(self.group, self.user)
++                # Assert that we don't perform an outbound assignment if
++                # the source of the assignment is the same target integration
++                GroupAssignee.objects.assign(
++                    self.group,
++                    self.user,
++                    assignment_source=AssignmentSource.from_integration(integration),
++                )
++
++                mock_sync_assignee_outbound.assert_not_called()
++
++                GroupAssignee.objects.assign(
++                    self.group,
++                    self.user,
++                )
+ 
+                 mock_sync_assignee_outbound.assert_called_with(
+                     external_issue,
+
+From cb2b417655dece12f1b9a8769172ab07b959362d Mon Sep 17 00:00:00 2001
+From: Gabe Villalobos <gabriel.villalobos@sentry.io>
+Date: Thu, 3 Oct 2024 13:20:57 -0700
+Subject: [PATCH 6/8] Fix typing for optional assignment_source
+
+---
+ src/sentry/integrations/tasks/sync_assignee_outbound.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/sentry/integrations/tasks/sync_assignee_outbound.py b/src/sentry/integrations/tasks/sync_assignee_outbound.py
+index 2c0a5c19796fb6..301e3c58d432c6 100644
+--- a/src/sentry/integrations/tasks/sync_assignee_outbound.py
++++ b/src/sentry/integrations/tasks/sync_assignee_outbound.py
+@@ -31,7 +31,7 @@ def sync_assignee_outbound(
+     external_issue_id: int,
+     user_id: int | None,
+     assign: bool,
+-    assignment_source_dict: dict[str, Any] = None,
++    assignment_source_dict: dict[str, Any] | None = None,
+ ) -> None:
+     # Sync Sentry assignee to an external issue.
+     external_issue = ExternalIssue.objects.get(id=external_issue_id)
+
+From cc67c4cd3ac08e959c66bb0ed4ad85c86c2134e8 Mon Sep 17 00:00:00 2001
+From: Gabe Villalobos <gabriel.villalobos@sentry.io>
+Date: Thu, 3 Oct 2024 13:34:25 -0700
+Subject: [PATCH 7/8] More typing fixes
+
+---
+ tests/sentry/integrations/services/test_assignment_source.py | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/tests/sentry/integrations/services/test_assignment_source.py b/tests/sentry/integrations/services/test_assignment_source.py
+index f7c7e39cb534aa..d09364d7a54f4e 100644
+--- a/tests/sentry/integrations/services/test_assignment_source.py
++++ b/tests/sentry/integrations/services/test_assignment_source.py
+@@ -1,10 +1,12 @@
++from typing import Any
++
+ from sentry.integrations.services.assignment_source import AssignmentSource
+ from sentry.testutils.cases import TestCase
+ 
+ 
+ class TestAssignmentSource(TestCase):
+     def test_from_dict_empty_array(self):
+-        data = {}
++        data: dict[str, Any] = {}
+         result = AssignmentSource.from_dict(data)
+         assert result is None
+ 
+
+From 9501091c52ae94e8d916f79b35d21975b3f9cadb Mon Sep 17 00:00:00 2001
+From: Gabe Villalobos <gabriel.villalobos@sentry.io>
+Date: Thu, 3 Oct 2024 14:10:17 -0700
+Subject: [PATCH 8/8] Fixes tests, adds new test for sync loop checks
+
+---
+ tests/sentry/models/test_groupassignee.py | 69 +++++++++++++++++++----
+ 1 file changed, 59 insertions(+), 10 deletions(-)
+
+diff --git a/tests/sentry/models/test_groupassignee.py b/tests/sentry/models/test_groupassignee.py
+index dad7d198a9f0b7..6596e87c118b02 100644
+--- a/tests/sentry/models/test_groupassignee.py
++++ b/tests/sentry/models/test_groupassignee.py
+@@ -149,16 +149,6 @@ def test_assignee_sync_outbound_assign(self, mock_sync_assignee_outbound):
+ 
+         with self.feature({"organizations:integrations-issue-sync": True}):
+             with self.tasks():
+-                # Assert that we don't perform an outbound assignment if
+-                # the source of the assignment is the same target integration
+-                GroupAssignee.objects.assign(
+-                    self.group,
+-                    self.user,
+-                    assignment_source=AssignmentSource.from_integration(integration),
+-                )
+-
+-                mock_sync_assignee_outbound.assert_not_called()
+-
+                 GroupAssignee.objects.assign(
+                     self.group,
+                     self.user,
+@@ -186,6 +176,65 @@ def test_assignee_sync_outbound_assign(self, mock_sync_assignee_outbound):
+                 assert activity.data["assigneeEmail"] == self.user.email
+                 assert activity.data["assigneeType"] == "user"
+ 
++    @mock.patch.object(ExampleIntegration, "sync_assignee_outbound")
++    def test_assignee_sync_outbound_assign_with_matching_source_integration(
++        self, mock_sync_assignee_outbound
++    ):
++        group = self.group
++        integration = self.create_integration(
++            organization=group.organization,
++            external_id="123456",
++            provider="example",
++            oi_params={
++                "config": {
++                    "sync_comments": True,
++                    "sync_status_outbound": True,
++                    "sync_status_inbound": True,
++                    "sync_assignee_outbound": True,
++                    "sync_assignee_inbound": True,
++                }
++            },
++        )
++
++        external_issue = ExternalIssue.objects.create(
++            organization_id=group.organization.id, integration_id=integration.id, key="APP-123"
++        )
++
++        GroupLink.objects.create(
++            group_id=group.id,
++            project_id=group.project_id,
++            linked_type=GroupLink.LinkedType.issue,
++            linked_id=external_issue.id,
++            relationship=GroupLink.Relationship.references,
++        )
++
++        with self.feature({"organizations:integrations-issue-sync": True}):
++            with self.tasks():
++                # Assert that we don't perform an outbound assignment if
++                # the source of the assignment is the same target integration
++                GroupAssignee.objects.assign(
++                    self.group,
++                    self.user,
++                    assignment_source=AssignmentSource.from_integration(integration),
++                )
++
++                mock_sync_assignee_outbound.assert_not_called()
++
++                assert GroupAssignee.objects.filter(
++                    project=self.group.project,
++                    group=self.group,
++                    user_id=self.user.id,
++                    team__isnull=True,
++                ).exists()
++
++                activity = Activity.objects.get(
++                    project=self.group.project, group=self.group, type=ActivityType.ASSIGNED.value
++                )
++
++                assert activity.data["assignee"] == str(self.user.id)
++                assert activity.data["assigneeEmail"] == self.user.email
++                assert activity.data["assigneeType"] == "user"
++
+     @mock.patch.object(ExampleIntegration, "sync_assignee_outbound")
+     def test_assignee_sync_outbound_unassign(self, mock_sync_assignee_outbound):
+         group = self.group

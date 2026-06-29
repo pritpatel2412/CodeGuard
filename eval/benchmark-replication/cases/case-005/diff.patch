@@ -1,0 +1,933 @@
+From 8daa5c47522ffc20cfde1a0a3ae5084c819fbad0 Mon Sep 17 00:00:00 2001
+From: CarinaWolli <wollencarina@gmail.com>
+Date: Thu, 16 Feb 2023 17:41:13 -0500
+Subject: [PATCH 1/7] small UI fix
+
+---
+ .../components/WorkflowStepContainer.tsx      | 126 +++++++++---------
+ 1 file changed, 60 insertions(+), 66 deletions(-)
+
+diff --git a/packages/features/ee/workflows/components/WorkflowStepContainer.tsx b/packages/features/ee/workflows/components/WorkflowStepContainer.tsx
+index 3fd3e6f7f85109..3b13904cdb77e5 100644
+--- a/packages/features/ee/workflows/components/WorkflowStepContainer.tsx
++++ b/packages/features/ee/workflows/components/WorkflowStepContainer.tsx
+@@ -387,81 +387,75 @@ export default function WorkflowStepContainer(props: WorkflowStepProps) {
+                   }}
+                 />
+               </div>
+-              {(isPhoneNumberNeeded || isSenderIdNeeded) && (
++              {isPhoneNumberNeeded && (
+                 <div className="mt-2 rounded-md bg-gray-50 p-4 pt-0">
+-                  {isPhoneNumberNeeded && (
++                  <Label className="pt-4">{t("custom_phone_number")}</Label>
++                  <div className="block sm:flex">
++                    <PhoneInput<FormValues>
++                      control={form.control}
++                      name={`steps.${step.stepNumber - 1}.sendTo`}
++                      placeholder={t("phone_number")}
++                      id={`steps.${step.stepNumber - 1}.sendTo`}
++                      className="min-w-fit sm:rounded-tl-md sm:rounded-bl-md sm:border-r-transparent"
++                      required
++                      onChange={() => {
++                        const isAlreadyVerified = !!verifiedNumbers
++                          ?.concat([])
++                          .find((number) => number === form.getValues(`steps.${step.stepNumber - 1}.sendTo`));
++                        setNumberVerified(isAlreadyVerified);
++                      }}
++                    />
++                    <Button
++                      color="secondary"
++                      disabled={numberVerified || false}
++                      className={classNames(
++                        "-ml-[3px] h-[40px] min-w-fit sm:block sm:rounded-tl-none sm:rounded-bl-none ",
++                        numberVerified ? "hidden" : "mt-3 sm:mt-0"
++                      )}
++                      onClick={() =>
++                        sendVerificationCodeMutation.mutate({
++                          phoneNumber: form.getValues(`steps.${step.stepNumber - 1}.sendTo`) || "",
++                        })
++                      }>
++                      {t("send_code")}
++                    </Button>
++                  </div>
++
++                  {form.formState.errors.steps &&
++                    form.formState?.errors?.steps[step.stepNumber - 1]?.sendTo && (
++                      <p className="mt-1 text-xs text-red-500">
++                        {form.formState?.errors?.steps[step.stepNumber - 1]?.sendTo?.message || ""}
++                      </p>
++                    )}
++                  {numberVerified ? (
++                    <div className="mt-1">
++                      <Badge variant="green">{t("number_verified")}</Badge>
++                    </div>
++                  ) : (
+                     <>
+-                      <Label className="pt-4">{t("custom_phone_number")}</Label>
+-                      <div className="block sm:flex">
+-                        <PhoneInput<FormValues>
+-                          control={form.control}
+-                          name={`steps.${step.stepNumber - 1}.sendTo`}
+-                          placeholder={t("phone_number")}
+-                          id={`steps.${step.stepNumber - 1}.sendTo`}
+-                          className="min-w-fit sm:rounded-tl-md sm:rounded-bl-md sm:border-r-transparent"
+-                          required
+-                          onChange={() => {
+-                            const isAlreadyVerified = !!verifiedNumbers
+-                              ?.concat([])
+-                              .find(
+-                                (number) => number === form.getValues(`steps.${step.stepNumber - 1}.sendTo`)
+-                              );
+-                            setNumberVerified(isAlreadyVerified);
++                      <div className="mt-3 flex">
++                        <TextField
++                          className=" border-r-transparent"
++                          placeholder="Verification code"
++                          value={verificationCode}
++                          onChange={(e) => {
++                            setVerificationCode(e.target.value);
+                           }}
++                          required
+                         />
+                         <Button
+                           color="secondary"
+-                          disabled={numberVerified || false}
+-                          className={classNames(
+-                            "-ml-[3px] h-[40px] min-w-fit sm:block sm:rounded-tl-none sm:rounded-bl-none ",
+-                            numberVerified ? "hidden" : "mt-3 sm:mt-0"
+-                          )}
+-                          onClick={() =>
+-                            sendVerificationCodeMutation.mutate({
++                          className="-ml-[3px] rounded-tl-none rounded-bl-none "
++                          disabled={verifyPhoneNumberMutation.isLoading}
++                          onClick={() => {
++                            verifyPhoneNumberMutation.mutate({
+                               phoneNumber: form.getValues(`steps.${step.stepNumber - 1}.sendTo`) || "",
+-                            })
+-                          }>
+-                          {t("send_code")}
++                              code: verificationCode,
++                            });
++                          }}>
++                          Verify
+                         </Button>
+                       </div>
+-
+-                      {form.formState.errors.steps &&
+-                        form.formState?.errors?.steps[step.stepNumber - 1]?.sendTo && (
+-                          <p className="mt-1 text-xs text-red-500">
+-                            {form.formState?.errors?.steps[step.stepNumber - 1]?.sendTo?.message || ""}
+-                          </p>
+-                        )}
+-                      {numberVerified ? (
+-                        <div className="mt-1">
+-                          <Badge variant="green">{t("number_verified")}</Badge>
+-                        </div>
+-                      ) : (
+-                        <>
+-                          <div className="mt-3 flex">
+-                            <TextField
+-                              className=" border-r-transparent"
+-                              placeholder="Verification code"
+-                              value={verificationCode}
+-                              onChange={(e) => {
+-                                setVerificationCode(e.target.value);
+-                              }}
+-                              required
+-                            />
+-                            <Button
+-                              color="secondary"
+-                              className="-ml-[3px] rounded-tl-none rounded-bl-none "
+-                              disabled={verifyPhoneNumberMutation.isLoading}
+-                              onClick={() => {
+-                                verifyPhoneNumberMutation.mutate({
+-                                  phoneNumber: form.getValues(`steps.${step.stepNumber - 1}.sendTo`) || "",
+-                                  code: verificationCode,
+-                                });
+-                              }}>
+-                              Verify
+-                            </Button>
+-                          </div>
+-                        </>
+-                      )}
+                     </>
+                   )}
+                 </div>
+
+From b62459d9428575f8e1da8bf5253a150ffcd9a7a8 Mon Sep 17 00:00:00 2001
+From: CarinaWolli <wollencarina@gmail.com>
+Date: Fri, 17 Feb 2023 10:51:51 -0500
+Subject: [PATCH 2/7] fix cancelling scheduled emails
+
+---
+ .../bookings/lib/handleCancelBooking.ts       |  25 +---
+ .../workflows/api/scheduleEmailReminders.ts   |  33 +++++
+ .../lib/reminders/emailReminderManager.ts     |  45 ++++--
+ .../lib/reminders/smsReminderManager.ts       |  12 +-
+ packages/prisma/schema.prisma                 |   1 +
+ .../trpc/server/routers/viewer/bookings.tsx   |  21 +--
+ .../trpc/server/routers/viewer/workflows.tsx  | 137 +++++++-----------
+ 7 files changed, 141 insertions(+), 133 deletions(-)
+
+diff --git a/packages/features/bookings/lib/handleCancelBooking.ts b/packages/features/bookings/lib/handleCancelBooking.ts
+index 2e53fd2b46366f..269e0e18fa0c83 100644
+--- a/packages/features/bookings/lib/handleCancelBooking.ts
++++ b/packages/features/bookings/lib/handleCancelBooking.ts
+@@ -1,8 +1,6 @@
+ import {
+   BookingStatus,
+   MembershipRole,
+-  Prisma,
+-  PrismaPromise,
+   WebhookTriggerEvents,
+   WorkflowMethods,
+   WorkflowReminder,
+@@ -483,29 +481,18 @@ async function handler(req: NextApiRequest & { userId?: number }) {
+     cancelScheduledJobs(booking);
+   });
+ 
+-  //Workflows - delete all reminders for bookings
+-  const remindersToDelete: PrismaPromise<Prisma.BatchPayload>[] = [];
++  //Workflows - cancel all reminders for bookings
+   updatedBookings.forEach((booking) => {
+     booking.workflowReminders.forEach((reminder) => {
+-      if (reminder.scheduled && reminder.referenceId) {
+-        if (reminder.method === WorkflowMethods.EMAIL) {
+-          deleteScheduledEmailReminder(reminder.referenceId);
+-        } else if (reminder.method === WorkflowMethods.SMS) {
+-          deleteScheduledSMSReminder(reminder.referenceId);
+-        }
++      if (reminder.method === WorkflowMethods.EMAIL) {
++        deleteScheduledEmailReminder(reminder.id, reminder.referenceId);
++      } else if (reminder.method === WorkflowMethods.SMS) {
++        deleteScheduledSMSReminder(reminder.id, reminder.referenceId);
+       }
+-      const reminderToDelete = prisma.workflowReminder.deleteMany({
+-        where: {
+-          id: reminder.id,
+-        },
+-      });
+-      remindersToDelete.push(reminderToDelete);
+     });
+   });
+ 
+-  const prismaPromises: Promise<unknown>[] = [attendeeDeletes, bookingReferenceDeletes].concat(
+-    remindersToDelete
+-  );
++  const prismaPromises: Promise<unknown>[] = [attendeeDeletes, bookingReferenceDeletes];
+ 
+   await Promise.all(prismaPromises.concat(apiDeletes));
+ 
+diff --git a/packages/features/ee/workflows/api/scheduleEmailReminders.ts b/packages/features/ee/workflows/api/scheduleEmailReminders.ts
+index b1ef72f1f43e0a..44a967cebce36e 100644
+--- a/packages/features/ee/workflows/api/scheduleEmailReminders.ts
++++ b/packages/features/ee/workflows/api/scheduleEmailReminders.ts
+@@ -7,6 +7,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
+ import dayjs from "@calcom/dayjs";
+ import { defaultHandler } from "@calcom/lib/server";
+ import prisma from "@calcom/prisma";
++import { Prisma, WorkflowReminder } from "@calcom/prisma/client";
+ import { bookingMetadataSchema } from "@calcom/prisma/zod-utils";
+ 
+ import customTemplate, { VariablesType } from "../lib/reminders/templates/customTemplate";
+@@ -39,6 +40,38 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
+     },
+   });
+ 
++  //cancel reminders for cancelled/rescheduled bookings that are scheduled within the next hour
++  const remindersToCancel = await prisma.workflowReminder.findMany({
++    where: {
++      cancelled: true,
++      scheduledDate: {
++        lte: dayjs().add(1, "hour").toISOString(),
++      },
++    },
++  });
++
++  const workflowRemindersToDelete: Prisma.Prisma__WorkflowReminderClient<WorkflowReminder, never>[] = [];
++
++  for (const reminder of remindersToCancel) {
++    await client.request({
++      url: "/v3/user/scheduled_sends",
++      method: "POST",
++      body: {
++        batch_id: reminder.referenceId,
++        status: "cancel",
++      },
++    });
++
++    const workflowReminderToDelete = prisma.workflowReminder.delete({
++      where: {
++        id: reminder.id,
++      },
++    });
++
++    workflowRemindersToDelete.push(workflowReminderToDelete);
++  }
++  await Promise.all(workflowRemindersToDelete);
++
+   //find all unscheduled Email reminders
+   const unscheduledReminders = await prisma.workflowReminder.findMany({
+     where: {
+diff --git a/packages/features/ee/workflows/lib/reminders/emailReminderManager.ts b/packages/features/ee/workflows/lib/reminders/emailReminderManager.ts
+index 14ffc8935868cd..e84373b6907cb3 100644
+--- a/packages/features/ee/workflows/lib/reminders/emailReminderManager.ts
++++ b/packages/features/ee/workflows/lib/reminders/emailReminderManager.ts
+@@ -194,20 +194,41 @@ export const scheduleEmailReminder = async (
+   }
+ };
+ 
+-export const deleteScheduledEmailReminder = async (referenceId: string) => {
++export const deleteScheduledEmailReminder = async (
++  reminderId: number,
++  referenceId: string | null,
++  immediateDelete?: boolean
++) => {
+   try {
+-    await client.request({
+-      url: "/v3/user/scheduled_sends",
+-      method: "POST",
+-      body: {
+-        batch_id: referenceId,
+-        status: "cancel",
+-      },
+-    });
++    if (!referenceId) {
++      await prisma.workflowReminder.delete({
++        where: {
++          id: reminderId,
++        },
++      });
++
++      return;
++    }
+ 
+-    await client.request({
+-      url: `/v3/user/scheduled_sends/${referenceId}`,
+-      method: "DELETE",
++    if (immediateDelete) {
++      await client.request({
++        url: "/v3/user/scheduled_sends",
++        method: "POST",
++        body: {
++          batch_id: referenceId,
++          status: "cancel",
++        },
++      });
++      return;
++    }
++
++    await prisma.workflowReminder.update({
++      where: {
++        id: reminderId,
++      },
++      data: {
++        cancelled: true,
++      },
+     });
+   } catch (error) {
+     console.log(`Error canceling reminder with error ${error}`);
+diff --git a/packages/features/ee/workflows/lib/reminders/smsReminderManager.ts b/packages/features/ee/workflows/lib/reminders/smsReminderManager.ts
+index b79dd391c61159..6b17c0dbb0b632 100644
+--- a/packages/features/ee/workflows/lib/reminders/smsReminderManager.ts
++++ b/packages/features/ee/workflows/lib/reminders/smsReminderManager.ts
+@@ -10,7 +10,6 @@ import dayjs from "@calcom/dayjs";
+ import prisma from "@calcom/prisma";
+ import { Prisma } from "@calcom/prisma/client";
+ import { bookingMetadataSchema } from "@calcom/prisma/zod-utils";
+-import { Person } from "@calcom/types/Calendar";
+ 
+ import { getSenderId } from "../alphanumericSenderIdSupport";
+ import * as twilio from "./smsProviders/twilioProvider";
+@@ -175,9 +174,16 @@ export const scheduleSMSReminder = async (
+   }
+ };
+ 
+-export const deleteScheduledSMSReminder = async (referenceId: string) => {
++export const deleteScheduledSMSReminder = async (reminderId: number, referenceId: string | null) => {
+   try {
+-    await twilio.cancelSMS(referenceId);
++    if (referenceId) {
++      await twilio.cancelSMS(referenceId);
++    }
++    await prisma.workflowReminder.delete({
++      where: {
++        id: reminderId,
++      },
++    });
+   } catch (error) {
+     console.log(`Error canceling reminder with error ${error}`);
+   }
+diff --git a/packages/prisma/schema.prisma b/packages/prisma/schema.prisma
+index 043f4f16a2769e..8e34f78988c961 100644
+--- a/packages/prisma/schema.prisma
++++ b/packages/prisma/schema.prisma
+@@ -641,6 +641,7 @@ model WorkflowReminder {
+   scheduled      Boolean
+   workflowStepId Int
+   workflowStep   WorkflowStep    @relation(fields: [workflowStepId], references: [id], onDelete: Cascade)
++  cancelled      Boolean?
+ }
+ 
+ enum WorkflowTemplates {
+diff --git a/packages/trpc/server/routers/viewer/bookings.tsx b/packages/trpc/server/routers/viewer/bookings.tsx
+index cd1013ddc044d2..453738583ca7e6 100644
+--- a/packages/trpc/server/routers/viewer/bookings.tsx
++++ b/packages/trpc/server/routers/viewer/bookings.tsx
+@@ -10,7 +10,6 @@ import {
+   Workflow,
+   WorkflowsOnEventTypes,
+   WorkflowStep,
+-  PrismaPromise,
+   WorkflowMethods,
+ } from "@prisma/client";
+ import type { TFunction } from "next-i18next";
+@@ -483,26 +482,14 @@ export const bookingsRouter = router({
+         cancelScheduledJobs(bookingToReschedule);
+ 
+         //cancel workflow reminders
+-        const remindersToDelete: PrismaPromise<Prisma.BatchPayload>[] = [];
+-
+         bookingToReschedule.workflowReminders.forEach((reminder) => {
+-          if (reminder.scheduled && reminder.referenceId) {
+-            if (reminder.method === WorkflowMethods.EMAIL) {
+-              deleteScheduledEmailReminder(reminder.referenceId);
+-            } else if (reminder.method === WorkflowMethods.SMS) {
+-              deleteScheduledSMSReminder(reminder.referenceId);
+-            }
++          if (reminder.method === WorkflowMethods.EMAIL) {
++            deleteScheduledEmailReminder(reminder.id, reminder.referenceId, true);
++          } else if (reminder.method === WorkflowMethods.SMS) {
++            deleteScheduledSMSReminder(reminder.id, reminder.referenceId);
+           }
+-          const reminderToDelete = prisma.workflowReminder.deleteMany({
+-            where: {
+-              id: reminder.id,
+-            },
+-          });
+-          remindersToDelete.push(reminderToDelete);
+         });
+ 
+-        await Promise.all(remindersToDelete);
+-
+         const [mainAttendee] = bookingToReschedule.attendees;
+         // @NOTE: Should we assume attendees language?
+         const tAttendees = await getTranslation(mainAttendee.locale ?? "en", "common");
+diff --git a/packages/trpc/server/routers/viewer/workflows.tsx b/packages/trpc/server/routers/viewer/workflows.tsx
+index 5d279763e5582c..631ba112068657 100644
+--- a/packages/trpc/server/routers/viewer/workflows.tsx
++++ b/packages/trpc/server/routers/viewer/workflows.tsx
+@@ -1,5 +1,4 @@
+ import {
+-  Prisma,
+   PrismaPromise,
+   WorkflowTemplates,
+   WorkflowActions,
+@@ -24,7 +23,6 @@ import {
+   scheduleEmailReminder,
+ } from "@calcom/features/ee/workflows/lib/reminders/emailReminderManager";
+ import {
+-  //  BookingInfo,
+   deleteScheduledSMSReminder,
+   scheduleSMSReminder,
+ } from "@calcom/features/ee/workflows/lib/reminders/smsReminderManager";
+@@ -40,7 +38,7 @@ import { WorkflowStep } from "@calcom/prisma/client";
+ 
+ import { TRPCError } from "@trpc/server";
+ 
+-import { router, authedProcedure, authedRateLimitedProcedure } from "../../trpc";
++import { router, authedProcedure } from "../../trpc";
+ import { viewerTeamsRouter } from "./teams";
+ 
+ function getSender(
+@@ -210,12 +208,10 @@ export const workflowsRouter = router({
+         });
+ 
+         scheduledReminders.forEach((reminder) => {
+-          if (reminder.referenceId) {
+-            if (reminder.method === WorkflowMethods.EMAIL) {
+-              deleteScheduledEmailReminder(reminder.referenceId);
+-            } else if (reminder.method === WorkflowMethods.SMS) {
+-              deleteScheduledSMSReminder(reminder.referenceId);
+-            }
++          if (reminder.method === WorkflowMethods.EMAIL) {
++            deleteScheduledEmailReminder(reminder.id, reminder.referenceId, true);
++          } else if (reminder.method === WorkflowMethods.SMS) {
++            deleteScheduledSMSReminder(reminder.id, reminder.referenceId);
+           }
+         });
+ 
+@@ -374,29 +370,15 @@ export const workflowsRouter = router({
+ 
+       const remindersToDelete = await Promise.all(remindersToDeletePromise);
+ 
+-      const deleteReminderPromise: PrismaPromise<Prisma.BatchPayload>[] = [];
+       remindersToDelete.flat().forEach((reminder) => {
+         //already scheduled reminders
+-        if (reminder.referenceId) {
+-          if (reminder.method === WorkflowMethods.EMAIL) {
+-            deleteScheduledEmailReminder(reminder.referenceId);
+-          } else if (reminder.method === WorkflowMethods.SMS) {
+-            deleteScheduledSMSReminder(reminder.referenceId);
+-          }
++        if (reminder.method === WorkflowMethods.EMAIL) {
++          deleteScheduledEmailReminder(reminder.id, reminder.referenceId);
++        } else if (reminder.method === WorkflowMethods.SMS) {
++          deleteScheduledSMSReminder(reminder.id, reminder.referenceId);
+         }
+-        const deleteReminder = ctx.prisma.workflowReminder.deleteMany({
+-          where: {
+-            id: reminder.id,
+-            booking: {
+-              userId: ctx.user.id,
+-            },
+-          },
+-        });
+-        deleteReminderPromise.push(deleteReminder);
+       });
+ 
+-      await Promise.all(deleteReminderPromise);
+-
+       //update active on & reminders for new eventTypes
+       await ctx.prisma.workflowsOnEventTypes.deleteMany({
+         where: {
+@@ -533,12 +515,10 @@ export const workflowsRouter = router({
+           //delete already scheduled reminders
+           if (remindersFromStep.length > 0) {
+             remindersFromStep.forEach((reminder) => {
+-              if (reminder.referenceId) {
+-                if (reminder.method === WorkflowMethods.EMAIL) {
+-                  deleteScheduledEmailReminder(reminder.referenceId);
+-                } else if (reminder.method === WorkflowMethods.SMS) {
+-                  deleteScheduledSMSReminder(reminder.referenceId);
+-                }
++              if (reminder.method === WorkflowMethods.EMAIL) {
++                deleteScheduledEmailReminder(reminder.id, reminder.referenceId, true);
++              } else if (reminder.method === WorkflowMethods.SMS) {
++                deleteScheduledSMSReminder(reminder.id, reminder.referenceId);
+               }
+             });
+           }
+@@ -588,18 +568,11 @@ export const workflowsRouter = router({
+             }
+           });
+           remindersToUpdate.forEach(async (reminder) => {
+-            if (reminder.referenceId) {
+-              if (reminder.method === WorkflowMethods.EMAIL) {
+-                deleteScheduledEmailReminder(reminder.referenceId);
+-              } else if (reminder.method === WorkflowMethods.SMS) {
+-                deleteScheduledSMSReminder(reminder.referenceId);
+-              }
++            if (reminder.method === WorkflowMethods.EMAIL) {
++              deleteScheduledEmailReminder(reminder.id, reminder.referenceId);
++            } else if (reminder.method === WorkflowMethods.SMS) {
++              deleteScheduledSMSReminder(reminder.id, reminder.referenceId);
+             }
+-            await ctx.prisma.workflowReminder.deleteMany({
+-              where: {
+-                id: reminder.id,
+-              },
+-            });
+           });
+           const eventTypesToUpdateReminders = activeOn.filter((eventTypeId) => {
+             if (!newEventTypes.includes(eventTypeId)) {
+@@ -924,63 +897,63 @@ export const workflowsRouter = router({
+     if (isSMSAction(step.action) /*|| step.action === WorkflowActions.EMAIL_ADDRESS*/ /*) {
+ const hasTeamPlan = (await ctx.prisma.membership.count({ where: { userId: user.id } })) > 0;
+ if (!hasTeamPlan) {
+-  throw new TRPCError({ code: "UNAUTHORIZED", message: "Team plan needed" });
++throw new TRPCError({ code: "UNAUTHORIZED", message: "Team plan needed" });
+ }
+ }
+ 
+ const booking = await ctx.prisma.booking.findFirst({
+ orderBy: {
+-  createdAt: "desc",
++createdAt: "desc",
+ },
+ where: {
+-  userId: ctx.user.id,
++userId: ctx.user.id,
+ },
+ include: {
+-  attendees: true,
+-  user: true,
++attendees: true,
++user: true,
+ },
+ });
+ 
+ let evt: BookingInfo;
+ if (booking) {
+ evt = {
+-  uid: booking?.uid,
+-  attendees:
+-    booking?.attendees.map((attendee) => {
+-      return { name: attendee.name, email: attendee.email, timeZone: attendee.timeZone };
+-    }) || [],
+-  organizer: {
+-    language: {
+-      locale: booking?.user?.locale || "",
+-    },
+-    name: booking?.user?.name || "",
+-    email: booking?.user?.email || "",
+-    timeZone: booking?.user?.timeZone || "",
+-  },
+-  startTime: booking?.startTime.toISOString() || "",
+-  endTime: booking?.endTime.toISOString() || "",
+-  title: booking?.title || "",
+-  location: booking?.location || null,
+-  additionalNotes: booking?.description || null,
+-  customInputs: booking?.customInputs,
++uid: booking?.uid,
++attendees:
++booking?.attendees.map((attendee) => {
++return { name: attendee.name, email: attendee.email, timeZone: attendee.timeZone };
++}) || [],
++organizer: {
++language: {
++locale: booking?.user?.locale || "",
++},
++name: booking?.user?.name || "",
++email: booking?.user?.email || "",
++timeZone: booking?.user?.timeZone || "",
++},
++startTime: booking?.startTime.toISOString() || "",
++endTime: booking?.endTime.toISOString() || "",
++title: booking?.title || "",
++location: booking?.location || null,
++additionalNotes: booking?.description || null,
++customInputs: booking?.customInputs,
+ };
+ } else {
+ //if no booking exists create an example booking
+ evt = {
+-  attendees: [{ name: "John Doe", email: "john.doe@example.com", timeZone: "Europe/London" }],
+-  organizer: {
+-    language: {
+-      locale: ctx.user.locale,
+-    },
+-    name: ctx.user.name || "",
+-    email: ctx.user.email,
+-    timeZone: ctx.user.timeZone,
+-  },
+-  startTime: dayjs().add(10, "hour").toISOString(),
+-  endTime: dayjs().add(11, "hour").toISOString(),
+-  title: "Example Booking",
+-  location: "Office",
+-  additionalNotes: "These are additional notes",
++attendees: [{ name: "John Doe", email: "john.doe@example.com", timeZone: "Europe/London" }],
++organizer: {
++language: {
++locale: ctx.user.locale,
++},
++name: ctx.user.name || "",
++email: ctx.user.email,
++timeZone: ctx.user.timeZone,
++},
++startTime: dayjs().add(10, "hour").toISOString(),
++endTime: dayjs().add(11, "hour").toISOString(),
++title: "Example Booking",
++location: "Office",
++additionalNotes: "These are additional notes",
+ };
+ }
+ 
+
+From de55c8fc8351c4e5d521224d1c90bb9606f43df9 Mon Sep 17 00:00:00 2001
+From: CarinaWolli <wollencarina@gmail.com>
+Date: Fri, 17 Feb 2023 14:13:52 -0500
+Subject: [PATCH 3/7] improve comments
+
+---
+ packages/features/bookings/lib/handleCancelBooking.ts | 2 +-
+ packages/trpc/server/routers/viewer/bookings.tsx      | 4 ++--
+ packages/trpc/server/routers/viewer/workflows.tsx     | 7 +++++--
+ 3 files changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/packages/features/bookings/lib/handleCancelBooking.ts b/packages/features/bookings/lib/handleCancelBooking.ts
+index 269e0e18fa0c83..acd85d3d12866d 100644
+--- a/packages/features/bookings/lib/handleCancelBooking.ts
++++ b/packages/features/bookings/lib/handleCancelBooking.ts
+@@ -481,7 +481,7 @@ async function handler(req: NextApiRequest & { userId?: number }) {
+     cancelScheduledJobs(booking);
+   });
+ 
+-  //Workflows - cancel all reminders for bookings
++  //Workflows - cancel all reminders for cancelled bookings
+   updatedBookings.forEach((booking) => {
+     booking.workflowReminders.forEach((reminder) => {
+       if (reminder.method === WorkflowMethods.EMAIL) {
+diff --git a/packages/trpc/server/routers/viewer/bookings.tsx b/packages/trpc/server/routers/viewer/bookings.tsx
+index 453738583ca7e6..a289a9a3f99af1 100644
+--- a/packages/trpc/server/routers/viewer/bookings.tsx
++++ b/packages/trpc/server/routers/viewer/bookings.tsx
+@@ -478,10 +478,10 @@ export const bookingsRouter = router({
+           },
+         });
+ 
+-        // delete scheduled jobs of cancelled bookings
++        // delete scheduled jobs of previous booking
+         cancelScheduledJobs(bookingToReschedule);
+ 
+-        //cancel workflow reminders
++        //cancel workflow reminders of previous booking
+         bookingToReschedule.workflowReminders.forEach((reminder) => {
+           if (reminder.method === WorkflowMethods.EMAIL) {
+             deleteScheduledEmailReminder(reminder.id, reminder.referenceId, true);
+diff --git a/packages/trpc/server/routers/viewer/workflows.tsx b/packages/trpc/server/routers/viewer/workflows.tsx
+index 631ba112068657..b56a31e333ad3a 100644
+--- a/packages/trpc/server/routers/viewer/workflows.tsx
++++ b/packages/trpc/server/routers/viewer/workflows.tsx
+@@ -207,6 +207,7 @@ export const workflowsRouter = router({
+           },
+         });
+ 
++        //cancel workflow reminders of deleted workflow
+         scheduledReminders.forEach((reminder) => {
+           if (reminder.method === WorkflowMethods.EMAIL) {
+             deleteScheduledEmailReminder(reminder.id, reminder.referenceId, true);
+@@ -370,8 +371,8 @@ export const workflowsRouter = router({
+ 
+       const remindersToDelete = await Promise.all(remindersToDeletePromise);
+ 
++      //cancel workflow reminders for all bookings from event types that got disabled
+       remindersToDelete.flat().forEach((reminder) => {
+-        //already scheduled reminders
+         if (reminder.method === WorkflowMethods.EMAIL) {
+           deleteScheduledEmailReminder(reminder.id, reminder.referenceId);
+         } else if (reminder.method === WorkflowMethods.SMS) {
+@@ -512,7 +513,7 @@ export const workflowsRouter = router({
+         });
+         //step was deleted
+         if (!newStep) {
+-          //delete already scheduled reminders
++          // cancel all workflow reminders from delted steps
+           if (remindersFromStep.length > 0) {
+             remindersFromStep.forEach((reminder) => {
+               if (reminder.method === WorkflowMethods.EMAIL) {
+@@ -567,6 +568,8 @@ export const workflowsRouter = router({
+               return reminder;
+             }
+           });
++
++          //cancel all workflow reminders from steps that were edited
+           remindersToUpdate.forEach(async (reminder) => {
+             if (reminder.method === WorkflowMethods.EMAIL) {
+               deleteScheduledEmailReminder(reminder.id, reminder.referenceId);
+
+From b3c107fee86c2dfdc4d1ed3b6b14665cd98915d2 Mon Sep 17 00:00:00 2001
+From: CarinaWolli <wollencarina@gmail.com>
+Date: Mon, 20 Feb 2023 09:51:53 -0500
+Subject: [PATCH 4/7] delete reminders for rescheduled bookings
+
+---
+ .../features/bookings/lib/handleNewBooking.ts   | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/packages/features/bookings/lib/handleNewBooking.ts b/packages/features/bookings/lib/handleNewBooking.ts
+index 9791a682b23f5f..7282ff8f802ea9 100644
+--- a/packages/features/bookings/lib/handleNewBooking.ts
++++ b/packages/features/bookings/lib/handleNewBooking.ts
+@@ -6,6 +6,7 @@ import {
+   Prisma,
+   SchedulingType,
+   WebhookTriggerEvents,
++  WorkflowMethods,
+ } from "@prisma/client";
+ import async from "async";
+ import { isValidPhoneNumber } from "libphonenumber-js";
+@@ -32,7 +33,9 @@ import {
+   sendScheduledEmails,
+   sendScheduledSeatsEmails,
+ } from "@calcom/emails";
++import { deleteScheduledEmailReminder } from "@calcom/features/ee/workflows/lib/reminders/emailReminderManager";
+ import { scheduleWorkflowReminders } from "@calcom/features/ee/workflows/lib/reminders/reminderScheduler";
++import { deleteScheduledSMSReminder } from "@calcom/features/ee/workflows/lib/reminders/smsReminderManager";
+ import getWebhooks from "@calcom/features/webhooks/lib/getWebhooks";
+ import { isPrismaObjOrUndefined, parseRecurringEvent } from "@calcom/lib";
+ import { getDefaultEvent, getGroupName, getUsernameList } from "@calcom/lib/defaultEvents";
+@@ -761,6 +764,7 @@ async function handler(req: NextApiRequest & { userId?: number | undefined }) {
+           },
+         },
+         payment: true,
++        workflowReminders: true,
+       },
+     });
+   }
+@@ -952,6 +956,19 @@ async function handler(req: NextApiRequest & { userId?: number | undefined }) {
+   let videoCallUrl;
+ 
+   if (originalRescheduledBooking?.uid) {
++    try {
++      // cancel workflow reminders from previous reschduled booking
++      originalRescheduledBooking.workflowReminders.forEach((reminder) => {
++        if (reminder.method === WorkflowMethods.EMAIL) {
++          deleteScheduledEmailReminder(reminder.id, reminder.referenceId);
++        } else if (reminder.method === WorkflowMethods.SMS) {
++          deleteScheduledSMSReminder(reminder.id, reminder.referenceId);
++        }
++      });
++    } catch (error) {
++      log.error("Error while canceling scheduled workflow reminders", error);
++    }
++
+     // Use EventManager to conditionally use all needed integrations.
+     const updateManager = await eventManager.reschedule(
+       evt,
+
+From c416294812b06a2c50ac1bdfc45c1cdf557dde06 Mon Sep 17 00:00:00 2001
+From: CarinaWolli <wollencarina@gmail.com>
+Date: Mon, 20 Feb 2023 09:52:23 -0500
+Subject: [PATCH 5/7] add migration file
+
+---
+ packages/features/bookings/lib/handleNewBooking.ts              | 2 +-
+ .../migration.sql                                               | 2 ++
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+ create mode 100644 packages/prisma/migrations/20230217230604_add_cancelled_to_workflow_reminder/migration.sql
+
+diff --git a/packages/features/bookings/lib/handleNewBooking.ts b/packages/features/bookings/lib/handleNewBooking.ts
+index 7282ff8f802ea9..ae378d83db9b34 100644
+--- a/packages/features/bookings/lib/handleNewBooking.ts
++++ b/packages/features/bookings/lib/handleNewBooking.ts
+@@ -957,7 +957,7 @@ async function handler(req: NextApiRequest & { userId?: number | undefined }) {
+ 
+   if (originalRescheduledBooking?.uid) {
+     try {
+-      // cancel workflow reminders from previous reschduled booking
++      // cancel workflow reminders from previous rescheduled booking
+       originalRescheduledBooking.workflowReminders.forEach((reminder) => {
+         if (reminder.method === WorkflowMethods.EMAIL) {
+           deleteScheduledEmailReminder(reminder.id, reminder.referenceId);
+diff --git a/packages/prisma/migrations/20230217230604_add_cancelled_to_workflow_reminder/migration.sql b/packages/prisma/migrations/20230217230604_add_cancelled_to_workflow_reminder/migration.sql
+new file mode 100644
+index 00000000000000..600081f994e092
+--- /dev/null
++++ b/packages/prisma/migrations/20230217230604_add_cancelled_to_workflow_reminder/migration.sql
+@@ -0,0 +1,2 @@
++-- AlterTable
++ALTER TABLE "WorkflowReminder" ADD COLUMN     "cancelled" BOOLEAN;
+
+From 2fdb95b063dcfaa5fb431ce44f5cb9a96627b732 Mon Sep 17 00:00:00 2001
+From: CarinaWolli <wollencarina@gmail.com>
+Date: Mon, 20 Feb 2023 11:06:18 -0500
+Subject: [PATCH 6/7] cancel rescheduled bookings immediately
+
+---
+ .../features/bookings/lib/handleNewBooking.ts |  2 +-
+ .../workflows/api/scheduleEmailReminders.ts   | 40 ++++++++++---------
+ .../trpc/server/routers/viewer/workflows.tsx  |  2 +-
+ 3 files changed, 24 insertions(+), 20 deletions(-)
+
+diff --git a/packages/features/bookings/lib/handleNewBooking.ts b/packages/features/bookings/lib/handleNewBooking.ts
+index ae378d83db9b34..fac17d0a362346 100644
+--- a/packages/features/bookings/lib/handleNewBooking.ts
++++ b/packages/features/bookings/lib/handleNewBooking.ts
+@@ -960,7 +960,7 @@ async function handler(req: NextApiRequest & { userId?: number | undefined }) {
+       // cancel workflow reminders from previous rescheduled booking
+       originalRescheduledBooking.workflowReminders.forEach((reminder) => {
+         if (reminder.method === WorkflowMethods.EMAIL) {
+-          deleteScheduledEmailReminder(reminder.id, reminder.referenceId);
++          deleteScheduledEmailReminder(reminder.id, reminder.referenceId, true);
+         } else if (reminder.method === WorkflowMethods.SMS) {
+           deleteScheduledSMSReminder(reminder.id, reminder.referenceId);
+         }
+diff --git a/packages/features/ee/workflows/api/scheduleEmailReminders.ts b/packages/features/ee/workflows/api/scheduleEmailReminders.ts
+index 44a967cebce36e..5125c9fb1b2ddf 100644
+--- a/packages/features/ee/workflows/api/scheduleEmailReminders.ts
++++ b/packages/features/ee/workflows/api/scheduleEmailReminders.ts
+@@ -50,27 +50,31 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
+     },
+   });
+ 
+-  const workflowRemindersToDelete: Prisma.Prisma__WorkflowReminderClient<WorkflowReminder, never>[] = [];
+-
+-  for (const reminder of remindersToCancel) {
+-    await client.request({
+-      url: "/v3/user/scheduled_sends",
+-      method: "POST",
+-      body: {
+-        batch_id: reminder.referenceId,
+-        status: "cancel",
+-      },
+-    });
++  try {
++    const workflowRemindersToDelete: Prisma.Prisma__WorkflowReminderClient<WorkflowReminder, never>[] = [];
++
++    for (const reminder of remindersToCancel) {
++      await client.request({
++        url: "/v3/user/scheduled_sends",
++        method: "POST",
++        body: {
++          batch_id: reminder.referenceId,
++          status: "cancel",
++        },
++      });
+ 
+-    const workflowReminderToDelete = prisma.workflowReminder.delete({
+-      where: {
+-        id: reminder.id,
+-      },
+-    });
++      const workflowReminderToDelete = prisma.workflowReminder.delete({
++        where: {
++          id: reminder.id,
++        },
++      });
+ 
+-    workflowRemindersToDelete.push(workflowReminderToDelete);
++      workflowRemindersToDelete.push(workflowReminderToDelete);
++    }
++    await Promise.all(workflowRemindersToDelete);
++  } catch (error) {
++    console.log(`Error cancelling scheduled Emails: ${error}`);
+   }
+-  await Promise.all(workflowRemindersToDelete);
+ 
+   //find all unscheduled Email reminders
+   const unscheduledReminders = await prisma.workflowReminder.findMany({
+diff --git a/packages/trpc/server/routers/viewer/workflows.tsx b/packages/trpc/server/routers/viewer/workflows.tsx
+index b56a31e333ad3a..a639f785f893ac 100644
+--- a/packages/trpc/server/routers/viewer/workflows.tsx
++++ b/packages/trpc/server/routers/viewer/workflows.tsx
+@@ -513,7 +513,7 @@ export const workflowsRouter = router({
+         });
+         //step was deleted
+         if (!newStep) {
+-          // cancel all workflow reminders from delted steps
++          // cancel all workflow reminders from deleted steps
+           if (remindersFromStep.length > 0) {
+             remindersFromStep.forEach((reminder) => {
+               if (reminder.method === WorkflowMethods.EMAIL) {
+
+From 6048e2a86b50e81e1e3b1b467dfea5a895add3dc Mon Sep 17 00:00:00 2001
+From: CarinaWolli <wollencarina@gmail.com>
+Date: Mon, 20 Feb 2023 11:41:56 -0500
+Subject: [PATCH 7/7] remove immediate delete for request reschedule
+
+---
+ packages/trpc/server/routers/viewer/bookings.tsx | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/packages/trpc/server/routers/viewer/bookings.tsx b/packages/trpc/server/routers/viewer/bookings.tsx
+index 2a21d755281c36..0d58bbbf819b80 100644
+--- a/packages/trpc/server/routers/viewer/bookings.tsx
++++ b/packages/trpc/server/routers/viewer/bookings.tsx
+@@ -5,7 +5,6 @@ import type {
+   Workflow,
+   WorkflowsOnEventTypes,
+   WorkflowStep,
+-  PrismaPromise,
+ } from "@prisma/client";
+ import {
+   BookingStatus,
+@@ -488,7 +487,7 @@ export const bookingsRouter = router({
+         //cancel workflow reminders of previous booking
+         bookingToReschedule.workflowReminders.forEach((reminder) => {
+           if (reminder.method === WorkflowMethods.EMAIL) {
+-            deleteScheduledEmailReminder(reminder.id, reminder.referenceId, true);
++            deleteScheduledEmailReminder(reminder.id, reminder.referenceId);
+           } else if (reminder.method === WorkflowMethods.SMS) {
+             deleteScheduledSMSReminder(reminder.id, reminder.referenceId);
+           }

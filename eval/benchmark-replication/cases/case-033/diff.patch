@@ -1,0 +1,871 @@
+From 79d11c4890cc4792e3dc3535af59e4e5f7a2739d Mon Sep 17 00:00:00 2001
+From: mposolda <mposolda@gmail.com>
+Date: Fri, 11 Oct 2024 17:17:50 +0200
+Subject: [PATCH] Add AuthzClientCryptoProvider to authz-client in keycloak
+ main repository closes #33831
+
+Signed-off-by: mposolda <mposolda@gmail.com>
+---
+ authz/client/pom.xml                          |  11 +
+ .../authorization/client/AuthzClient.java     |   2 +
+ .../client/util/crypto/ASN1Decoder.java       | 203 ++++++++++++++++
+ .../client/util/crypto/ASN1Encoder.java       | 101 ++++++++
+ .../crypto/AuthzClientCryptoProvider.java     | 226 ++++++++++++++++++
+ .../org.keycloak.common.crypto.CryptoProvider |  20 ++
+ .../client/test/ECDSAAlgorithmTest.java       |  74 ++++++
+ .../common/crypto/CryptoIntegration.java      |  12 +-
+ .../common/crypto/CryptoProvider.java         |   9 +-
+ .../crypto/def/DefaultCryptoProvider.java     |   6 +-
+ .../elytron/WildFlyElytronProvider.java       |   5 +
+ .../crypto/fips/FIPS1402Provider.java         |  13 +-
+ 12 files changed, 673 insertions(+), 9 deletions(-)
+ create mode 100644 authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/ASN1Decoder.java
+ create mode 100644 authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/ASN1Encoder.java
+ create mode 100644 authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/AuthzClientCryptoProvider.java
+ create mode 100644 authz/client/src/main/resources/META-INF/services/org.keycloak.common.crypto.CryptoProvider
+ create mode 100644 authz/client/src/test/java/org/keycloak/authorization/client/test/ECDSAAlgorithmTest.java
+
+diff --git a/authz/client/pom.xml b/authz/client/pom.xml
+index 08b438805998..05889a050411 100644
+--- a/authz/client/pom.xml
++++ b/authz/client/pom.xml
+@@ -58,6 +58,17 @@
+             <artifactId>jackson-annotations</artifactId>
+             <scope>provided</scope>
+         </dependency>
++
++        <dependency>
++            <groupId>junit</groupId>
++            <artifactId>junit</artifactId>
++            <scope>test</scope>
++        </dependency>
++        <dependency>
++            <groupId>org.hamcrest</groupId>
++            <artifactId>hamcrest</artifactId>
++            <scope>test</scope>
++        </dependency>
+     </dependencies>
+ 
+     <build>
+diff --git a/authz/client/src/main/java/org/keycloak/authorization/client/AuthzClient.java b/authz/client/src/main/java/org/keycloak/authorization/client/AuthzClient.java
+index f3768ed7a676..d20c227ea05b 100644
+--- a/authz/client/src/main/java/org/keycloak/authorization/client/AuthzClient.java
++++ b/authz/client/src/main/java/org/keycloak/authorization/client/AuthzClient.java
+@@ -30,6 +30,7 @@
+ import org.keycloak.authorization.client.resource.ProtectionResource;
+ import org.keycloak.authorization.client.util.Http;
+ import org.keycloak.authorization.client.util.TokenCallable;
++import org.keycloak.common.crypto.CryptoIntegration;
+ import org.keycloak.common.util.KeycloakUriBuilder;
+ import org.keycloak.representations.AccessTokenResponse;
+ import org.keycloak.util.SystemPropertiesJsonParserFactory;
+@@ -91,6 +92,7 @@ public static AuthzClient create(InputStream configStream) throws RuntimeExcepti
+      * @return a new instance
+      */
+     public static AuthzClient create(Configuration configuration) {
++        CryptoIntegration.init(AuthzClient.class.getClassLoader());
+         return new AuthzClient(configuration);
+     }
+ 
+diff --git a/authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/ASN1Decoder.java b/authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/ASN1Decoder.java
+new file mode 100644
+index 000000000000..01ea3bc41910
+--- /dev/null
++++ b/authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/ASN1Decoder.java
+@@ -0,0 +1,203 @@
++/*
++ * Copyright 2024 Red Hat, Inc. and/or its affiliates
++ *  and other contributors as indicated by the @author tags.
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ */
++
++package org.keycloak.authorization.client.util.crypto;
++
++import java.io.ByteArrayInputStream;
++import java.io.EOFException;
++import java.io.IOException;
++import java.math.BigInteger;
++import java.util.ArrayList;
++import java.util.List;
++
++/**
++ *
++ * @author rmartinc
++ */
++class ASN1Decoder {
++
++    private final ByteArrayInputStream is;
++    private final int limit;
++    private int count;
++
++    ASN1Decoder(byte[] bytes) {
++        is = new ByteArrayInputStream(bytes);
++        count = 0;
++        limit = bytes.length;
++    }
++
++    public static ASN1Decoder create(byte[] bytes) {
++        return new ASN1Decoder(bytes);
++    }
++
++    public List<byte[]> readSequence() throws IOException {
++        int tag = readTag();
++        int tagNo = readTagNumber(tag);
++        if (tagNo != ASN1Encoder.SEQUENCE) {
++            throw new IOException("Invalid Sequence tag " + tagNo);
++        }
++        int length = readLength();
++        List<byte[]> result = new ArrayList<>();
++        while (length > 0) {
++            byte[] bytes = readNext();
++            result.add(bytes);
++            length = length - bytes.length;
++        }
++        return result;
++    }
++
++    public BigInteger readInteger() throws IOException {
++        int tag = readTag();
++        int tagNo = readTagNumber(tag);
++        if (tagNo != ASN1Encoder.INTEGER) {
++            throw new IOException("Invalid Integer tag " + tagNo);
++        }
++        int length = readLength();
++        byte[] bytes = read(length);
++        return new BigInteger(bytes);
++    }
++
++    byte[] readNext() throws IOException {
++        mark();
++        int tag = readTag();
++        readTagNumber(tag);
++        int length = readLength();
++        length += reset();
++        return read(length);
++    }
++
++    int readTag() throws IOException {
++        int tag = read();
++        if (tag < 0) {
++            throw new EOFException("EOF found inside tag value.");
++        }
++        return tag;
++    }
++
++    int readTagNumber(int tag) throws IOException {
++        int tagNo = tag & 0x1f;
++
++        //
++        // with tagged object tag number is bottom 5 bits, or stored at the start of the content
++        //
++        if (tagNo == 0x1f) {
++            tagNo = 0;
++
++            int b = read();
++
++            // X.690-0207 8.1.2.4.2
++            // "c) bits 7 to 1 of the first subsequent octet shall not all be zero."
++            if ((b & 0x7f) == 0) // Note: -1 will pass
++            {
++                throw new IOException("corrupted stream - invalid high tag number found");
++            }
++
++            while ((b >= 0) && ((b & 0x80) != 0)) {
++                tagNo |= (b & 0x7f);
++                tagNo <<= 7;
++                b = read();
++            }
++
++            if (b < 0) {
++                throw new EOFException("EOF found inside tag value.");
++            }
++
++            tagNo |= (b & 0x7f);
++        }
++
++        return tagNo;
++    }
++
++    int readLength() throws IOException {
++        int length = read();
++        if (length < 0) {
++            throw new EOFException("EOF found when length expected");
++        }
++
++        if (length == 0x80) {
++            return -1;      // indefinite-length encoding
++        }
++
++        if (length > 127) {
++            int size = length & 0x7f;
++
++            // Note: The invalid long form "0xff" (see X.690 8.1.3.5c) will be caught here
++            if (size > 4) {
++                throw new IOException("DER length more than 4 bytes: " + size);
++            }
++
++            length = 0;
++            for (int i = 0; i < size; i++) {
++                int next = read();
++
++                if (next < 0) {
++                    throw new EOFException("EOF found reading length");
++                }
++
++                length = (length << 8) + next;
++            }
++
++            if (length < 0) {
++                throw new IOException("corrupted stream - negative length found");
++            }
++
++            if (length >= limit) // after all we must have read at least 1 byte
++            {
++                throw new IOException("corrupted stream - out of bounds length found");
++            }
++        }
++
++        return length;
++    }
++
++    byte[] read(int length) throws IOException {
++        byte[] bytes = new byte[length];
++        int totalBytesRead = 0;
++
++        while (totalBytesRead < length) {
++            int bytesRead = is.read(bytes, totalBytesRead, length - totalBytesRead);
++            if (bytesRead == -1) {
++                throw new IOException(String.format("EOF found reading %d bytes", length));
++            }
++            totalBytesRead += bytesRead;
++        }
++        count += length;
++        return bytes;
++    }
++
++    void mark() {
++        count = 0;
++        is.mark(is.available());
++    }
++
++    int reset() {
++        int tmp = count;
++        is.reset();
++        return tmp;
++    }
++
++    int read() {
++        int tmp = is.read();
++        if (tmp >= 0) {
++            count++;
++        }
++        return tmp;
++    }
++}
++
+diff --git a/authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/ASN1Encoder.java b/authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/ASN1Encoder.java
+new file mode 100644
+index 000000000000..2bfda3a76bd5
+--- /dev/null
++++ b/authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/ASN1Encoder.java
+@@ -0,0 +1,101 @@
++/*
++ * Copyright 2024 Red Hat, Inc. and/or its affiliates
++ *  and other contributors as indicated by the @author tags.
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ */
++
++package org.keycloak.authorization.client.util.crypto;
++
++import java.io.ByteArrayOutputStream;
++import java.io.IOException;
++import java.math.BigInteger;
++
++/**
++ *
++ * @author rmartinc
++ */
++class ASN1Encoder {
++
++    static final int INTEGER = 0x02;
++    static final int SEQUENCE = 0x10;
++    static final int CONSTRUCTED = 0x20;
++
++    private final ByteArrayOutputStream os;
++
++    private ASN1Encoder() {
++        this.os = new ByteArrayOutputStream();
++    }
++
++    static public ASN1Encoder create() {
++        return new ASN1Encoder();
++    }
++
++    public ASN1Encoder write(BigInteger value) throws IOException {
++        writeEncoded(INTEGER, value.toByteArray());
++        return this;
++    }
++
++    public ASN1Encoder writeDerSeq(ASN1Encoder... objects) throws IOException {
++        writeEncoded(CONSTRUCTED | SEQUENCE, concatenate(objects));
++        return this;
++    }
++
++    public byte[] toByteArray() {
++        return os.toByteArray();
++    }
++
++    void writeEncoded(int tag, byte[] bytes) throws IOException {
++        write(tag);
++        writeLength(bytes.length);
++        write(bytes);
++    }
++
++    void writeLength(int length) throws IOException {
++        if (length > 127) {
++            int size = 1;
++            int val = length;
++
++            while ((val >>>= 8) != 0) {
++                size++;
++            }
++
++            write((byte) (size | 0x80));
++
++            for (int i = (size - 1) * 8; i >= 0; i -= 8) {
++                write((byte) (length >> i));
++            }
++        } else {
++            write((byte) length);
++        }
++    }
++
++    void write(byte[] bytes) throws IOException {
++        os.write(bytes);
++    }
++
++    void write(int b) throws IOException {
++        os.write(b);
++    }
++
++    byte[] concatenate(ASN1Encoder... objects) throws IOException {
++        ByteArrayOutputStream tmp = new ByteArrayOutputStream();
++        for (ASN1Encoder object : objects) {
++            tmp.write(object.toByteArray());
++        }
++        return tmp.toByteArray();
++    }
++}
++
+diff --git a/authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/AuthzClientCryptoProvider.java b/authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/AuthzClientCryptoProvider.java
+new file mode 100644
+index 000000000000..90c9c813826a
+--- /dev/null
++++ b/authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/AuthzClientCryptoProvider.java
+@@ -0,0 +1,226 @@
++/*
++ * Copyright 2024 Red Hat, Inc. and/or its affiliates
++ *  and other contributors as indicated by the @author tags.
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ */
++
++package org.keycloak.authorization.client.util.crypto;
++
++import java.io.IOException;
++import java.math.BigInteger;
++import java.security.InvalidAlgorithmParameterException;
++import java.security.KeyFactory;
++import java.security.KeyPairGenerator;
++import java.security.KeyStore;
++import java.security.KeyStoreException;
++import java.security.NoSuchAlgorithmException;
++import java.security.NoSuchProviderException;
++import java.security.Provider;
++import java.security.Signature;
++import java.security.cert.CertPathBuilder;
++import java.security.cert.CertStore;
++import java.security.cert.CertificateException;
++import java.security.cert.CertificateFactory;
++import java.security.cert.CollectionCertStoreParameters;
++import java.security.interfaces.ECPrivateKey;
++import java.security.interfaces.ECPublicKey;
++import java.security.spec.ECParameterSpec;
++import java.util.List;
++import javax.crypto.Cipher;
++import javax.crypto.NoSuchPaddingException;
++import javax.crypto.SecretKeyFactory;
++import javax.net.ssl.SSLSocketFactory;
++import org.keycloak.common.crypto.CertificateUtilsProvider;
++import org.keycloak.common.crypto.CryptoProvider;
++import org.keycloak.common.crypto.ECDSACryptoProvider;
++import org.keycloak.common.crypto.PemUtilsProvider;
++import org.keycloak.common.crypto.UserIdentityExtractorProvider;
++import org.keycloak.common.util.KeystoreUtil;
++
++/**
++ * <p>Simple crypto provider to be used with the authz-client.</p>
++ *
++ * @author rmartinc
++ */
++public class AuthzClientCryptoProvider implements CryptoProvider {
++
++    @Override
++    public Provider getBouncyCastleProvider() {
++        try {
++            return KeyStore.getInstance(KeyStore.getDefaultType()).getProvider();
++        } catch (KeyStoreException e) {
++            throw new IllegalStateException(e);
++        }
++    }
++
++    @Override
++    public int order() {
++        return 100;
++    }
++
++    @Override
++    public <T> T getAlgorithmProvider(Class<T> clazz, String algorithm) {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public CertificateUtilsProvider getCertificateUtils() {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public PemUtilsProvider getPemUtils() {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public <T> T getOCSPProver(Class<T> clazz) {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public UserIdentityExtractorProvider getIdentityExtractorProvider() {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public ECDSACryptoProvider getEcdsaCryptoProvider() {
++        return new ECDSACryptoProvider() {
++            @Override
++            public byte[] concatenatedRSToASN1DER(byte[] signature, int signLength) throws IOException {
++                int len = signLength / 2;
++                int arraySize = len + 1;
++
++                byte[] r = new byte[arraySize];
++                byte[] s = new byte[arraySize];
++                System.arraycopy(signature, 0, r, 1, len);
++                System.arraycopy(signature, len, s, 1, len);
++                BigInteger rBigInteger = new BigInteger(r);
++                BigInteger sBigInteger = new BigInteger(s);
++
++                ASN1Encoder.create().write(rBigInteger);
++                ASN1Encoder.create().write(sBigInteger);
++
++                return ASN1Encoder.create()
++                        .writeDerSeq(
++                                ASN1Encoder.create().write(rBigInteger),
++                                ASN1Encoder.create().write(sBigInteger))
++                        .toByteArray();
++            }
++
++            @Override
++            public byte[] asn1derToConcatenatedRS(byte[] derEncodedSignatureValue, int signLength) throws IOException {
++                int len = signLength / 2;
++
++                List<byte[]> seq = ASN1Decoder.create(derEncodedSignatureValue).readSequence();
++                if (seq.size() != 2) {
++                    throw new IOException("Invalid sequence with size different to 2");
++                }
++
++                BigInteger rBigInteger = ASN1Decoder.create(seq.get(0)).readInteger();
++                BigInteger sBigInteger = ASN1Decoder.create(seq.get(1)).readInteger();
++
++                byte[] r = integerToBytes(rBigInteger, len);
++                byte[] s = integerToBytes(sBigInteger, len);
++
++                byte[] concatenatedSignatureValue = new byte[signLength];
++                System.arraycopy(r, 0, concatenatedSignatureValue, 0, len);
++                System.arraycopy(s, 0, concatenatedSignatureValue, len, len);
++
++                return concatenatedSignatureValue;
++            }
++
++            @Override
++            public ECPublicKey getPublicFromPrivate(ECPrivateKey ecPrivateKey) {
++                throw new UnsupportedOperationException("Not supported yet.");
++            }
++
++            private byte[] integerToBytes(BigInteger s, int qLength) {
++                byte[] bytes = s.toByteArray();
++                if (qLength < bytes.length) {
++                    byte[] tmp = new byte[qLength];
++                    System.arraycopy(bytes, bytes.length - tmp.length, tmp, 0, tmp.length);
++                    return tmp;
++                } else if (qLength > bytes.length) {
++                    byte[] tmp = new byte[qLength];
++                    System.arraycopy(bytes, 0, tmp, tmp.length - bytes.length, bytes.length);
++                    return tmp;
++                }
++                return bytes;
++            }
++        };
++    }
++
++    @Override
++    public ECParameterSpec createECParams(String curveName) {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public KeyPairGenerator getKeyPairGen(String algorithm) throws NoSuchAlgorithmException, NoSuchProviderException {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public KeyFactory getKeyFactory(String algorithm) throws NoSuchAlgorithmException, NoSuchProviderException {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public Cipher getAesCbcCipher() throws NoSuchAlgorithmException, NoSuchProviderException, NoSuchPaddingException {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public Cipher getAesGcmCipher() throws NoSuchAlgorithmException, NoSuchProviderException, NoSuchPaddingException {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public SecretKeyFactory getSecretKeyFact(String keyAlgorithm) throws NoSuchAlgorithmException, NoSuchProviderException {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public KeyStore getKeyStore(KeystoreUtil.KeystoreFormat format) throws KeyStoreException, NoSuchProviderException {
++        return KeyStore.getInstance(format.name());
++    }
++
++    @Override
++    public CertificateFactory getX509CertFactory() throws CertificateException, NoSuchProviderException {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public CertStore getCertStore(CollectionCertStoreParameters collectionCertStoreParameters) throws InvalidAlgorithmParameterException, NoSuchAlgorithmException, NoSuchProviderException {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public CertPathBuilder getCertPathBuilder() throws NoSuchAlgorithmException, NoSuchProviderException {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public Signature getSignature(String sigAlgName) throws NoSuchAlgorithmException, NoSuchProviderException {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++
++    @Override
++    public SSLSocketFactory wrapFactoryForTruststore(SSLSocketFactory delegate) {
++        throw new UnsupportedOperationException("Not supported yet.");
++    }
++}
+diff --git a/authz/client/src/main/resources/META-INF/services/org.keycloak.common.crypto.CryptoProvider b/authz/client/src/main/resources/META-INF/services/org.keycloak.common.crypto.CryptoProvider
+new file mode 100644
+index 000000000000..41f99728b41e
+--- /dev/null
++++ b/authz/client/src/main/resources/META-INF/services/org.keycloak.common.crypto.CryptoProvider
+@@ -0,0 +1,20 @@
++#
++# Copyright 2024 Red Hat, Inc. and/or its affiliates
++#  and other contributors as indicated by the @author tags.
++#
++#  Licensed under the Apache License, Version 2.0 (the "License");
++#  you may not use this file except in compliance with the License.
++#  You may obtain a copy of the License at
++#
++#  http://www.apache.org/licenses/LICENSE-2.0
++#
++#  Unless required by applicable law or agreed to in writing, software
++#  distributed under the License is distributed on an "AS IS" BASIS,
++#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++#
++#  See the License for the specific language governing permissions and
++#  limitations under the License.
++#
++#
++
++org.keycloak.authorization.client.util.crypto.AuthzClientCryptoProvider
+diff --git a/authz/client/src/test/java/org/keycloak/authorization/client/test/ECDSAAlgorithmTest.java b/authz/client/src/test/java/org/keycloak/authorization/client/test/ECDSAAlgorithmTest.java
+new file mode 100644
+index 000000000000..01d8a7ce6e46
+--- /dev/null
++++ b/authz/client/src/test/java/org/keycloak/authorization/client/test/ECDSAAlgorithmTest.java
+@@ -0,0 +1,74 @@
++/*
++ * Copyright 2024 Red Hat, Inc. and/or its affiliates
++ *  and other contributors as indicated by the @author tags.
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ */
++
++package org.keycloak.authorization.client.test;
++
++import java.nio.charset.StandardCharsets;
++import java.security.KeyPair;
++import java.security.KeyPairGenerator;
++import java.security.Signature;
++
++import org.junit.Assert;
++import org.junit.Test;
++import org.keycloak.authorization.client.util.crypto.AuthzClientCryptoProvider;
++import org.keycloak.crypto.ECDSAAlgorithm;
++import org.keycloak.crypto.JavaAlgorithm;
++
++/**
++ *
++ * @author rmartinc
++ */
++public class ECDSAAlgorithmTest {
++
++    private final KeyPair keyPair;
++
++    public ECDSAAlgorithmTest() throws Exception {
++        keyPair = KeyPairGenerator.getInstance("EC").genKeyPair();
++    }
++
++
++    private void test(ECDSAAlgorithm algorithm) throws Exception {
++        AuthzClientCryptoProvider prov = new AuthzClientCryptoProvider();
++        byte[] data = "Something to sign".getBytes(StandardCharsets.UTF_8);
++        Signature signature = Signature.getInstance(JavaAlgorithm.getJavaAlgorithm(algorithm.name()));
++        signature.initSign(keyPair.getPrivate());
++        signature.update(data);
++        byte[] sign = signature.sign();
++        byte[] rsConcat = prov.getEcdsaCryptoProvider().asn1derToConcatenatedRS(sign, algorithm.getSignatureLength());
++        byte[] asn1Des = prov.getEcdsaCryptoProvider().concatenatedRSToASN1DER(rsConcat, algorithm.getSignatureLength());
++        byte[] rsConcat2 = prov.getEcdsaCryptoProvider().asn1derToConcatenatedRS(asn1Des, algorithm.getSignatureLength());
++        Assert.assertArrayEquals(rsConcat, rsConcat2);
++    }
++
++    @Test
++    public void testES256() throws Exception {
++        test(ECDSAAlgorithm.ES256);
++    }
++
++    @Test
++    public void testES384() throws Exception {
++        test(ECDSAAlgorithm.ES384);
++    }
++
++    @Test
++    public void testES512() throws Exception {
++        test(ECDSAAlgorithm.ES512);
++    }
++}
++
+diff --git a/common/src/main/java/org/keycloak/common/crypto/CryptoIntegration.java b/common/src/main/java/org/keycloak/common/crypto/CryptoIntegration.java
+index 404cf01c6d6d..c12ea3e552e9 100644
+--- a/common/src/main/java/org/keycloak/common/crypto/CryptoIntegration.java
++++ b/common/src/main/java/org/keycloak/common/crypto/CryptoIntegration.java
+@@ -3,6 +3,7 @@
+ import java.security.KeyStore;
+ import java.security.Provider;
+ import java.security.Security;
++import java.util.Comparator;
+ import java.util.List;
+ import java.util.ServiceLoader;
+ import java.util.stream.Collectors;
+@@ -53,15 +54,20 @@ public static CryptoProvider getProvider() {
+     // Try to auto-detect provider
+     private static CryptoProvider detectProvider(ClassLoader classLoader) {
+         List<CryptoProvider> foundProviders = StreamSupport.stream(ServiceLoader.load(CryptoProvider.class, classLoader).spliterator(), false)
++                .sorted(Comparator.comparingInt(CryptoProvider::order).reversed())
+                 .collect(Collectors.toList());
+ 
+         if (foundProviders.isEmpty()) {
+             throw new IllegalStateException("Not able to load any cryptoProvider with the classLoader: " + classLoader);
+-        } else if (foundProviders.size() > 1) {
+-            throw new IllegalStateException("Multiple crypto providers loaded with the classLoader: " + classLoader +
+-                    ". Make sure only one cryptoProvider available on the classpath. Available providers: " +foundProviders);
+         } else {
+             logger.debugf("Detected crypto provider: %s", foundProviders.get(0).getClass().getName());
++            if (foundProviders.size() > 1) {
++                StringBuilder builder = new StringBuilder("Ignored crypto providers: ");
++                for (int i = 1 ; i < foundProviders.size() ; i++) {
++                    builder.append(foundProviders.get(i).getClass().getName() + ", ");
++                }
++                logger.debugf(builder.toString());
++            }
+             return foundProviders.get(0);
+         }
+     }
+diff --git a/common/src/main/java/org/keycloak/common/crypto/CryptoProvider.java b/common/src/main/java/org/keycloak/common/crypto/CryptoProvider.java
+index 0b2448fed94f..283836c595da 100644
+--- a/common/src/main/java/org/keycloak/common/crypto/CryptoProvider.java
++++ b/common/src/main/java/org/keycloak/common/crypto/CryptoProvider.java
+@@ -36,6 +36,13 @@ public interface CryptoProvider {
+      */
+     Provider getBouncyCastleProvider();
+ 
++    /**
++     * Order of this provider. This allows to specify which CryptoProvider will have preference in case that more of them are on the classpath.
++     *
++     * The higher number has preference over the lower number
++     */
++    int order();
++
+     /**
+      * Get some algorithm provider implementation. Returned implementation can be dependent according to if we have
+      * non-fips bouncycastle or fips bouncycastle on the classpath.
+@@ -84,7 +91,7 @@ public interface CryptoProvider {
+     KeyFactory getKeyFactory(String algorithm) throws NoSuchAlgorithmException, NoSuchProviderException;
+ 
+     Cipher getAesCbcCipher() throws NoSuchAlgorithmException, NoSuchProviderException, NoSuchPaddingException;
+-    
++
+     Cipher getAesGcmCipher() throws NoSuchAlgorithmException, NoSuchProviderException, NoSuchPaddingException;
+ 
+     SecretKeyFactory getSecretKeyFact(String keyAlgorithm) throws NoSuchAlgorithmException, NoSuchProviderException;
+diff --git a/crypto/default/src/main/java/org/keycloak/crypto/def/DefaultCryptoProvider.java b/crypto/default/src/main/java/org/keycloak/crypto/def/DefaultCryptoProvider.java
+index b28bac33fd3d..e4f93954a93c 100644
+--- a/crypto/default/src/main/java/org/keycloak/crypto/def/DefaultCryptoProvider.java
++++ b/crypto/default/src/main/java/org/keycloak/crypto/def/DefaultCryptoProvider.java
+@@ -79,6 +79,10 @@ public Provider getBouncyCastleProvider() {
+         return bcProvider;
+     }
+ 
++    @Override
++    public int order() {
++        return 200;
++    }
+ 
+     @Override
+     public <T> T getAlgorithmProvider(Class<T> clazz, String algorithmType) {
+@@ -179,7 +183,7 @@ public CertPathBuilder getCertPathBuilder() throws NoSuchAlgorithmException, NoS
+     @Override
+     public Signature getSignature(String sigAlgName) throws NoSuchAlgorithmException, NoSuchProviderException {
+         return Signature.getInstance(JavaAlgorithm.getJavaAlgorithm(sigAlgName), BouncyIntegration.PROVIDER);
+-            
++
+     }
+ 
+     @Override
+diff --git a/crypto/elytron/src/main/java/org/keycloak/crypto/elytron/WildFlyElytronProvider.java b/crypto/elytron/src/main/java/org/keycloak/crypto/elytron/WildFlyElytronProvider.java
+index 9cd84f291a22..6c5d0e036611 100644
+--- a/crypto/elytron/src/main/java/org/keycloak/crypto/elytron/WildFlyElytronProvider.java
++++ b/crypto/elytron/src/main/java/org/keycloak/crypto/elytron/WildFlyElytronProvider.java
+@@ -72,6 +72,11 @@ public Provider getBouncyCastleProvider() {
+         return null;
+     }
+ 
++    @Override
++    public int order() {
++        return 200;
++    }
++
+     @Override
+     public <T> T getAlgorithmProvider(Class<T> clazz, String algorithm) {
+         Object o = providers.get(algorithm);
+diff --git a/crypto/fips1402/src/main/java/org/keycloak/crypto/fips/FIPS1402Provider.java b/crypto/fips1402/src/main/java/org/keycloak/crypto/fips/FIPS1402Provider.java
+index bdc672579b72..5796e4f9d60a 100644
+--- a/crypto/fips1402/src/main/java/org/keycloak/crypto/fips/FIPS1402Provider.java
++++ b/crypto/fips1402/src/main/java/org/keycloak/crypto/fips/FIPS1402Provider.java
+@@ -110,6 +110,11 @@ public Provider getBouncyCastleProvider() {
+         return bcFipsProvider;
+     }
+ 
++    @Override
++    public int order() {
++        return 200;
++    }
++
+     @Override
+     public <T> T getAlgorithmProvider(Class<T> clazz, String algorithm) {
+         Object o = providers.get(algorithm);
+@@ -195,12 +200,12 @@ public Cipher getAesCbcCipher() throws NoSuchAlgorithmException, NoSuchProviderE
+     public Cipher getAesGcmCipher() throws NoSuchAlgorithmException, NoSuchProviderException, NoSuchPaddingException {
+         return Cipher.getInstance("AES/GCM/NoPadding", BouncyIntegration.PROVIDER);
+     }
+-    
++
+     @Override
+     public SecretKeyFactory getSecretKeyFact(String keyAlgorithm) throws NoSuchAlgorithmException, NoSuchProviderException {
+         return SecretKeyFactory.getInstance(keyAlgorithm, BouncyIntegration.PROVIDER);
+     }
+-    
++
+     @Override
+     public KeyStore getKeyStore(KeystoreFormat format) throws KeyStoreException, NoSuchProviderException {
+         return KeyStore.getInstance(format.toString(), BouncyIntegration.PROVIDER);
+@@ -222,11 +227,11 @@ public CertStore getCertStore(CollectionCertStoreParameters certStoreParams) thr
+     public CertPathBuilder getCertPathBuilder() throws NoSuchAlgorithmException, NoSuchProviderException {
+         return CertPathBuilder.getInstance("PKIX", BouncyIntegration.PROVIDER);
+     }
+-    
++
+     @Override
+     public Signature getSignature(String sigAlgName) throws NoSuchAlgorithmException, NoSuchProviderException {
+         return Signature.getInstance(JavaAlgorithm.getJavaAlgorithm(sigAlgName), BouncyIntegration.PROVIDER);
+-            
++
+     }
+ 
+     @Override

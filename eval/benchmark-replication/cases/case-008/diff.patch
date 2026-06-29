@@ -1,0 +1,124 @@
+From d8b0365e96bab0eb3d4d4220f471ec562f2afeb2 Mon Sep 17 00:00:00 2001
+From: CarinaWolli <wollencarina@gmail.com>
+Date: Wed, 8 May 2024 09:49:29 -0400
+Subject: [PATCH 1/2] add retry count to workflow reminder
+
+---
+ .../ee/workflows/api/scheduleSMSReminders.ts    | 17 +++++++++++++----
+ .../migration.sql                               |  2 ++
+ packages/prisma/schema.prisma                   |  3 ++-
+ 3 files changed, 17 insertions(+), 5 deletions(-)
+ create mode 100644 packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql
+
+diff --git a/packages/features/ee/workflows/api/scheduleSMSReminders.ts b/packages/features/ee/workflows/api/scheduleSMSReminders.ts
+index 299d9bac639f18..281caaf06c9259 100644
+--- a/packages/features/ee/workflows/api/scheduleSMSReminders.ts
++++ b/packages/features/ee/workflows/api/scheduleSMSReminders.ts
+@@ -28,10 +28,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
+   //delete all scheduled sms reminders where scheduled date is past current date
+   await prisma.workflowReminder.deleteMany({
+     where: {
+-      method: WorkflowMethods.SMS,
+-      scheduledDate: {
+-        lte: dayjs().toISOString(),
+-      },
++      OR: [
++        {
++          method: WorkflowMethods.SMS,
++          scheduledDate: {
++            lte: dayjs().toISOString(),
++          },
++        },
++        {
++          retryCount: {
++            gt: 1,
++          },
++        },
++      ],
+     },
+   });
+ 
+diff --git a/packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql b/packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql
+new file mode 100644
+index 00000000000000..58e4124a58d079
+--- /dev/null
++++ b/packages/prisma/migrations/20240508134359_add_retry_count_to_workflow_reminder/migration.sql
+@@ -0,0 +1,2 @@
++-- AlterTable
++ALTER TABLE "WorkflowReminder" ADD COLUMN     "retryCount" INTEGER NOT NULL DEFAULT 0;
+diff --git a/packages/prisma/schema.prisma b/packages/prisma/schema.prisma
+index a5ca286b717c96..be75952a9b1dd9 100644
+--- a/packages/prisma/schema.prisma
++++ b/packages/prisma/schema.prisma
+@@ -125,7 +125,7 @@ model EventType {
+   metadata                             Json?
+   /// @zod.custom(imports.successRedirectUrl)
+   successRedirectUrl                   String?
+-  forwardParamsSuccessRedirect         Boolean?                @default(true)
++  forwardParamsSuccessRedirect         Boolean?                  @default(true)
+   workflows                            WorkflowsOnEventTypes[]
+   /// @zod.custom(imports.intervalLimitsType)
+   bookingLimits                        Json?
+@@ -996,6 +996,7 @@ model WorkflowReminder {
+   cancelled           Boolean?
+   seatReferenceId     String?
+   isMandatoryReminder Boolean?        @default(false)
++  retryCount          Int             @default(0)
+ 
+   @@index([bookingUid])
+   @@index([workflowStepId])
+
+From a12f3dc4f45f2fe37522ea9a53854caac6197c67 Mon Sep 17 00:00:00 2001
+From: CarinaWolli <wollencarina@gmail.com>
+Date: Wed, 8 May 2024 10:12:12 -0400
+Subject: [PATCH 2/2] add logic to for retry count
+
+---
+ .../ee/workflows/api/scheduleSMSReminders.ts  | 24 +++++++++++++++++--
+ 1 file changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/packages/features/ee/workflows/api/scheduleSMSReminders.ts b/packages/features/ee/workflows/api/scheduleSMSReminders.ts
+index 281caaf06c9259..a6d7f46740dca0 100644
+--- a/packages/features/ee/workflows/api/scheduleSMSReminders.ts
++++ b/packages/features/ee/workflows/api/scheduleSMSReminders.ts
+@@ -53,8 +53,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
+         lte: dayjs().add(7, "day").toISOString(),
+       },
+     },
+-    select,
+-  })) as PartialWorkflowReminder[];
++    select: {
++      ...select,
++      retryCount: true,
++    },
++  })) as (PartialWorkflowReminder & { retryCount: number })[];
+ 
+   if (!unscheduledReminders.length) {
+     res.json({ ok: true });
+@@ -172,9 +175,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
+               referenceId: scheduledSMS.sid,
+             },
+           });
++        } else {
++          await prisma.workflowReminder.update({
++            where: {
++              id: reminder.id,
++            },
++            data: {
++              retryCount: reminder.retryCount + 1,
++            },
++          });
+         }
+       }
+     } catch (error) {
++      await prisma.workflowReminder.update({
++        where: {
++          id: reminder.id,
++        },
++        data: {
++          retryCount: reminder.retryCount + 1,
++        },
++      });
+       console.log(`Error scheduling SMS with error ${error}`);
+     }
+   }

@@ -1,0 +1,139 @@
+From ecfa17b5a79dfdc91e7a4d50b42ae78a35d0a293 Mon Sep 17 00:00:00 2001
+From: Kane York <rikingcoding@gmail.com>
+Date: Wed, 15 Jul 2015 09:04:45 -0700
+Subject: [PATCH] FEATURE: Localization fallbacks (server-side)
+
+The FallbackLocaleList object tells I18n::Backend::Fallbacks what order the
+languages should be attempted in. Because of the translate_accelerator patch,
+the SiteSetting.default_locale is *not* guaranteed to be fully loaded after the
+server starts, so a call to ensure_loaded! is added after the locale is set for
+the current user.
+
+The declarations of config.i18n.fallbacks = true in the environment files were
+actually garbage, because the I18n.default_locale was
+SiteSetting.default_locale, so there was nothing to fall back to. *derp*
+---
+ app/controllers/application_controller.rb    |  2 ++
+ config/cloud/cloud66/files/production.rb     |  5 ----
+ config/environments/production.rb            |  4 ----
+ config/environments/profile.rb               |  4 ----
+ config/initializers/i18n.rb                  | 24 ++++++++++++++++++++
+ config/initializers/pluralization.rb         |  2 --
+ lib/freedom_patches/translate_accelerator.rb |  5 ++++
+ 7 files changed, 31 insertions(+), 15 deletions(-)
+ create mode 100644 config/initializers/i18n.rb
+ delete mode 100644 config/initializers/pluralization.rb
+
+diff --git a/app/controllers/application_controller.rb b/app/controllers/application_controller.rb
+index aa29468fb26a2..a643bfb5158a4 100644
+--- a/app/controllers/application_controller.rb
++++ b/app/controllers/application_controller.rb
+@@ -155,6 +155,8 @@ def set_locale
+                   else
+                     SiteSetting.default_locale
+                   end
++
++    I18n.fallbacks.ensure_loaded!
+   end
+ 
+   def store_preloaded(key, json)
+diff --git a/config/cloud/cloud66/files/production.rb b/config/cloud/cloud66/files/production.rb
+index b7f03a0977461..db662574beefb 100644
+--- a/config/cloud/cloud66/files/production.rb
++++ b/config/cloud/cloud66/files/production.rb
+@@ -23,11 +23,6 @@
+   # Specifies the header that your server uses for sending files
+   config.action_dispatch.x_sendfile_header = 'X-Accel-Redirect' # for nginx
+ 
+-  # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
+-  # the I18n.default_locale when a translation can not be found)
+-  config.i18n.fallbacks = true
+-
+-
+   # you may use other configuration here for mail eg: sendgrid
+ 
+   config.action_mailer.delivery_method = :smtp
+diff --git a/config/environments/production.rb b/config/environments/production.rb
+index 30263174adaf7..013e37f597f8e 100644
+--- a/config/environments/production.rb
++++ b/config/environments/production.rb
+@@ -24,10 +24,6 @@
+ 
+   config.log_level = :info
+ 
+-  # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
+-  # the I18n.default_locale when a translation can not be found)
+-  config.i18n.fallbacks = true
+-
+   if GlobalSetting.smtp_address
+     settings = {
+       address:              GlobalSetting.smtp_address,
+diff --git a/config/environments/profile.rb b/config/environments/profile.rb
+index 43531b0d5c1ce..1784a23528b68 100644
+--- a/config/environments/profile.rb
++++ b/config/environments/profile.rb
+@@ -27,10 +27,6 @@
+   # Specifies the header that your server uses for sending files
+   config.action_dispatch.x_sendfile_header = 'X-Accel-Redirect' # for nginx
+ 
+-  # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
+-  # the I18n.default_locale when a translation can not be found)
+-  config.i18n.fallbacks = true
+-
+   # we recommend you use mailcatcher https://github.com/sj26/mailcatcher
+   config.action_mailer.smtp_settings = { address: "localhost", port: 1025 }
+ 
+diff --git a/config/initializers/i18n.rb b/config/initializers/i18n.rb
+new file mode 100644
+index 0000000000000..685e6e29c4329
+--- /dev/null
++++ b/config/initializers/i18n.rb
+@@ -0,0 +1,24 @@
++# order: after 02-freedom_patches.rb
++
++# Include pluralization module
++require 'i18n/backend/pluralization'
++I18n::Backend::Simple.send(:include, I18n::Backend::Pluralization)
++
++# Include fallbacks module
++require 'i18n/backend/fallbacks'
++I18n.backend.class.send(:include, I18n::Backend::Fallbacks)
++
++# Configure custom fallback order
++class FallbackLocaleList < Hash
++  def [](locale)
++    # user locale, site locale, english
++    # TODO - this can be extended to be per-language for a better user experience
++    # (e.g. fallback zh_TW to zh_CN / vice versa)
++    [locale, SiteSetting.default_locale.to_sym, :en].uniq.compact
++  end
++
++  def ensure_loaded!
++    self[I18n.locale].each { |l| I18n.ensure_loaded! l }
++  end
++end
++I18n.fallbacks = FallbackLocaleList.new
+diff --git a/config/initializers/pluralization.rb b/config/initializers/pluralization.rb
+deleted file mode 100644
+index 0a567d4451519..0000000000000
+--- a/config/initializers/pluralization.rb
++++ /dev/null
+@@ -1,2 +0,0 @@
+-require "i18n/backend/pluralization"
+-I18n::Backend::Simple.send(:include, I18n::Backend::Pluralization)
+diff --git a/lib/freedom_patches/translate_accelerator.rb b/lib/freedom_patches/translate_accelerator.rb
+index 95f9f9d0b12f6..7b3fc986a6cac 100644
+--- a/lib/freedom_patches/translate_accelerator.rb
++++ b/lib/freedom_patches/translate_accelerator.rb
+@@ -59,6 +59,11 @@ def load_locale(locale)
+       end
+     end
+ 
++    def ensure_loaded!(locale)
++      @loaded_locales ||= []
++      load_locale locale unless @loaded_locales.include?(locale)
++    end
++
+     def translate(key, *args)
+       load_locale(config.locale) unless @loaded_locales.include?(config.locale)
+       return translate_no_cache(key, *args) if args.length > 0

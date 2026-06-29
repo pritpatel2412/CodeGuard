@@ -1,0 +1,15 @@
+{
+  "pr_title": "Add comprehensive email validation for blocked users",
+  "url": "https://github.com/discourse/discourse/commit/5f8a130277dbddc95d133cd2832be639baf89213",
+  "file": "discourse.json",
+  "comments": [
+    {
+      "comment": "BlockedEmail.should_block_email? method has side effects during a read operation - it updates statistics even when just checking if an email should be blocked. This could cause race conditions in concurrent environments and makes the method name misleading.",
+      "severity": "Medium"
+    },
+    {
+      "comment": "Regex pattern @(#{domains}) only matches domain suffixes, not full domains. evil.example.com would match whitelist entry example.com.",
+      "severity": "Medium"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "pr_title": "Add caching support for IdentityProviderStorageProvider.getForLogin operations",
+  "url": "https://github.com/keycloak/keycloak/pull/32918",
+  "file": "keycloak.json",
+  "comments": [
+    {
+      "comment": "Recursive caching call using session instead of delegate",
+      "severity": "Critical"
+    },
+    {
+      "comment": "Cleanup reference uses incorrect alias - should be 'idp-alias-' + i instead of 'alias'.",
+      "severity": "Medium"
+    }
+  ]
+}

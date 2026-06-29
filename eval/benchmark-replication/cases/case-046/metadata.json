@@ -1,0 +1,15 @@
+{
+  "pr_title": "ref(crons): Reorganize incident creation / issue occurrence logic",
+  "url": "https://github.com/getsentry/sentry/pull/80528",
+  "file": "sentry.json",
+  "comments": [
+    {
+      "comment": "The function modifies the config variable to include display values but then returns the original monitor.config instead of the modified version.",
+      "severity": "High"
+    },
+    {
+      "comment": "The code fetches MonitorCheckIn objects by ID when the required data already exists in previous_checkins. This creates an unnecessary database query.",
+      "severity": "Low"
+    }
+  ]
+}

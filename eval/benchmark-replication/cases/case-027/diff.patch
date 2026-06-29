@@ -1,0 +1,1023 @@
+From d1c87b3c4ce54198f4a9c5faed6717c2f2767e14 Mon Sep 17 00:00:00 2001
+From: Alex Weaver <weaver.alex.d@gmail.com>
+Date: Wed, 10 Jan 2024 14:43:28 -0600
+Subject: [PATCH 01/16] Split subquery when cleaning annotations
+
+---
+ .../annotations/annotationsimpl/xorm_store.go | 60 ++++++++++++++++---
+ 1 file changed, 53 insertions(+), 7 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/xorm_store.go b/pkg/services/annotations/annotationsimpl/xorm_store.go
+index e7072f2f0520b..8e21dce0dae06 100644
+--- a/pkg/services/annotations/annotationsimpl/xorm_store.go
++++ b/pkg/services/annotations/annotationsimpl/xorm_store.go
+@@ -519,10 +519,16 @@ func (r *xormRepositoryImpl) CleanAnnotations(ctx context.Context, cfg setting.A
+ 	var totalAffected int64
+ 	if cfg.MaxAge > 0 {
+ 		cutoffDate := timeNow().Add(-cfg.MaxAge).UnixNano() / int64(time.Millisecond)
+-		deleteQuery := `DELETE FROM annotation WHERE id IN (SELECT id FROM (SELECT id FROM annotation WHERE %s AND created < %v ORDER BY id DESC %s) a)`
+-		sql := fmt.Sprintf(deleteQuery, annotationType, cutoffDate, r.db.GetDialect().Limit(r.cfg.AnnotationCleanupJobBatchSize))
++		// A subquery seems to deadlock with concurrent inserts on MySQL.
++		// We have a bounded batch size, so work around this by first loading the IDs into memory and allowing any locks to flush.
++		// This may under-delete when concurrent inserts happen, but any such annotations will simply be cleaned on the next cycle.
++		cond := fmt.Sprintf(`%s AND created < %v ORDER BY id DESC %s`, annotationType, cutoffDate, r.db.GetDialect().Limit(r.cfg.AnnotationCleanupJobBatchSize))
++		ids, err := r.fetchIDs(ctx, "annotation", cond)
++		if err != nil {
++			return totalAffected, err
++		}
+ 
+-		affected, err := r.executeUntilDoneOrCancelled(ctx, sql)
++		affected, err := r.deleteByIDs(ctx, "annotation", ids)
+ 		totalAffected += affected
+ 		if err != nil {
+ 			return totalAffected, err
+@@ -530,11 +536,18 @@ func (r *xormRepositoryImpl) CleanAnnotations(ctx context.Context, cfg setting.A
+ 	}
+ 
+ 	if cfg.MaxCount > 0 {
+-		deleteQuery := `DELETE FROM annotation WHERE id IN (SELECT id FROM (SELECT id FROM annotation WHERE %s ORDER BY id DESC %s) a)`
+-		sql := fmt.Sprintf(deleteQuery, annotationType, r.db.GetDialect().LimitOffset(r.cfg.AnnotationCleanupJobBatchSize, cfg.MaxCount))
+-		affected, err := r.executeUntilDoneOrCancelled(ctx, sql)
++		// Similar strategy as the above cleanup process, to avoid deadlocks.
++		cond := fmt.Sprintf(`%s ORDER BY id DESC %s`, annotationType, r.db.GetDialect().LimitOffset(r.cfg.AnnotationCleanupJobBatchSize, cfg.MaxCount))
++		ids, err := r.fetchIDs(ctx, "annotation", cond)
++		if err != nil {
++			return totalAffected, err
++		}
++
++		affected, err := r.deleteByIDs(ctx, "annotation", ids)
+ 		totalAffected += affected
+-		return totalAffected, err
++		if err != nil {
++			return totalAffected, err
++		}
+ 	}
+ 
+ 	return totalAffected, nil
+@@ -546,6 +559,39 @@ func (r *xormRepositoryImpl) CleanOrphanedAnnotationTags(ctx context.Context) (i
+ 	return r.executeUntilDoneOrCancelled(ctx, sql)
+ }
+ 
++func (r *xormRepositoryImpl) fetchIDs(ctx context.Context, table, condition string) ([]int64, error) {
++	sql := fmt.Sprintf(`SELECT id FROM %s`, table)
++	if condition != "" {
++		sql += fmt.Sprintf(` WHERE %s`, condition)
++	}
++	ids := make([]int64, 0)
++	err := r.db.WithDbSession(ctx, func(session *db.Session) error {
++		return session.SQL(sql).Find(&ids)
++	})
++	return ids, err
++}
++
++func (r *xormRepositoryImpl) deleteByIDs(ctx context.Context, table string, ids []int64) (int64, error) {
++	if len(ids) == 0 {
++		return 0, nil
++	}
++
++	deleteQuery := `DELETE FROM annotation WHERE id IN (%s)`
++	sql := fmt.Sprintf(deleteQuery, commaSeparated(ids))
++	return r.executeUntilDoneOrCancelled(ctx, sql)
++}
++
++func commaSeparated(vs []int64) string {
++	if len(vs) == 0 {
++		return ""
++	}
++	res := fmt.Sprint(vs[0])
++	for _, v := range vs[1:] {
++		res = fmt.Sprintf("%s, %d", res, v)
++	}
++	return res
++}
++
+ func (r *xormRepositoryImpl) executeUntilDoneOrCancelled(ctx context.Context, sql string) (int64, error) {
+ 	var totalAffected int64
+ 	for {
+
+From 30243d8e87b6a5b20a237687d947e882ac6e3bd5 Mon Sep 17 00:00:00 2001
+From: Alex Weaver <weaver.alex.d@gmail.com>
+Date: Wed, 10 Jan 2024 14:51:07 -0600
+Subject: [PATCH 02/16] update comment
+
+---
+ pkg/services/annotations/annotationsimpl/xorm_store.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/xorm_store.go b/pkg/services/annotations/annotationsimpl/xorm_store.go
+index 8e21dce0dae06..f8e05961f7836 100644
+--- a/pkg/services/annotations/annotationsimpl/xorm_store.go
++++ b/pkg/services/annotations/annotationsimpl/xorm_store.go
+@@ -519,7 +519,7 @@ func (r *xormRepositoryImpl) CleanAnnotations(ctx context.Context, cfg setting.A
+ 	var totalAffected int64
+ 	if cfg.MaxAge > 0 {
+ 		cutoffDate := timeNow().Add(-cfg.MaxAge).UnixNano() / int64(time.Millisecond)
+-		// A subquery seems to deadlock with concurrent inserts on MySQL.
++		// Single-statement approaches, specifically ones using sub-queries, seem to deadlock with concurrent inserts on MySQL.
+ 		// We have a bounded batch size, so work around this by first loading the IDs into memory and allowing any locks to flush.
+ 		// This may under-delete when concurrent inserts happen, but any such annotations will simply be cleaned on the next cycle.
+ 		cond := fmt.Sprintf(`%s AND created < %v ORDER BY id DESC %s`, annotationType, cutoffDate, r.db.GetDialect().Limit(r.cfg.AnnotationCleanupJobBatchSize))
+
+From bc0bf5d5529cf3de06c8d155ca02dc1261052732 Mon Sep 17 00:00:00 2001
+From: Alex Weaver <weaver.alex.d@gmail.com>
+Date: Wed, 10 Jan 2024 15:57:32 -0600
+Subject: [PATCH 03/16] Raise batch size, now that we pay attention to it
+
+---
+ pkg/services/annotations/annotationsimpl/cleanup_test.go | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/cleanup_test.go b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+index 3b94ef8fdd5ba..ce5330dc88a5f 100644
+--- a/pkg/services/annotations/annotationsimpl/cleanup_test.go
++++ b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+@@ -90,7 +90,7 @@ func TestAnnotationCleanUp(t *testing.T) {
+ 	for _, test := range tests {
+ 		t.Run(test.name, func(t *testing.T) {
+ 			cfg := setting.NewCfg()
+-			cfg.AnnotationCleanupJobBatchSize = 1
++			cfg.AnnotationCleanupJobBatchSize = 2
+ 			cleaner := ProvideCleanupService(fakeSQL, cfg)
+ 			affectedAnnotations, affectedAnnotationTags, err := cleaner.Run(context.Background(), test.cfg)
+ 			require.NoError(t, err)
+@@ -145,7 +145,7 @@ func TestOldAnnotationsAreDeletedFirst(t *testing.T) {
+ 
+ 		// run the clean up task to keep one annotation.
+ 		cfg := setting.NewCfg()
+-		cfg.AnnotationCleanupJobBatchSize = 1
++		cfg.AnnotationCleanupJobBatchSize = 2
+ 		cleaner := NewXormStore(cfg, log.New("annotation.test"), fakeSQL, nil)
+ 		_, err = cleaner.CleanAnnotations(context.Background(), setting.AnnotationCleanupSettings{MaxCount: 1}, alertAnnotationType)
+ 		require.NoError(t, err)
+
+From 4ecfade25805b2636c6e3f0dfbd82bfe88821b42 Mon Sep 17 00:00:00 2001
+From: Alex Weaver <weaver.alex.d@gmail.com>
+Date: Wed, 10 Jan 2024 16:14:59 -0600
+Subject: [PATCH 04/16] Iterate in batches
+
+---
+ .../annotationsimpl/cleanup_test.go           |  4 +-
+ .../annotations/annotationsimpl/xorm_store.go | 50 ++++++++++++-------
+ pkg/services/cleanup/cleanup.go               |  2 +-
+ 3 files changed, 34 insertions(+), 22 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/cleanup_test.go b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+index ce5330dc88a5f..3b94ef8fdd5ba 100644
+--- a/pkg/services/annotations/annotationsimpl/cleanup_test.go
++++ b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+@@ -90,7 +90,7 @@ func TestAnnotationCleanUp(t *testing.T) {
+ 	for _, test := range tests {
+ 		t.Run(test.name, func(t *testing.T) {
+ 			cfg := setting.NewCfg()
+-			cfg.AnnotationCleanupJobBatchSize = 2
++			cfg.AnnotationCleanupJobBatchSize = 1
+ 			cleaner := ProvideCleanupService(fakeSQL, cfg)
+ 			affectedAnnotations, affectedAnnotationTags, err := cleaner.Run(context.Background(), test.cfg)
+ 			require.NoError(t, err)
+@@ -145,7 +145,7 @@ func TestOldAnnotationsAreDeletedFirst(t *testing.T) {
+ 
+ 		// run the clean up task to keep one annotation.
+ 		cfg := setting.NewCfg()
+-		cfg.AnnotationCleanupJobBatchSize = 2
++		cfg.AnnotationCleanupJobBatchSize = 1
+ 		cleaner := NewXormStore(cfg, log.New("annotation.test"), fakeSQL, nil)
+ 		_, err = cleaner.CleanAnnotations(context.Background(), setting.AnnotationCleanupSettings{MaxCount: 1}, alertAnnotationType)
+ 		require.NoError(t, err)
+diff --git a/pkg/services/annotations/annotationsimpl/xorm_store.go b/pkg/services/annotations/annotationsimpl/xorm_store.go
+index f8e05961f7836..18d41e0a13168 100644
+--- a/pkg/services/annotations/annotationsimpl/xorm_store.go
++++ b/pkg/services/annotations/annotationsimpl/xorm_store.go
+@@ -519,34 +519,46 @@ func (r *xormRepositoryImpl) CleanAnnotations(ctx context.Context, cfg setting.A
+ 	var totalAffected int64
+ 	if cfg.MaxAge > 0 {
+ 		cutoffDate := timeNow().Add(-cfg.MaxAge).UnixNano() / int64(time.Millisecond)
+-		// Single-statement approaches, specifically ones using sub-queries, seem to deadlock with concurrent inserts on MySQL.
++		// Single-statement approaches, specifically ones using batched sub-queries, seem to deadlock with concurrent inserts on MySQL.
+ 		// We have a bounded batch size, so work around this by first loading the IDs into memory and allowing any locks to flush.
+ 		// This may under-delete when concurrent inserts happen, but any such annotations will simply be cleaned on the next cycle.
+-		cond := fmt.Sprintf(`%s AND created < %v ORDER BY id DESC %s`, annotationType, cutoffDate, r.db.GetDialect().Limit(r.cfg.AnnotationCleanupJobBatchSize))
+-		ids, err := r.fetchIDs(ctx, "annotation", cond)
+-		if err != nil {
+-			return totalAffected, err
+-		}
++		for {
++			cond := fmt.Sprintf(`%s AND created < %v ORDER BY id DESC %s`, annotationType, cutoffDate, r.db.GetDialect().Limit(r.cfg.AnnotationCleanupJobBatchSize))
++			ids, err := r.fetchIDs(ctx, "annotation", cond)
++			if err != nil {
++				return totalAffected, err
++			}
+ 
+-		affected, err := r.deleteByIDs(ctx, "annotation", ids)
+-		totalAffected += affected
+-		if err != nil {
+-			return totalAffected, err
++			if len(ids) == 0 {
++				break
++			}
++
++			affected, err := r.deleteByIDs(ctx, "annotation", ids)
++			totalAffected += affected
++			if err != nil {
++				return totalAffected, err
++			}
+ 		}
+ 	}
+ 
+ 	if cfg.MaxCount > 0 {
+ 		// Similar strategy as the above cleanup process, to avoid deadlocks.
+-		cond := fmt.Sprintf(`%s ORDER BY id DESC %s`, annotationType, r.db.GetDialect().LimitOffset(r.cfg.AnnotationCleanupJobBatchSize, cfg.MaxCount))
+-		ids, err := r.fetchIDs(ctx, "annotation", cond)
+-		if err != nil {
+-			return totalAffected, err
+-		}
++		for {
++			cond := fmt.Sprintf(`%s ORDER BY id DESC %s`, annotationType, r.db.GetDialect().LimitOffset(r.cfg.AnnotationCleanupJobBatchSize, cfg.MaxCount))
++			ids, err := r.fetchIDs(ctx, "annotation", cond)
++			if err != nil {
++				return totalAffected, err
++			}
+ 
+-		affected, err := r.deleteByIDs(ctx, "annotation", ids)
+-		totalAffected += affected
+-		if err != nil {
+-			return totalAffected, err
++			if len(ids) == 0 {
++				break
++			}
++
++			affected, err := r.deleteByIDs(ctx, "annotation", ids)
++			totalAffected += affected
++			if err != nil {
++				return totalAffected, err
++			}
+ 		}
+ 	}
+ 
+diff --git a/pkg/services/cleanup/cleanup.go b/pkg/services/cleanup/cleanup.go
+index a96d5f5a702f3..d3e36eda27c5d 100644
+--- a/pkg/services/cleanup/cleanup.go
++++ b/pkg/services/cleanup/cleanup.go
+@@ -74,7 +74,7 @@ func (j cleanUpJob) String() string {
+ func (srv *CleanUpService) Run(ctx context.Context) error {
+ 	srv.cleanUpTmpFiles(ctx)
+ 
+-	ticker := time.NewTicker(time.Minute * 10)
++	ticker := time.NewTicker(time.Minute * 1)
+ 	for {
+ 		select {
+ 		case <-ticker.C:
+
+From 83a86c93fd7874deb6b2f391e6494ba82219c28a Mon Sep 17 00:00:00 2001
+From: Alex Weaver <weaver.alex.d@gmail.com>
+Date: Wed, 10 Jan 2024 16:31:01 -0600
+Subject: [PATCH 05/16] Separate cancellable batch implementation to allow for
+ multi-statement callbacks, add overload for single-statement use
+
+---
+ .../annotations/annotationsimpl/xorm_store.go | 47 ++++++++++++-------
+ 1 file changed, 31 insertions(+), 16 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/xorm_store.go b/pkg/services/annotations/annotationsimpl/xorm_store.go
+index 18d41e0a13168..ddea95205c33b 100644
+--- a/pkg/services/annotations/annotationsimpl/xorm_store.go
++++ b/pkg/services/annotations/annotationsimpl/xorm_store.go
+@@ -520,7 +520,7 @@ func (r *xormRepositoryImpl) CleanAnnotations(ctx context.Context, cfg setting.A
+ 	if cfg.MaxAge > 0 {
+ 		cutoffDate := timeNow().Add(-cfg.MaxAge).UnixNano() / int64(time.Millisecond)
+ 		// Single-statement approaches, specifically ones using batched sub-queries, seem to deadlock with concurrent inserts on MySQL.
+-		// We have a bounded batch size, so work around this by first loading the IDs into memory and allowing any locks to flush.
++		// We have a bounded batch size, so work around this by first loading the IDs into memory and allowing any locks to flush inside each batch.
+ 		// This may under-delete when concurrent inserts happen, but any such annotations will simply be cleaned on the next cycle.
+ 		for {
+ 			cond := fmt.Sprintf(`%s AND created < %v ORDER BY id DESC %s`, annotationType, cutoffDate, r.db.GetDialect().Limit(r.cfg.AnnotationCleanupJobBatchSize))
+@@ -568,7 +568,7 @@ func (r *xormRepositoryImpl) CleanAnnotations(ctx context.Context, cfg setting.A
+ func (r *xormRepositoryImpl) CleanOrphanedAnnotationTags(ctx context.Context) (int64, error) {
+ 	deleteQuery := `DELETE FROM annotation_tag WHERE id IN ( SELECT id FROM (SELECT id FROM annotation_tag WHERE NOT EXISTS (SELECT 1 FROM annotation a WHERE annotation_id = a.id) %s) a)`
+ 	sql := fmt.Sprintf(deleteQuery, r.db.GetDialect().Limit(r.cfg.AnnotationCleanupJobBatchSize))
+-	return r.executeUntilDoneOrCancelled(ctx, sql)
++	return r.executeSQLUntilDoneOrCancelled(ctx, sql)
+ }
+ 
+ func (r *xormRepositoryImpl) fetchIDs(ctx context.Context, table, condition string) ([]int64, error) {
+@@ -590,7 +590,16 @@ func (r *xormRepositoryImpl) deleteByIDs(ctx context.Context, table string, ids
+ 
+ 	deleteQuery := `DELETE FROM annotation WHERE id IN (%s)`
+ 	sql := fmt.Sprintf(deleteQuery, commaSeparated(ids))
+-	return r.executeUntilDoneOrCancelled(ctx, sql)
++	var affected int64
++	err := r.db.WithDbSession(ctx, func(session *db.Session) error {
++		res, err := session.Exec(sql)
++		if err != nil {
++			return err
++		}
++		affected, err = res.RowsAffected()
++		return err
++	})
++	return affected, err
+ }
+ 
+ func commaSeparated(vs []int64) string {
+@@ -604,25 +613,31 @@ func commaSeparated(vs []int64) string {
+ 	return res
+ }
+ 
+-func (r *xormRepositoryImpl) executeUntilDoneOrCancelled(ctx context.Context, sql string) (int64, error) {
++func (r *xormRepositoryImpl) executeSQLUntilDoneOrCancelled(ctx context.Context, sql string) (int64, error) {
++	return untilDoneOrCancelled(ctx, func() (int64, error) {
++		var affected int64
++		err := r.db.WithDbSession(ctx, func(session *db.Session) error {
++			res, err := session.Exec(sql)
++			if err != nil {
++				return err
++			}
++
++			affected, err = res.RowsAffected()
++			return err
++		})
++		return affected, err
++	})
++}
++
++func untilDoneOrCancelled(ctx context.Context, batchWork func() (int64, error)) (int64, error) {
+ 	var totalAffected int64
+ 	for {
+ 		select {
+ 		case <-ctx.Done():
+ 			return totalAffected, ctx.Err()
+ 		default:
+-			var affected int64
+-			err := r.db.WithDbSession(ctx, func(session *db.Session) error {
+-				res, err := session.Exec(sql)
+-				if err != nil {
+-					return err
+-				}
+-
+-				affected, err = res.RowsAffected()
+-				totalAffected += affected
+-
+-				return err
+-			})
++			affected, err := batchWork()
++			totalAffected += affected
+ 			if err != nil {
+ 				return totalAffected, err
+ 			}
+
+From 73dca0cb0a1a3d5272bb6d412860f66b94cb49ae Mon Sep 17 00:00:00 2001
+From: Alex Weaver <weaver.alex.d@gmail.com>
+Date: Wed, 10 Jan 2024 16:38:06 -0600
+Subject: [PATCH 06/16] Use split-out utility in outer batching loop so it
+ respects context cancellation
+
+---
+ .../annotations/annotationsimpl/xorm_store.go | 41 +++++++++----------
+ 1 file changed, 20 insertions(+), 21 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/xorm_store.go b/pkg/services/annotations/annotationsimpl/xorm_store.go
+index ddea95205c33b..9164b15d7615d 100644
+--- a/pkg/services/annotations/annotationsimpl/xorm_store.go
++++ b/pkg/services/annotations/annotationsimpl/xorm_store.go
+@@ -522,43 +522,37 @@ func (r *xormRepositoryImpl) CleanAnnotations(ctx context.Context, cfg setting.A
+ 		// Single-statement approaches, specifically ones using batched sub-queries, seem to deadlock with concurrent inserts on MySQL.
+ 		// We have a bounded batch size, so work around this by first loading the IDs into memory and allowing any locks to flush inside each batch.
+ 		// This may under-delete when concurrent inserts happen, but any such annotations will simply be cleaned on the next cycle.
+-		for {
++		//
++		// We execute the following batched operation repeatedly until either we run out of objects, the context is cancelled, or there is an error.
++		affected, err := untilDoneOrCancelled(ctx, func() (int64, error) {
+ 			cond := fmt.Sprintf(`%s AND created < %v ORDER BY id DESC %s`, annotationType, cutoffDate, r.db.GetDialect().Limit(r.cfg.AnnotationCleanupJobBatchSize))
+ 			ids, err := r.fetchIDs(ctx, "annotation", cond)
+ 			if err != nil {
+-				return totalAffected, err
+-			}
+-
+-			if len(ids) == 0 {
+-				break
++				return 0, err
+ 			}
+ 
+-			affected, err := r.deleteByIDs(ctx, "annotation", ids)
+-			totalAffected += affected
+-			if err != nil {
+-				return totalAffected, err
+-			}
++			return r.deleteByIDs(ctx, "annotation", ids)
++		})
++		totalAffected += affected
++		if err != nil {
++			return totalAffected, err
+ 		}
+ 	}
+ 
+ 	if cfg.MaxCount > 0 {
+ 		// Similar strategy as the above cleanup process, to avoid deadlocks.
+-		for {
++		affected, err := untilDoneOrCancelled(ctx, func() (int64, error) {
+ 			cond := fmt.Sprintf(`%s ORDER BY id DESC %s`, annotationType, r.db.GetDialect().LimitOffset(r.cfg.AnnotationCleanupJobBatchSize, cfg.MaxCount))
+ 			ids, err := r.fetchIDs(ctx, "annotation", cond)
+ 			if err != nil {
+ 				return totalAffected, err
+ 			}
+ 
+-			if len(ids) == 0 {
+-				break
+-			}
+-
+-			affected, err := r.deleteByIDs(ctx, "annotation", ids)
+-			totalAffected += affected
+-			if err != nil {
+-				return totalAffected, err
+-			}
++			return r.deleteByIDs(ctx, "annotation", ids)
++		})
++		totalAffected += affected
++		if err != nil {
++			return totalAffected, err
+ 		}
+ 	}
+ 
+@@ -613,6 +607,8 @@ func commaSeparated(vs []int64) string {
+ 	return res
+ }
+ 
++// executeSQLUntilDoneOrCancelled repeatedly executes a SQL statement until it affects no rows, produces an error, or the context is cancelled.
++// It operates in a similar way to untilDoneOrCancelled.
+ func (r *xormRepositoryImpl) executeSQLUntilDoneOrCancelled(ctx context.Context, sql string) (int64, error) {
+ 	return untilDoneOrCancelled(ctx, func() (int64, error) {
+ 		var affected int64
+@@ -629,6 +625,9 @@ func (r *xormRepositoryImpl) executeSQLUntilDoneOrCancelled(ctx context.Context,
+ 	})
+ }
+ 
++// untilDoneOrCancelled repeatedly executes batched work until that work is either done (i.e., returns zero affected objects),
++// a batch produces an error, or the provided context is cancelled.
++// The work to be done is given as a callback that returns the number of affected objects for each batch, plus that batch's errors.
+ func untilDoneOrCancelled(ctx context.Context, batchWork func() (int64, error)) (int64, error) {
+ 	var totalAffected int64
+ 	for {
+
+From bcddaa68193dde1a1db8a58ba6e7f9315a407829 Mon Sep 17 00:00:00 2001
+From: Alex Weaver <weaver.alex.d@gmail.com>
+Date: Thu, 11 Jan 2024 10:37:31 -0600
+Subject: [PATCH 07/16] guard against empty queries
+
+---
+ pkg/services/annotations/annotationsimpl/xorm_store.go | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/xorm_store.go b/pkg/services/annotations/annotationsimpl/xorm_store.go
+index 9164b15d7615d..f46cfdc6dce0b 100644
+--- a/pkg/services/annotations/annotationsimpl/xorm_store.go
++++ b/pkg/services/annotations/annotationsimpl/xorm_store.go
+@@ -567,9 +567,10 @@ func (r *xormRepositoryImpl) CleanOrphanedAnnotationTags(ctx context.Context) (i
+ 
+ func (r *xormRepositoryImpl) fetchIDs(ctx context.Context, table, condition string) ([]int64, error) {
+ 	sql := fmt.Sprintf(`SELECT id FROM %s`, table)
+-	if condition != "" {
+-		sql += fmt.Sprintf(` WHERE %s`, condition)
++	if condition == "" {
++		return nil, fmt.Errorf("condition must be supplied; cannot fetch IDs from entire table")
+ 	}
++	sql += fmt.Sprintf(` WHERE %s`, condition)
+ 	ids := make([]int64, 0)
+ 	err := r.db.WithDbSession(ctx, func(session *db.Session) error {
+ 		return session.SQL(sql).Find(&ids)
+
+From cbe26d7b1094594e74ccc0510e2ccc563215a240 Mon Sep 17 00:00:00 2001
+From: Alex Weaver <weaver.alex.d@gmail.com>
+Date: Thu, 11 Jan 2024 11:20:13 -0600
+Subject: [PATCH 08/16] Use SQL parameters
+
+---
+ .../annotations/annotationsimpl/xorm_store.go | 19 ++++++++-----------
+ 1 file changed, 8 insertions(+), 11 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/xorm_store.go b/pkg/services/annotations/annotationsimpl/xorm_store.go
+index f46cfdc6dce0b..405d96f624303 100644
+--- a/pkg/services/annotations/annotationsimpl/xorm_store.go
++++ b/pkg/services/annotations/annotationsimpl/xorm_store.go
+@@ -583,11 +583,11 @@ func (r *xormRepositoryImpl) deleteByIDs(ctx context.Context, table string, ids
+ 		return 0, nil
+ 	}
+ 
+-	deleteQuery := `DELETE FROM annotation WHERE id IN (%s)`
+-	sql := fmt.Sprintf(deleteQuery, commaSeparated(ids))
++	placeholders := "?" + strings.Repeat(",?", len(ids)-1)
++	sql := fmt.Sprintf(`DELETE FROM annotation WHERE id IN (%s)`, placeholders)
+ 	var affected int64
+ 	err := r.db.WithDbSession(ctx, func(session *db.Session) error {
+-		res, err := session.Exec(sql)
++		res, err := session.Exec(append([]any{sql}, asAny(ids)...)...)
+ 		if err != nil {
+ 			return err
+ 		}
+@@ -597,15 +597,12 @@ func (r *xormRepositoryImpl) deleteByIDs(ctx context.Context, table string, ids
+ 	return affected, err
+ }
+ 
+-func commaSeparated(vs []int64) string {
+-	if len(vs) == 0 {
+-		return ""
++func asAny(vs []int64) []any {
++	r := make([]any, len(vs))
++	for i, v := range vs {
++		r[i] = v
+ 	}
+-	res := fmt.Sprint(vs[0])
+-	for _, v := range vs[1:] {
+-		res = fmt.Sprintf("%s, %d", res, v)
+-	}
+-	return res
++	return r
+ }
+ 
+ // executeSQLUntilDoneOrCancelled repeatedly executes a SQL statement until it affects no rows, produces an error, or the context is cancelled.
+
+From a503d59750632c2eaf6bbead7c55060fe35c2791 Mon Sep 17 00:00:00 2001
+From: Alex Weaver <weaver.alex.d@gmail.com>
+Date: Thu, 11 Jan 2024 11:48:57 -0600
+Subject: [PATCH 09/16] Use same approach for tags
+
+---
+ .../annotations/annotationsimpl/xorm_store.go    | 16 +++++++++++-----
+ 1 file changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/xorm_store.go b/pkg/services/annotations/annotationsimpl/xorm_store.go
+index 405d96f624303..fd012c4074c97 100644
+--- a/pkg/services/annotations/annotationsimpl/xorm_store.go
++++ b/pkg/services/annotations/annotationsimpl/xorm_store.go
+@@ -545,7 +545,7 @@ func (r *xormRepositoryImpl) CleanAnnotations(ctx context.Context, cfg setting.A
+ 			cond := fmt.Sprintf(`%s ORDER BY id DESC %s`, annotationType, r.db.GetDialect().LimitOffset(r.cfg.AnnotationCleanupJobBatchSize, cfg.MaxCount))
+ 			ids, err := r.fetchIDs(ctx, "annotation", cond)
+ 			if err != nil {
+-				return totalAffected, err
++				return 0, err
+ 			}
+ 
+ 			return r.deleteByIDs(ctx, "annotation", ids)
+@@ -560,9 +560,15 @@ func (r *xormRepositoryImpl) CleanAnnotations(ctx context.Context, cfg setting.A
+ }
+ 
+ func (r *xormRepositoryImpl) CleanOrphanedAnnotationTags(ctx context.Context) (int64, error) {
+-	deleteQuery := `DELETE FROM annotation_tag WHERE id IN ( SELECT id FROM (SELECT id FROM annotation_tag WHERE NOT EXISTS (SELECT 1 FROM annotation a WHERE annotation_id = a.id) %s) a)`
+-	sql := fmt.Sprintf(deleteQuery, r.db.GetDialect().Limit(r.cfg.AnnotationCleanupJobBatchSize))
+-	return r.executeSQLUntilDoneOrCancelled(ctx, sql)
++	return untilDoneOrCancelled(ctx, func() (int64, error) {
++		cond := fmt.Sprintf(`NOT EXISTS (SELECT 1 FROM annotation a WHERE annotation_id = a.id) %s`, r.db.GetDialect().Limit(r.cfg.AnnotationCleanupJobBatchSize))
++		ids, err := r.fetchIDs(ctx, "annotation_tag", cond)
++		if err != nil {
++			return 0, err
++		}
++
++		return r.deleteByIDs(ctx, "annotation_tag", ids)
++	})
+ }
+ 
+ func (r *xormRepositoryImpl) fetchIDs(ctx context.Context, table, condition string) ([]int64, error) {
+@@ -584,7 +590,7 @@ func (r *xormRepositoryImpl) deleteByIDs(ctx context.Context, table string, ids
+ 	}
+ 
+ 	placeholders := "?" + strings.Repeat(",?", len(ids)-1)
+-	sql := fmt.Sprintf(`DELETE FROM annotation WHERE id IN (%s)`, placeholders)
++	sql := fmt.Sprintf(`DELETE FROM %s WHERE id IN (%s)`, table, placeholders)
+ 	var affected int64
+ 	err := r.db.WithDbSession(ctx, func(session *db.Session) error {
+ 		res, err := session.Exec(append([]any{sql}, asAny(ids)...)...)
+
+From aa296e52460e366617eb2a1f54c37f364135ab6c Mon Sep 17 00:00:00 2001
+From: Alex Weaver <weaver.alex.d@gmail.com>
+Date: Thu, 11 Jan 2024 15:50:29 -0600
+Subject: [PATCH 10/16] drop unused function
+
+---
+ .../annotations/annotationsimpl/xorm_store.go  | 18 ------------------
+ 1 file changed, 18 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/xorm_store.go b/pkg/services/annotations/annotationsimpl/xorm_store.go
+index fd012c4074c97..50f4b636fbc72 100644
+--- a/pkg/services/annotations/annotationsimpl/xorm_store.go
++++ b/pkg/services/annotations/annotationsimpl/xorm_store.go
+@@ -611,24 +611,6 @@ func asAny(vs []int64) []any {
+ 	return r
+ }
+ 
+-// executeSQLUntilDoneOrCancelled repeatedly executes a SQL statement until it affects no rows, produces an error, or the context is cancelled.
+-// It operates in a similar way to untilDoneOrCancelled.
+-func (r *xormRepositoryImpl) executeSQLUntilDoneOrCancelled(ctx context.Context, sql string) (int64, error) {
+-	return untilDoneOrCancelled(ctx, func() (int64, error) {
+-		var affected int64
+-		err := r.db.WithDbSession(ctx, func(session *db.Session) error {
+-			res, err := session.Exec(sql)
+-			if err != nil {
+-				return err
+-			}
+-
+-			affected, err = res.RowsAffected()
+-			return err
+-		})
+-		return affected, err
+-	})
+-}
+-
+ // untilDoneOrCancelled repeatedly executes batched work until that work is either done (i.e., returns zero affected objects),
+ // a batch produces an error, or the provided context is cancelled.
+ // The work to be done is given as a callback that returns the number of affected objects for each batch, plus that batch's errors.
+
+From 23c53d90bb5e8fca00290335cbccf43453c8c4a2 Mon Sep 17 00:00:00 2001
+From: Alex Weaver <weaver.alex.d@gmail.com>
+Date: Thu, 11 Jan 2024 16:29:21 -0600
+Subject: [PATCH 11/16] Work around parameter limit on sqlite for large batches
+
+---
+ .../annotations/annotationsimpl/xorm_store.go | 38 ++++++++++++++++---
+ 1 file changed, 32 insertions(+), 6 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/xorm_store.go b/pkg/services/annotations/annotationsimpl/xorm_store.go
+index 50f4b636fbc72..2525601fed072 100644
+--- a/pkg/services/annotations/annotationsimpl/xorm_store.go
++++ b/pkg/services/annotations/annotationsimpl/xorm_store.go
+@@ -10,6 +10,7 @@ import (
+ 	"time"
+ 
+ 	"github.com/grafana/grafana/pkg/services/annotations/accesscontrol"
++	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
+ 
+ 	"github.com/grafana/grafana/pkg/infra/db"
+ 	"github.com/grafana/grafana/pkg/infra/log"
+@@ -530,8 +531,11 @@ func (r *xormRepositoryImpl) CleanAnnotations(ctx context.Context, cfg setting.A
+ 			if err != nil {
+ 				return 0, err
+ 			}
++			r.log.Error("Annotations to clean by time", "count", len(ids), "ids", ids, "cond", cond, "err", err)
+ 
+-			return r.deleteByIDs(ctx, "annotation", ids)
++			x, y := r.deleteByIDs(ctx, "annotation", ids)
++			r.log.Error("cleaned annotations by time", "count", len(ids), "affected", x, "err", y)
++			return x, y
+ 		})
+ 		totalAffected += affected
+ 		if err != nil {
+@@ -547,8 +551,11 @@ func (r *xormRepositoryImpl) CleanAnnotations(ctx context.Context, cfg setting.A
+ 			if err != nil {
+ 				return 0, err
+ 			}
++			r.log.Error("Annotations to clean by count", "count", len(ids), "ids", ids, "cond", cond, "err", err)
+ 
+-			return r.deleteByIDs(ctx, "annotation", ids)
++			x, y := r.deleteByIDs(ctx, "annotation", ids)
++			r.log.Error("cleaned annotations by count", "count", len(ids), "affected", x, "err", y)
++			return x, y
+ 		})
+ 		totalAffected += affected
+ 		if err != nil {
+@@ -566,8 +573,11 @@ func (r *xormRepositoryImpl) CleanOrphanedAnnotationTags(ctx context.Context) (i
+ 		if err != nil {
+ 			return 0, err
+ 		}
++		r.log.Error("Tags to clean", "count", len(ids), "ids", ids, "cond", cond, "err", err)
+ 
+-		return r.deleteByIDs(ctx, "annotation_tag", ids)
++		x, y := r.deleteByIDs(ctx, "annotation_tag", ids)
++		r.log.Error("cleaned tags", "count", len(ids), "affected", x, "err", y)
++		return x, y
+ 	})
+ }
+ 
+@@ -589,11 +599,27 @@ func (r *xormRepositoryImpl) deleteByIDs(ctx context.Context, table string, ids
+ 		return 0, nil
+ 	}
+ 
+-	placeholders := "?" + strings.Repeat(",?", len(ids)-1)
+-	sql := fmt.Sprintf(`DELETE FROM %s WHERE id IN (%s)`, table, placeholders)
++	sql := ""
++	args := make([]any, 0)
++
++	// SQLite has a parameter limit of 999.
++	// If the batch size is bigger than that, and we're on SQLite, we have to put the IDs directly into the statement.
++	const sqliteParameterLimit = 999
++	if r.db.GetDBType() == migrator.SQLite && r.cfg.AnnotationCleanupJobBatchSize > sqliteParameterLimit {
++		values := fmt.Sprint(ids[0])
++		for _, v := range ids[1:] {
++			values = fmt.Sprintf("%s, %d", values, v)
++		}
++		sql = fmt.Sprintf(`DELETE FROM %s WHERE id IN (%s)`, table, values)
++	} else {
++		placeholders := "?" + strings.Repeat(",?", len(ids)-1)
++		sql = fmt.Sprintf(`DELETE FROM %s WHERE id IN (%s)`, table, placeholders)
++		args = asAny(ids)
++	}
++
+ 	var affected int64
+ 	err := r.db.WithDbSession(ctx, func(session *db.Session) error {
+-		res, err := session.Exec(append([]any{sql}, asAny(ids)...)...)
++		res, err := session.Exec(append([]any{sql}, args...)...)
+ 		if err != nil {
+ 			return err
+ 		}
+
+From d74c91c257ddbc3b426a910e343cd4b10998bd06 Mon Sep 17 00:00:00 2001
+From: Sofia Papagiannaki <1632407+papagian@users.noreply.github.com>
+Date: Fri, 12 Jan 2024 16:40:44 +0200
+Subject: [PATCH 12/16] Bulk insert test data in DB
+
+---
+ .../annotationsimpl/cleanup_test.go           | 26 ++++++++++---------
+ 1 file changed, 14 insertions(+), 12 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/cleanup_test.go b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+index 3b94ef8fdd5ba..1bbdece71f9a2 100644
+--- a/pkg/services/annotations/annotationsimpl/cleanup_test.go
++++ b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+@@ -193,8 +193,11 @@ func createTestAnnotations(t *testing.T, store db.DB, expectedCount int, oldAnno
+ 
+ 	cutoffDate := time.Now()
+ 
++	newAnnotations := make([]*annotations.Item, 0, expectedCount)
++	newAnnotationTags := make([]*annotationTag, 0, 2*expectedCount)
+ 	for i := 0; i < expectedCount; i++ {
+ 		a := &annotations.Item{
++			ID:          int64(i + 1),
+ 			DashboardID: 1,
+ 			OrgID:       1,
+ 			UserID:      1,
+@@ -222,20 +225,19 @@ func createTestAnnotations(t *testing.T, store db.DB, expectedCount int, oldAnno
+ 			a.Created = cutoffDate.AddDate(-10, 0, -10).UnixNano() / int64(time.Millisecond)
+ 		}
+ 
+-		err := store.WithDbSession(context.Background(), func(sess *db.Session) error {
+-			_, err := sess.Insert(a)
+-			require.NoError(t, err, "should be able to save annotation", err)
++		newAnnotations = append(newAnnotations, a)
++		newAnnotationTags = append(newAnnotationTags, &annotationTag{AnnotationID: a.ID, TagID: 1}, &annotationTag{AnnotationID: a.ID, TagID: 2})
+ 
+-			// mimick the SQL annotation Save logic by writing records to the annotation_tag table
+-			// we need to ensure they get deleted when we clean up annotations
+-			for tagID := range []int{1, 2} {
+-				_, err = sess.Exec("INSERT INTO annotation_tag (annotation_id, tag_id) VALUES(?,?)", a.ID, tagID)
+-				require.NoError(t, err, "should be able to save annotation tag ID", err)
+-			}
+-			return err
+-		})
+-		require.NoError(t, err)
+ 	}
++
++	err := store.WithDbSession(context.Background(), func(sess *db.Session) error {
++		_, err := sess.InsertMulti(newAnnotations)
++		require.NoError(t, err, "should be able to save annotation", err)
++
++		_, err = sess.InsertMulti(newAnnotationTags)
++		return err
++	})
++	require.NoError(t, err)
+ }
+ 
+ func settingsFn(maxAge time.Duration, maxCount int64) setting.AnnotationCleanupSettings {
+
+From ae72e3690276aaf0a87cacc5a862d405d25e64a1 Mon Sep 17 00:00:00 2001
+From: Sofia Papagiannaki <1632407+papagian@users.noreply.github.com>
+Date: Fri, 12 Jan 2024 16:56:06 +0200
+Subject: [PATCH 13/16] Refactor test to customise test data creation
+
+---
+ .../annotationsimpl/cleanup_test.go           | 64 ++++++++++++-------
+ 1 file changed, 41 insertions(+), 23 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/cleanup_test.go b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+index 1bbdece71f9a2..daf7a3261042e 100644
+--- a/pkg/services/annotations/annotationsimpl/cleanup_test.go
++++ b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+@@ -2,6 +2,7 @@ package annotationsimpl
+ 
+ import (
+ 	"context"
++	"errors"
+ 	"testing"
+ 	"time"
+ 
+@@ -17,28 +18,23 @@ import (
+ func TestAnnotationCleanUp(t *testing.T) {
+ 	fakeSQL := db.InitTestDB(t)
+ 
+-	t.Cleanup(func() {
+-		err := fakeSQL.WithDbSession(context.Background(), func(session *db.Session) error {
+-			_, err := session.Exec("DELETE FROM annotation")
+-			return err
+-		})
+-		assert.NoError(t, err)
+-	})
+-
+-	createTestAnnotations(t, fakeSQL, 21, 6)
+-	assertAnnotationCount(t, fakeSQL, "", 21)
+-	assertAnnotationTagCount(t, fakeSQL, 42)
+-
+ 	tests := []struct {
+-		name                     string
+-		cfg                      *setting.Cfg
+-		alertAnnotationCount     int64
+-		dashboardAnnotationCount int64
+-		APIAnnotationCount       int64
+-		affectedAnnotations      int64
++		name                    string
++		createAnnotationsNum    int
++		createOldAnnotationsNum int
++
++		cfg                           *setting.Cfg
++		alertAnnotationCount          int64
++		annotationCleanupJobBatchSize int
++		dashboardAnnotationCount      int64
++		APIAnnotationCount            int64
++		affectedAnnotations           int64
+ 	}{
+ 		{
+-			name: "default settings should not delete any annotations",
++			name:                          "default settings should not delete any annotations",
++			createAnnotationsNum:          21,
++			createOldAnnotationsNum:       6,
++			annotationCleanupJobBatchSize: 1,
+ 			cfg: &setting.Cfg{
+ 				AlertingAnnotationCleanupSetting:   settingsFn(0, 0),
+ 				DashboardAnnotationCleanupSettings: settingsFn(0, 0),
+@@ -50,7 +46,10 @@ func TestAnnotationCleanUp(t *testing.T) {
+ 			affectedAnnotations:      0,
+ 		},
+ 		{
+-			name: "should remove annotations created before cut off point",
++			name:                          "should remove annotations created before cut off point",
++			createAnnotationsNum:          21,
++			createOldAnnotationsNum:       6,
++			annotationCleanupJobBatchSize: 1,
+ 			cfg: &setting.Cfg{
+ 				AlertingAnnotationCleanupSetting:   settingsFn(time.Hour*48, 0),
+ 				DashboardAnnotationCleanupSettings: settingsFn(time.Hour*48, 0),
+@@ -62,7 +61,10 @@ func TestAnnotationCleanUp(t *testing.T) {
+ 			affectedAnnotations:      6,
+ 		},
+ 		{
+-			name: "should only keep three annotations",
++			name:                          "should only keep three annotations",
++			createAnnotationsNum:          15,
++			createOldAnnotationsNum:       6,
++			annotationCleanupJobBatchSize: 1,
+ 			cfg: &setting.Cfg{
+ 				AlertingAnnotationCleanupSetting:   settingsFn(0, 3),
+ 				DashboardAnnotationCleanupSettings: settingsFn(0, 3),
+@@ -74,7 +76,10 @@ func TestAnnotationCleanUp(t *testing.T) {
+ 			affectedAnnotations:      6,
+ 		},
+ 		{
+-			name: "running the max count delete again should not remove any annotations",
++			name:                          "running the max count delete again should not remove any annotations",
++			createAnnotationsNum:          9,
++			createOldAnnotationsNum:       6,
++			annotationCleanupJobBatchSize: 1,
+ 			cfg: &setting.Cfg{
+ 				AlertingAnnotationCleanupSetting:   settingsFn(0, 3),
+ 				DashboardAnnotationCleanupSettings: settingsFn(0, 3),
+@@ -89,8 +94,21 @@ func TestAnnotationCleanUp(t *testing.T) {
+ 
+ 	for _, test := range tests {
+ 		t.Run(test.name, func(t *testing.T) {
++			createTestAnnotations(t, fakeSQL, test.createAnnotationsNum, test.createOldAnnotationsNum)
++			assertAnnotationCount(t, fakeSQL, "", int64(test.createAnnotationsNum))
++			assertAnnotationTagCount(t, fakeSQL, 2*int64(test.createAnnotationsNum))
++
++			t.Cleanup(func() {
++				err := fakeSQL.WithDbSession(context.Background(), func(session *db.Session) error {
++					_, deleteAnnotationErr := session.Exec("DELETE FROM annotation")
++					_, deleteAnnotationTagErr := session.Exec("DELETE FROM annotation_tag")
++					return errors.Join(deleteAnnotationErr, deleteAnnotationTagErr)
++				})
++				assert.NoError(t, err)
++			})
++
+ 			cfg := setting.NewCfg()
+-			cfg.AnnotationCleanupJobBatchSize = 1
++			cfg.AnnotationCleanupJobBatchSize = int64(test.annotationCleanupJobBatchSize)
+ 			cleaner := ProvideCleanupService(fakeSQL, cfg)
+ 			affectedAnnotations, affectedAnnotationTags, err := cleaner.Run(context.Background(), test.cfg)
+ 			require.NoError(t, err)
+
+From 91e337d5bb72cc5c745769d95293c455cbe526db Mon Sep 17 00:00:00 2001
+From: Sofia Papagiannaki <1632407+papagian@users.noreply.github.com>
+Date: Fri, 12 Jan 2024 17:01:07 +0200
+Subject: [PATCH 14/16] Add test for catching SQLITE_MAX_VARIABLE_NUMBER limit
+
+---
+ .../annotationsimpl/cleanup_test.go           | 34 ++++++++++++++++---
+ 1 file changed, 30 insertions(+), 4 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/cleanup_test.go b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+index daf7a3261042e..ae3b263da676a 100644
+--- a/pkg/services/annotations/annotationsimpl/cleanup_test.go
++++ b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+@@ -90,6 +90,21 @@ func TestAnnotationCleanUp(t *testing.T) {
+ 			APIAnnotationCount:       3,
+ 			affectedAnnotations:      0,
+ 		},
++		{
++			name:                          "should not fail if batch size is larger than SQLITE_MAX_VARIABLE_NUMBER for SQLite >= 3.32.0",
++			createAnnotationsNum:          40003,
++			createOldAnnotationsNum:       0,
++			annotationCleanupJobBatchSize: 32767,
++			cfg: &setting.Cfg{
++				AlertingAnnotationCleanupSetting:   settingsFn(0, 1),
++				DashboardAnnotationCleanupSettings: settingsFn(0, 1),
++				APIAnnotationCleanupSettings:       settingsFn(0, 1),
++			},
++			alertAnnotationCount:     1,
++			dashboardAnnotationCount: 1,
++			APIAnnotationCount:       1,
++			affectedAnnotations:      40000,
++		},
+ 	}
+ 
+ 	for _, test := range tests {
+@@ -249,11 +264,22 @@ func createTestAnnotations(t *testing.T, store db.DB, expectedCount int, oldAnno
+ 	}
+ 
+ 	err := store.WithDbSession(context.Background(), func(sess *db.Session) error {
+-		_, err := sess.InsertMulti(newAnnotations)
+-		require.NoError(t, err, "should be able to save annotation", err)
++		batchsize := 500
++		for i := 0; i < len(newAnnotations); i += batchsize {
++			_, err := sess.InsertMulti(newAnnotations[i:min(i+batchsize, len(newAnnotations))])
++			require.NoError(t, err)
++		}
++		return nil
++	})
++	require.NoError(t, err)
+ 
+-		_, err = sess.InsertMulti(newAnnotationTags)
+-		return err
++	err = store.WithDbSession(context.Background(), func(sess *db.Session) error {
++		batchsize := 500
++		for i := 0; i < len(newAnnotationTags); i += batchsize {
++			_, err := sess.InsertMulti(newAnnotationTags[i:min(i+batchsize, len(newAnnotationTags))])
++			require.NoError(t, err)
++		}
++		return nil
+ 	})
+ 	require.NoError(t, err)
+ }
+
+From 99fe93d1bb12d2a1f9f2ca8b3407f40a5c1a08f0 Mon Sep 17 00:00:00 2001
+From: Sofia Papagiannaki <1632407+papagian@users.noreply.github.com>
+Date: Fri, 12 Jan 2024 17:13:54 +0200
+Subject: [PATCH 15/16] Turn annotation cleanup test to integration tests
+
+---
+ .../annotations/annotationsimpl/cleanup_test.go      | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/cleanup_test.go b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+index ae3b263da676a..5a2d444cb2597 100644
+--- a/pkg/services/annotations/annotationsimpl/cleanup_test.go
++++ b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+@@ -15,7 +15,11 @@ import (
+ 	"github.com/grafana/grafana/pkg/setting"
+ )
+ 
+-func TestAnnotationCleanUp(t *testing.T) {
++func TestIntegrationAnnotationCleanUp(t *testing.T) {
++	if testing.Short() {
++		t.Skip("Skipping integration test")
++	}
++
+ 	fakeSQL := db.InitTestDB(t)
+ 
+ 	tests := []struct {
+@@ -144,7 +148,11 @@ func TestAnnotationCleanUp(t *testing.T) {
+ 	}
+ }
+ 
+-func TestOldAnnotationsAreDeletedFirst(t *testing.T) {
++func TestIntegrationOldAnnotationsAreDeletedFirst(t *testing.T) {
++	if testing.Short() {
++		t.Skip("Skipping integration test")
++	}
++
+ 	fakeSQL := db.InitTestDB(t)
+ 
+ 	t.Cleanup(func() {
+
+From 04cfa3bfd469c035ff8b35f9a66867c4e8d5dcf4 Mon Sep 17 00:00:00 2001
+From: Sofia Papagiannaki <1632407+papagian@users.noreply.github.com>
+Date: Fri, 12 Jan 2024 18:10:22 +0200
+Subject: [PATCH 16/16] lint
+
+---
+ pkg/services/annotations/annotationsimpl/cleanup_test.go | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/pkg/services/annotations/annotationsimpl/cleanup_test.go b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+index 5a2d444cb2597..278bb48e365ec 100644
+--- a/pkg/services/annotations/annotationsimpl/cleanup_test.go
++++ b/pkg/services/annotations/annotationsimpl/cleanup_test.go
+@@ -268,7 +268,6 @@ func createTestAnnotations(t *testing.T, store db.DB, expectedCount int, oldAnno
+ 
+ 		newAnnotations = append(newAnnotations, a)
+ 		newAnnotationTags = append(newAnnotationTags, &annotationTag{AnnotationID: a.ID, TagID: 1}, &annotationTag{AnnotationID: a.ID, TagID: 2})
+-
+ 	}
+ 
+ 	err := store.WithDbSession(context.Background(), func(sess *db.Session) error {

@@ -1,0 +1,631 @@
+From ce2dcc537b4b1f98a335e88cfe8e0b804483252a Mon Sep 17 00:00:00 2001
+From: rtufisi <rtufisi@phasetwo.io>
+Date: Wed, 26 Mar 2025 14:39:01 +0200
+Subject: [PATCH] Create recovery keys in user storage or local
+
+Signed-off-by: rtufisi <rtufisi@phasetwo.io>
+---
+ .../org/keycloak/utils/CredentialHelper.java  |  43 ++++--
+ .../models/utils/RecoveryAuthnCodesUtils.java |  17 +++
+ .../RecoveryAuthnCodesFormAuthenticator.java  |   3 +-
+ .../RecoveryAuthnCodesAction.java             |  13 +-
+ .../RecoveryAuthnCodeInputLoginBean.java      |   8 +-
+ .../BackwardsCompatibilityUserStorage.java    |  72 +++++++++-
+ ...kwardsCompatibilityUserStorageFactory.java |   5 +
+ ...BackwardsCompatibilityUserStorageTest.java | 126 +++++++++++++++++-
+ 8 files changed, 256 insertions(+), 31 deletions(-)
+
+diff --git a/server-spi-private/src/main/java/org/keycloak/utils/CredentialHelper.java b/server-spi-private/src/main/java/org/keycloak/utils/CredentialHelper.java
+index 61bdd35625af..39038889dd6a 100755
+--- a/server-spi-private/src/main/java/org/keycloak/utils/CredentialHelper.java
++++ b/server-spi-private/src/main/java/org/keycloak/utils/CredentialHelper.java
+@@ -33,8 +33,12 @@
+ import org.keycloak.models.UserCredentialModel;
+ import org.keycloak.models.UserModel;
+ import org.keycloak.models.credential.OTPCredentialModel;
++import org.keycloak.models.credential.RecoveryAuthnCodesCredentialModel;
+ import org.keycloak.representations.idm.CredentialRepresentation;
++import org.keycloak.util.JsonSerialization;
+ 
++import java.io.IOException;
++import java.util.List;
+ import java.util.Objects;
+ 
+ /**
+@@ -69,15 +73,15 @@ public static void setOrReplaceAuthenticationRequirement(KeycloakSession session
+                 }));
+     }
+ 
+-     public static ConfigurableAuthenticatorFactory getConfigurableAuthenticatorFactory(KeycloakSession session, String providerId) {
+-         ConfigurableAuthenticatorFactory factory = (AuthenticatorFactory)session.getKeycloakSessionFactory().getProviderFactory(Authenticator.class, providerId);
+-         if (factory == null) {
+-             factory = (FormActionFactory)session.getKeycloakSessionFactory().getProviderFactory(FormAction.class, providerId);
+-         }
+-         if (factory == null) {
+-             factory = (ClientAuthenticatorFactory)session.getKeycloakSessionFactory().getProviderFactory(ClientAuthenticator.class, providerId);
+-         }
+-         return factory;
++    public static ConfigurableAuthenticatorFactory getConfigurableAuthenticatorFactory(KeycloakSession session, String providerId) {
++        ConfigurableAuthenticatorFactory factory = (AuthenticatorFactory)session.getKeycloakSessionFactory().getProviderFactory(Authenticator.class, providerId);
++        if (factory == null) {
++            factory = (FormActionFactory)session.getKeycloakSessionFactory().getProviderFactory(FormAction.class, providerId);
++        }
++        if (factory == null) {
++            factory = (ClientAuthenticatorFactory)session.getKeycloakSessionFactory().getProviderFactory(ClientAuthenticator.class, providerId);
++        }
++        return factory;
+     }
+ 
+     /**
+@@ -105,6 +109,27 @@ public static boolean createOTPCredential(KeycloakSession session, RealmModel re
+         return user.credentialManager().isValid(credential);
+     }
+ 
++    /**
++     * Create RecoveryCodes credential either in userStorage or local storage (Keycloak DB)
++     */
++    public static void createRecoveryCodesCredential(KeycloakSession session, RealmModel realm, UserModel user, RecoveryAuthnCodesCredentialModel credentialModel, List<String> generatedCodes) {
++        var recoveryCodeCredentialProvider = session.getProvider(CredentialProvider.class, "keycloak-recovery-authn-codes");
++        String recoveryCodesJson;
++        try {
++            recoveryCodesJson =  JsonSerialization.writeValueAsString(generatedCodes);
++        } catch (IOException e) {
++            throw new RuntimeException(e);
++        }
++        UserCredentialModel recoveryCodesCredential = new UserCredentialModel("", credentialModel.getType(), recoveryCodesJson);
++
++        boolean userStorageCreated = user.credentialManager().updateCredential(recoveryCodesCredential);
++        if (userStorageCreated) {
++            logger.debugf("Created RecoveryCodes credential for user '%s' in the user storage", user.getUsername());
++        } else {
++            recoveryCodeCredentialProvider.createCredential(realm, user, credentialModel);
++        }
++    }
++
+     /**
+      * Create "dummy" representation of the credential. Typically used when credential is provided by userStorage and we don't know further
+      * details about the credential besides the type
+diff --git a/server-spi/src/main/java/org/keycloak/models/utils/RecoveryAuthnCodesUtils.java b/server-spi/src/main/java/org/keycloak/models/utils/RecoveryAuthnCodesUtils.java
+index 6cfda6768e0c..ff339b54840f 100644
+--- a/server-spi/src/main/java/org/keycloak/models/utils/RecoveryAuthnCodesUtils.java
++++ b/server-spi/src/main/java/org/keycloak/models/utils/RecoveryAuthnCodesUtils.java
+@@ -1,11 +1,15 @@
+ package org.keycloak.models.utils;
+ 
++import java.util.Optional;
+ import java.util.function.Supplier;
+ import org.keycloak.common.util.Base64;
+ import org.keycloak.common.util.SecretGenerator;
++import org.keycloak.credential.CredentialModel;
+ import org.keycloak.crypto.Algorithm;
+ import org.keycloak.crypto.JavaAlgorithm;
+ import org.keycloak.jose.jws.crypto.HashUtils;
++import org.keycloak.models.UserModel;
++import org.keycloak.models.credential.RecoveryAuthnCodesCredentialModel;
+ 
+ import java.nio.charset.StandardCharsets;
+ import java.util.List;
+@@ -43,4 +47,17 @@ public static List<String> generateRawCodes() {
+         return Stream.generate(code).limit(QUANTITY_OF_CODES_TO_GENERATE).collect(Collectors.toList());
+     }
+ 
++    /**
++     * Checks the user storage for the credential. If not found it will look for the credential in the local storage
++     *
++     * @param user - User model
++     * @return - a optional  credential model
++     */
++    public static Optional<CredentialModel> getCredential(UserModel user) {
++        return user.credentialManager()
++                .getFederatedCredentialsStream()
++                .filter(c -> RecoveryAuthnCodesCredentialModel.TYPE.equals(c.getType()))
++                .findFirst()
++                .or(() -> user.credentialManager().getStoredCredentialsByTypeStream(RecoveryAuthnCodesCredentialModel.TYPE).findFirst());
++    }
+ }
+diff --git a/services/src/main/java/org/keycloak/authentication/authenticators/browser/RecoveryAuthnCodesFormAuthenticator.java b/services/src/main/java/org/keycloak/authentication/authenticators/browser/RecoveryAuthnCodesFormAuthenticator.java
+index c19d88cd85e4..16642c83d47b 100644
+--- a/services/src/main/java/org/keycloak/authentication/authenticators/browser/RecoveryAuthnCodesFormAuthenticator.java
++++ b/services/src/main/java/org/keycloak/authentication/authenticators/browser/RecoveryAuthnCodesFormAuthenticator.java
+@@ -77,8 +77,7 @@ private boolean isRecoveryAuthnCodeInputValid(AuthenticationFlowContext authnFlo
+                 authnFlowContext.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS, responseChallenge);
+             } else {
+                 result = true;
+-                Optional<CredentialModel> optUserCredentialFound = authenticatedUser.credentialManager().getStoredCredentialsByTypeStream(
+-                        RecoveryAuthnCodesCredentialModel.TYPE).findFirst();
++                Optional<CredentialModel> optUserCredentialFound = RecoveryAuthnCodesUtils.getCredential(authenticatedUser);
+                 RecoveryAuthnCodesCredentialModel recoveryCodeCredentialModel = null;
+                 if (optUserCredentialFound.isPresent()) {
+                     recoveryCodeCredentialModel = RecoveryAuthnCodesCredentialModel
+diff --git a/services/src/main/java/org/keycloak/authentication/requiredactions/RecoveryAuthnCodesAction.java b/services/src/main/java/org/keycloak/authentication/requiredactions/RecoveryAuthnCodesAction.java
+index cbac962136fe..40941a52ccb7 100644
+--- a/services/src/main/java/org/keycloak/authentication/requiredactions/RecoveryAuthnCodesAction.java
++++ b/services/src/main/java/org/keycloak/authentication/requiredactions/RecoveryAuthnCodesAction.java
+@@ -2,6 +2,7 @@
+ 
+ import java.util.Arrays;
+ import java.util.List;
++
+ import org.keycloak.Config;
+ import org.keycloak.authentication.AuthenticatorUtil;
+ import org.keycloak.authentication.CredentialRegistrator;
+@@ -11,8 +12,6 @@
+ import org.keycloak.authentication.RequiredActionProvider;
+ import org.keycloak.authentication.authenticators.browser.RecoveryAuthnCodesFormAuthenticator;
+ import org.keycloak.common.Profile;
+-import org.keycloak.credential.RecoveryAuthnCodesCredentialProviderFactory;
+-import org.keycloak.credential.CredentialProvider;
+ import org.keycloak.events.Details;
+ import org.keycloak.events.EventBuilder;
+ import org.keycloak.events.EventType;
+@@ -26,6 +25,8 @@
+ import jakarta.ws.rs.core.Response;
+ import org.keycloak.sessions.AuthenticationSessionModel;
+ 
++import static org.keycloak.utils.CredentialHelper.createRecoveryCodesCredential;
++
+ public class RecoveryAuthnCodesAction implements RequiredActionProvider, RequiredActionFactory, EnvironmentDependentProviderFactory, CredentialRegistrator {
+ 
+     private static final String FIELD_GENERATED_RECOVERY_AUTHN_CODES_HIDDEN = "generatedRecoveryAuthnCodes";
+@@ -86,13 +87,8 @@ public void requiredActionChallenge(RequiredActionContext context) {
+     public void processAction(RequiredActionContext reqActionContext) {
+         EventBuilder event = reqActionContext.getEvent();
+         event.event(EventType.UPDATE_CREDENTIAL);
+-
+-        CredentialProvider recoveryCodeCredentialProvider;
+         MultivaluedMap<String, String> httpReqParamsMap;
+ 
+-        recoveryCodeCredentialProvider = reqActionContext.getSession().getProvider(CredentialProvider.class,
+-                RecoveryAuthnCodesCredentialProviderFactory.PROVIDER_ID);
+-
+         event.detail(Details.CREDENTIAL_TYPE, RecoveryAuthnCodesCredentialModel.TYPE);
+ 
+         httpReqParamsMap = reqActionContext.getHttpRequest().getDecodedFormParameters();
+@@ -117,8 +113,7 @@ public void processAction(RequiredActionContext reqActionContext) {
+             AuthenticatorUtil.logoutOtherSessions(reqActionContext);
+         }
+ 
+-        recoveryCodeCredentialProvider.createCredential(reqActionContext.getRealm(), reqActionContext.getUser(),
+-                credentialModel);
++        createRecoveryCodesCredential(reqActionContext.getSession(), reqActionContext.getRealm(), reqActionContext.getUser(), credentialModel, generatedCodes);
+ 
+         reqActionContext.success();
+     }
+diff --git a/services/src/main/java/org/keycloak/forms/login/freemarker/model/RecoveryAuthnCodeInputLoginBean.java b/services/src/main/java/org/keycloak/forms/login/freemarker/model/RecoveryAuthnCodeInputLoginBean.java
+index 478757af9a3a..cdfe335691be 100644
+--- a/services/src/main/java/org/keycloak/forms/login/freemarker/model/RecoveryAuthnCodeInputLoginBean.java
++++ b/services/src/main/java/org/keycloak/forms/login/freemarker/model/RecoveryAuthnCodeInputLoginBean.java
+@@ -5,16 +5,18 @@
+ import org.keycloak.models.RealmModel;
+ import org.keycloak.models.UserModel;
+ import org.keycloak.models.credential.RecoveryAuthnCodesCredentialModel;
++import org.keycloak.models.utils.RecoveryAuthnCodesUtils;
++
++import java.util.Optional;
+ 
+ public class RecoveryAuthnCodeInputLoginBean {
+ 
+     private final int codeNumber;
+ 
+     public RecoveryAuthnCodeInputLoginBean(KeycloakSession session, RealmModel realm, UserModel user) {
+-        CredentialModel credentialModel = user.credentialManager().getStoredCredentialsByTypeStream(RecoveryAuthnCodesCredentialModel.TYPE)
+-                                                 .findFirst().get();
++        Optional<CredentialModel> credentialModelOpt = RecoveryAuthnCodesUtils.getCredential(user);
+ 
+-        RecoveryAuthnCodesCredentialModel recoveryCodeCredentialModel = RecoveryAuthnCodesCredentialModel.createFromCredentialModel(credentialModel);
++        RecoveryAuthnCodesCredentialModel recoveryCodeCredentialModel = RecoveryAuthnCodesCredentialModel.createFromCredentialModel(credentialModelOpt.get());
+ 
+         this.codeNumber = recoveryCodeCredentialModel.getNextRecoveryAuthnCode().get().getNumber();
+     }
+diff --git a/testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorage.java b/testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorage.java
+index 00dac7490ace..84625c75a367 100644
+--- a/testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorage.java
++++ b/testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorage.java
+@@ -18,11 +18,12 @@
+ 
+ package org.keycloak.testsuite.federation;
+ 
++import java.io.IOException;
++import java.util.ArrayList;
+ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
+-import java.util.stream.Collectors;
+ import java.util.stream.Stream;
+ 
+ import org.jboss.logging.Logger;
+@@ -33,7 +34,6 @@
+ import org.keycloak.credential.CredentialInputValidator;
+ import org.keycloak.credential.CredentialModel;
+ import org.keycloak.credential.hash.PasswordHashProvider;
+-import org.keycloak.credential.hash.Pbkdf2Sha512PasswordHashProviderFactory;
+ import org.keycloak.models.GroupModel;
+ import org.keycloak.models.KeycloakSession;
+ import org.keycloak.models.OTPPolicy;
+@@ -43,6 +43,8 @@
+ import org.keycloak.models.UserModel;
+ import org.keycloak.models.cache.UserCache;
+ import org.keycloak.models.credential.PasswordUserCredentialModel;
++import org.keycloak.models.credential.RecoveryAuthnCodesCredentialModel;
++import org.keycloak.models.utils.KeycloakModelUtils;
+ import org.keycloak.models.utils.TimeBasedOTP;
+ import org.keycloak.storage.StorageId;
+ import org.keycloak.storage.UserStorageProvider;
+@@ -51,11 +53,12 @@
+ import org.keycloak.storage.user.UserLookupProvider;
+ import org.keycloak.storage.user.UserQueryProvider;
+ import org.keycloak.storage.user.UserRegistrationProvider;
++import org.keycloak.util.JsonSerialization;
+ 
+ /**
+  * UserStorage implementation created in Keycloak 4.8.3. It is used for backwards compatibility testing. Future Keycloak versions
+  * should work fine without a need to change the code of this provider.
+- *
++ * <p>
+  * TODO: Have some good mechanims to make sure that source code of this provider is really compatible with Keycloak 4.8.3
+  *
+  * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
+@@ -89,7 +92,7 @@ public UserModel getUserById(RealmModel realm, String id) {
+     }
+ 
+     private UserModel createUser(RealmModel realm, String username) {
+-        return new AbstractUserAdapterFederatedStorage(session, realm,  model) {
++        return new AbstractUserAdapterFederatedStorage(session, realm, model) {
+             @Override
+             public String getUsername() {
+                 return username;
+@@ -107,7 +110,8 @@ public void setUsername(String username1) {
+     @Override
+     public boolean supportsCredentialType(String credentialType) {
+         if (CredentialModel.PASSWORD.equals(credentialType)
+-                || isOTPType(credentialType)) {
++                || isOTPType(credentialType)
++                || credentialType.equals(RecoveryAuthnCodesCredentialModel.TYPE)) {
+             return true;
+         } else {
+             log.infof("Unsupported credential type: %s", credentialType);
+@@ -172,6 +176,7 @@ public boolean updateCredential(RealmModel realm, UserModel user, CredentialInpu
+             OTPPolicy otpPolicy = session.getContext().getRealm().getOTPPolicy();
+ 
+             CredentialModel newOTP = new CredentialModel();
++            newOTP.setId(KeycloakModelUtils.generateId());
+             newOTP.setType(input.getType());
+             long createdDate = Time.currentTimeMillis();
+             newOTP.setCreatedDate(createdDate);
+@@ -184,6 +189,15 @@ public boolean updateCredential(RealmModel realm, UserModel user, CredentialInpu
+ 
+             users.get(translateUserName(user.getUsername())).otp = newOTP;
+ 
++            return true;
++        } else if (input.getType().equals(RecoveryAuthnCodesCredentialModel.TYPE)) {
++            CredentialModel recoveryCodesModel = new CredentialModel();
++            recoveryCodesModel.setId(KeycloakModelUtils.generateId());
++            recoveryCodesModel.setType(input.getType());
++            recoveryCodesModel.setCredentialData(input.getChallengeResponse());
++            long createdDate = Time.currentTimeMillis();
++            recoveryCodesModel.setCreatedDate(createdDate);
++            users.get(translateUserName(user.getUsername())).recoveryCodes = recoveryCodesModel;
+             return true;
+         } else {
+             log.infof("Attempt to update unsupported credential of type: %s", input.getType());
+@@ -213,6 +227,30 @@ private MyUser getMyUser(UserModel user) {
+         return users.get(translateUserName(user.getUsername()));
+     }
+ 
++    @Override
++    public Stream<CredentialModel> getCredentials(RealmModel realm, UserModel user) {
++        var myUser = getMyUser(user);
++        RecoveryAuthnCodesCredentialModel model;
++        List<CredentialModel> credentialModels = new ArrayList<>();
++        if (myUser.recoveryCodes != null) {
++            try {
++                model = RecoveryAuthnCodesCredentialModel.createFromValues(
++                        JsonSerialization.readValue(myUser.recoveryCodes.getCredentialData(), List.class),
++                        myUser.recoveryCodes.getCreatedDate(),
++                        myUser.recoveryCodes.getUserLabel()
++                );
++                credentialModels.add(model);
++            } catch (IOException e) {
++                log.error("Could not deserialize  credential of type: recovery-codes");
++            }
++        }
++        if (myUser.otp != null) {
++            credentialModels.add(myUser.getOtp());
++        }
++
++        return credentialModels.stream();
++    }
++
+     @Override
+     public Stream<String> getDisableableCredentialTypesStream(RealmModel realm, UserModel user) {
+         Set<String> types = new HashSet<>();
+@@ -234,6 +272,8 @@ public boolean isConfiguredFor(RealmModel realm, UserModel user, String credenti
+ 
+         if (isOTPType(credentialType) && myUser.otp != null) {
+             return true;
++        } else if (credentialType.equals(RecoveryAuthnCodesCredentialModel.TYPE) && myUser.recoveryCodes != null) {
++            return true;
+         } else {
+             log.infof("Not supported credentialType '%s' for user '%s'", credentialType, user.getUsername());
+             return false;
+@@ -283,7 +323,22 @@ public boolean isValid(RealmModel realm, UserModel user, CredentialInput input)
+             TimeBasedOTP validator = new TimeBasedOTP(storedOTPCredential.getAlgorithm(), storedOTPCredential.getDigits(),
+                     storedOTPCredential.getPeriod(), realm.getOTPPolicy().getLookAheadWindow());
+             return validator.validateTOTP(otpCredential.getValue(), storedOTPCredential.getValue().getBytes());
+-        } else {
++        } else if (input.getType().equals(RecoveryAuthnCodesCredentialModel.TYPE)) {
++            CredentialModel storedRecoveryKeys = myUser.recoveryCodes;
++            if (storedRecoveryKeys == null) {
++                log.warnf("Not found credential for the user %s", user.getUsername());
++                return false;
++            }
++            List generatedKeys;
++            try {
++                generatedKeys = JsonSerialization.readValue(storedRecoveryKeys.getCredentialData(), List.class);
++            } catch (IOException e) {
++                log.warnf("Cannot deserialize recovery keys credential for the user %s", user.getUsername());
++                return false;
++            }
++
++            return generatedKeys.stream().anyMatch(key -> key.equals(input.getChallengeResponse()));
++        }  else {
+             log.infof("Not supported to validate credential of type '%s' for user '%s'", input.getType(), user.getUsername());
+             return false;
+         }
+@@ -369,6 +424,7 @@ static class MyUser {
+         private String username;
+         private CredentialModel hashedPassword;
+         private CredentialModel otp;
++        private CredentialModel recoveryCodes;
+ 
+         private MyUser(String username) {
+             this.username = username;
+@@ -377,6 +433,10 @@ private MyUser(String username) {
+         public CredentialModel getOtp() {
+             return otp;
+         }
++
++        public CredentialModel getRecoveryCodes() {
++            return recoveryCodes;
++        }
+     }
+ 
+ 
+diff --git a/testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorageFactory.java b/testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorageFactory.java
+index 5c38da3bc134..2942be0585b1 100644
+--- a/testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorageFactory.java
++++ b/testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorageFactory.java
+@@ -50,4 +50,9 @@ public boolean hasUserOTP(String username) {
+         return user.getOtp() != null;
+     }
+ 
++    public boolean hasRecoveryCodes(String username) {
++        BackwardsCompatibilityUserStorage.MyUser user = userPasswords.get(username);
++        if (user == null) return false;
++        return user.getRecoveryCodes() != null;
++    }
+ }
+diff --git a/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/federation/storage/BackwardsCompatibilityUserStorageTest.java b/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/federation/storage/BackwardsCompatibilityUserStorageTest.java
+index 89235daa6683..6434628582db 100644
+--- a/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/federation/storage/BackwardsCompatibilityUserStorageTest.java
++++ b/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/federation/storage/BackwardsCompatibilityUserStorageTest.java
+@@ -24,7 +24,11 @@
+ import org.junit.Before;
+ import org.junit.Test;
+ import org.keycloak.admin.client.resource.UserResource;
++import org.keycloak.authentication.AuthenticationFlow;
++import org.keycloak.authentication.authenticators.browser.RecoveryAuthnCodesFormAuthenticatorFactory;
++import org.keycloak.authentication.authenticators.browser.UsernamePasswordFormFactory;
+ import org.keycloak.common.util.MultivaluedHashMap;
++import org.keycloak.models.AuthenticationExecutionModel;
+ import org.keycloak.models.RealmModel;
+ import org.keycloak.models.UserModel;
+ import org.keycloak.models.credential.OTPCredentialModel;
+@@ -41,24 +45,33 @@
+ import org.keycloak.testsuite.AbstractTestRealmKeycloakTest;
+ import org.keycloak.testsuite.Assert;
+ import org.keycloak.testsuite.admin.ApiUtil;
++import org.keycloak.testsuite.arquillian.annotation.EnableFeature;
+ import org.keycloak.testsuite.broker.util.SimpleHttpDefault;
++import org.keycloak.testsuite.client.KeycloakTestingClient;
+ import org.keycloak.testsuite.federation.BackwardsCompatibilityUserStorageFactory;
++import org.keycloak.testsuite.forms.BrowserFlowTest;
+ import org.keycloak.testsuite.pages.AppPage;
++import org.keycloak.testsuite.pages.EnterRecoveryAuthnCodePage;
+ import org.keycloak.testsuite.pages.LoginConfigTotpPage;
+ import org.keycloak.testsuite.pages.LoginPage;
+ import org.keycloak.testsuite.pages.LoginTotpPage;
++import org.keycloak.testsuite.pages.SetupRecoveryAuthnCodesPage;
++import org.keycloak.testsuite.util.FlowUtil;
+ import org.keycloak.testsuite.util.oauth.OAuthClient;
+ import org.keycloak.testsuite.util.TestAppHelper;
+ 
+ import jakarta.ws.rs.core.Response;
+ import org.keycloak.testsuite.util.TokenUtil;
++import org.openqa.selenium.WebDriver;
+ 
+ import java.io.IOException;
+ import java.net.URISyntaxException;
+ import java.util.Arrays;
+ import java.util.Collections;
+ import java.util.List;
++import java.util.Map;
+ 
++import static org.keycloak.common.Profile.Feature.RECOVERY_CODES;
+ import static org.wildfly.common.Assert.assertTrue;
+ 
+ /**
+@@ -66,8 +79,11 @@
+  *
+  * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
+  */
++@EnableFeature(value = RECOVERY_CODES, skipRestart = true)
+ public class BackwardsCompatibilityUserStorageTest extends AbstractTestRealmKeycloakTest {
+ 
++    private static final String BROWSER_FLOW_WITH_RECOVERY_AUTHN_CODES = "Browser with Recovery Authentication Codes";
++
+     private String backwardsCompProviderId;
+ 
+     @Page
+@@ -82,6 +98,12 @@ public class BackwardsCompatibilityUserStorageTest extends AbstractTestRealmKeyc
+     @Page
+     protected LoginConfigTotpPage configureTotpRequiredActionPage;
+ 
++    @Page
++    protected SetupRecoveryAuthnCodesPage setupRecoveryAuthnCodesPage;
++
++    @Page
++    protected EnterRecoveryAuthnCodePage enterRecoveryAuthnCodePage;
++
+ 
+     private TimeBasedOTP totp = new TimeBasedOTP();
+ 
+@@ -98,6 +120,28 @@ public void addProvidersBeforeTest() throws URISyntaxException, IOException {
+ 
+     }
+ 
++    void configureBrowserFlowWithRecoveryAuthnCodes(KeycloakTestingClient testingClient, long delay) {
++        final String newFlowAlias = BROWSER_FLOW_WITH_RECOVERY_AUTHN_CODES;
++        testingClient.server("test").run(session -> FlowUtil.inCurrentRealm(session).copyBrowserFlow(newFlowAlias));
++        testingClient.server("test").run(session -> FlowUtil.inCurrentRealm(session)
++                .selectFlow(newFlowAlias)
++                .inForms(forms -> forms
++                        .clear()
++                        .addAuthenticatorExecution(AuthenticationExecutionModel.Requirement.REQUIRED, UsernamePasswordFormFactory.PROVIDER_ID)
++                        .addSubFlowExecution(AuthenticationExecutionModel.Requirement.REQUIRED, reqSubFlow -> reqSubFlow
++                                .addSubFlowExecution("Recovery-Authn-Codes subflow", AuthenticationFlow.BASIC_FLOW, AuthenticationExecutionModel.Requirement.ALTERNATIVE, altSubFlow -> altSubFlow
++                                        .addAuthenticatorExecution(AuthenticationExecutionModel.Requirement.REQUIRED, RecoveryAuthnCodesFormAuthenticatorFactory.PROVIDER_ID)
++                                        .addAuthenticatorExecution(AuthenticationExecutionModel.Requirement.REQUIRED, "delayed-authenticator", config -> {
++                                            config.setAlias("delayed-suthenticator-config");
++                                            config.setConfig(Map.of("delay", Long.toString(delay)));
++                                        })
++                                )
++                        )
++                )
++                .defineAsBrowserFlow()
++        );
++    }
++
+     protected String addComponent(ComponentRepresentation component) {
+         Response resp = testRealm().components().add(component);
+         String id = ApiUtil.getCreatedId(resp);
+@@ -193,6 +237,37 @@ public void testOTPUpdateAndLogin() throws URISyntaxException, IOException {
+         assertTrue(testAppHelper.logout());
+     }
+ 
++    @Test
++    public void testRecoveryKeysSetupAndLogin() throws URISyntaxException, IOException {
++        try {
++            configureBrowserFlowWithRecoveryAuthnCodes(testingClient, 0);
++
++            String userId = addUserAndResetPassword("otp1", "pass");
++            getCleanup().addUserId(userId);
++
++            // Setup RecoveryKeys
++            List<String> recoveryKeys = setupRecoveryKeysForUserWithRequiredAction(userId, true);
++
++            // Assert user has RecoveryKeys in the userStorage
++            assertUserDontHaveDBCredentials();
++            assertUserHasRecoveryKeysCredentialInUserStorage(true);
++
++            TestAppHelper testAppHelper = new TestAppHelper(oauth, loginPage, appPage);
++
++            // Authenticate as the user
++            testAppHelper.startLogin("otp1", "pass");
++            enterRecoveryCodes(enterRecoveryAuthnCodePage, driver, 0, recoveryKeys);
++            enterRecoveryAuthnCodePage.clickSignInButton();
++
++            appPage.assertCurrent();
++
++            testAppHelper.logout();
++        } finally {
++            // Revert copy of browser flow to original to keep clean slate after this test
++            BrowserFlowTest.revertFlows(testRealm(), BROWSER_FLOW_WITH_RECOVERY_AUTHN_CODES);
++        }
++    }
++
+     @Test
+     public void testOTPSetupThroughAdminRESTAndLogin() throws URISyntaxException, IOException {
+         String userId = addUserAndResetPassword("otp1", "pass");
+@@ -250,7 +325,7 @@ public void testOTPSetupAndRemoveThroughAccountMgmtAndLogin() throws URISyntaxEx
+ 
+         // Delete OTP credential from federated storage
+         int deleteStatus = SimpleHttpDefault.doDelete(accountCredentialsUrl + "/" + otpCredentialId, oauth.httpClient().get())
+-            .auth(accountToken).acceptJson().asStatus();
++                .auth(accountToken).acceptJson().asStatus();
+         Assert.assertEquals(204, deleteStatus);
+ 
+         // Get credentials by account REST. User should not have OTP credential
+@@ -332,6 +407,34 @@ private String setupOTPForUserWithRequiredAction(String userId, boolean logoutOt
+         return totpSecret;
+     }
+ 
++    private List<String> setupRecoveryKeysForUserWithRequiredAction(String userId, boolean logoutOtherSessions) throws URISyntaxException, IOException {
++        // Add required action to the user to reset RecoveryKeys
++        UserResource user = testRealm().users().get(userId);
++        UserRepresentation userRep = user.toRepresentation();
++        userRep.setRequiredActions(Arrays.asList(UserModel.RequiredAction.CONFIGURE_RECOVERY_AUTHN_CODES.name()));
++        user.update(userRep);
++
++        TestAppHelper testAppHelper = new TestAppHelper(oauth, loginPage, appPage);
++
++        // Login as the user and setup RecoveryKeys
++        testAppHelper.startLogin("otp1", "pass");
++
++        setupRecoveryAuthnCodesPage.assertCurrent();
++        if (!logoutOtherSessions) {
++            setupRecoveryAuthnCodesPage.uncheckLogoutSessions();
++        }
++        List<String> codes = setupRecoveryAuthnCodesPage.getRecoveryAuthnCodes();
++        setupRecoveryAuthnCodesPage.clickSaveRecoveryAuthnCodesButton();
++        appPage.assertCurrent();
++
++        testAppHelper.completeLogin();
++
++        // Logout
++        assertTrue(testAppHelper.logout());
++
++        return codes;
++    }
++
+ 
+     private void assertUserDontHaveDBCredentials() {
+         testingClient.server().run(session -> {
+@@ -350,9 +453,19 @@ private void assertUserHasOTPCredentialInUserStorage(boolean expectedUserHasOTP)
+         Assert.assertEquals(expectedUserHasOTP, hasUserOTP);
+     }
+ 
++    private void assertUserHasRecoveryKeysCredentialInUserStorage(boolean expectedUserHasRecoveryKeys) {
++        boolean hasRecoveryKeys = testingClient.server().fetch(session -> {
++            BackwardsCompatibilityUserStorageFactory storageFactory = (BackwardsCompatibilityUserStorageFactory) session.getKeycloakSessionFactory()
++                    .getProviderFactory(UserStorageProvider.class, BackwardsCompatibilityUserStorageFactory.PROVIDER_ID);
++            return storageFactory.hasRecoveryCodes("otp1");
++        }, Boolean.class);
++        Assert.assertEquals(expectedUserHasRecoveryKeys, hasRecoveryKeys);
++    }
++
+     private List<CredentialMetadataRepresentation> getOtpCredentialFromAccountREST(String accountCredentialsUrl, CloseableHttpClient httpClient, TokenUtil tokenUtil) throws IOException {
+         List<AccountCredentialResource.CredentialContainer> credentials = SimpleHttpDefault.doGet(accountCredentialsUrl, httpClient)
+-                .auth(tokenUtil.getToken()).asJson(new TypeReference<>() {});
++                .auth(tokenUtil.getToken()).asJson(new TypeReference<>() {
++                });
+ 
+         return credentials.stream()
+                 .filter(credentialContainer -> OTPCredentialModel.TYPE.equals(credentialContainer.getType()))
+@@ -360,6 +473,15 @@ private List<CredentialMetadataRepresentation> getOtpCredentialFromAccountREST(S
+                 .findFirst().get();
+     }
+ 
++    private void enterRecoveryCodes(EnterRecoveryAuthnCodePage enterRecoveryAuthnCodePage, WebDriver driver,
++                                    int expectedCode, List<String> generatedRecoveryAuthnCodes) {
++        enterRecoveryAuthnCodePage.setDriver(driver);
++        enterRecoveryAuthnCodePage.assertCurrent();
++        int requestedCode = enterRecoveryAuthnCodePage.getRecoveryAuthnCodeToEnterNumber();
++        org.junit.Assert.assertEquals("Incorrect code presented to login", expectedCode, requestedCode);
++        enterRecoveryAuthnCodePage.enterRecoveryAuthnCode(generatedRecoveryAuthnCodes.get(requestedCode));
++    }
++
+     @Override
+     public void configureTestRealm(RealmRepresentation testRealm) {
+ 

@@ -1,0 +1,164 @@
+From 5b229316ee4c661836ed1161139692a3e8527444 Mon Sep 17 00:00:00 2001
+From: awesomerobot <awesomerobot@gmail.com>
+Date: Tue, 4 Aug 2015 10:44:01 -0400
+Subject: [PATCH] adding flexbox to header via mixins (all prefixes)
+
+---
+ .../stylesheets/common/base/header.scss       |  9 +++--
+ .../stylesheets/common/base/topic-post.scss   |  9 +++--
+ app/assets/stylesheets/common/base/topic.scss |  6 +--
+ .../common/components/badges.css.scss         |  6 ++-
+ .../stylesheets/common/foundation/mixins.scss | 37 +++++++++++++++++++
+ 5 files changed, 54 insertions(+), 13 deletions(-)
+
+diff --git a/app/assets/stylesheets/common/base/header.scss b/app/assets/stylesheets/common/base/header.scss
+index ed398f4a06d9b..99c579f27868a 100644
+--- a/app/assets/stylesheets/common/base/header.scss
++++ b/app/assets/stylesheets/common/base/header.scss
+@@ -13,10 +13,9 @@
+ 
+     .contents {
+       margin: 8px 0;
+-    }
+ 
+-    .title {
+-      float: left;
++      @include flexbox();
++      @include align-items(center);
+     }
+ 
+     .valign-helper {
+@@ -34,8 +33,10 @@
+     }
+ 
+     .panel {
+-      float: right;
+       position: relative;
++      margin-left: auto;
++
++      @include order(3);
+     }
+ 
+     .login-button, button.sign-up-button {
+diff --git a/app/assets/stylesheets/common/base/topic-post.scss b/app/assets/stylesheets/common/base/topic-post.scss
+index ec590ae39c61d..95461d8ca559b 100644
+--- a/app/assets/stylesheets/common/base/topic-post.scss
++++ b/app/assets/stylesheets/common/base/topic-post.scss
+@@ -261,6 +261,9 @@ table.md-table {
+ }
+ 
+ .small-action {
++  @include flexbox();
++  @include align-items(center);
++
+   .topic-avatar {
+     padding: 5px 0;
+     border-top: none;
+@@ -274,8 +277,7 @@ table.md-table {
+   }
+ 
+   .small-action-desc {
+-    padding: 0.5em 0 0.5em 4em;
+-    margin-top: 5px;
++    padding: 0 1.5%;
+     text-transform: uppercase;
+     font-weight: bold;
+     font-size: 0.9em;
+@@ -287,7 +289,7 @@ table.md-table {
+       font-weight: normal;
+       font-size: 14px;
+       p {
+-        margin: 5px 0;
++        margin: 0;
+       }
+     }
+ 
+@@ -298,7 +300,6 @@ table.md-table {
+ 
+     > p {
+       margin: 0;
+-      padding-top: 4px;
+     }
+   }
+ 
+diff --git a/app/assets/stylesheets/common/base/topic.scss b/app/assets/stylesheets/common/base/topic.scss
+index 18701110bc0b9..fc1fee069ed06 100644
+--- a/app/assets/stylesheets/common/base/topic.scss
++++ b/app/assets/stylesheets/common/base/topic.scss
+@@ -27,11 +27,11 @@
+ }
+ 
+ .extra-info-wrapper {
++  @include order(2);
++
++  line-height: 1.5;
+   .badge-wrapper {
+     float: left;
+-    &.bullet {
+-      margin-top: 5px;
+-    }
+   }
+ 
+ }
+diff --git a/app/assets/stylesheets/common/components/badges.css.scss b/app/assets/stylesheets/common/components/badges.css.scss
+index 8008d48b21019..fb683d8719f57 100644
+--- a/app/assets/stylesheets/common/components/badges.css.scss
++++ b/app/assets/stylesheets/common/components/badges.css.scss
+@@ -52,8 +52,10 @@
+ 
+ 
+   &.bullet { //bullet category style
+-    display: inline-flex;
+-    align-items: baseline;
++    @include inline-flex();
++
++    @include align-items(baseline);
++
+     margin-right: 10px;
+ 
+     span.badge-category {
+diff --git a/app/assets/stylesheets/common/foundation/mixins.scss b/app/assets/stylesheets/common/foundation/mixins.scss
+index 60a682ac094bd..9eb1a27ca2381 100644
+--- a/app/assets/stylesheets/common/foundation/mixins.scss
++++ b/app/assets/stylesheets/common/foundation/mixins.scss
+@@ -92,3 +92,40 @@
+      -moz-user-select: none;
+       -ms-user-select: none;
+ }
++
++// ---------------------------------------------------
++
++//Flexbox
++
++@mixin flexbox() {
++  display: -webkit-box;
++  display: -moz-box;
++  display: -ms-flexbox;
++  display: -webkit-flex;
++  display: flex;
++}
++
++@mixin inline-flex() {
++  display: -webkit-inline-box;
++  display: -webkit-inline-flex;
++  display: -moz-inline-box;
++  display: -ms-inline-flexbox;
++  display: inline-flex;
++}
++
++
++@mixin align-items($alignment) {
++    -webkit-box-align: $alignment;
++    -webkit-align-items: $alignment;
++    -ms-flex-align: $alignment;  
++    -ms-align-items: $alignment;
++    align-items:$alignment;
++}
++
++@mixin order($val) {
++  -webkit-box-ordinal-group: $val;
++  -moz-box-ordinal-group: $val;
++  -ms-flex-order: $val;
++  -webkit-order: $val;
++  order: $val;
++}

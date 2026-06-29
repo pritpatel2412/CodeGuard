@@ -1,0 +1,1375 @@
+From ee2491268a160f96360fe0ba9f85a43e7cac7a00 Mon Sep 17 00:00:00 2001
+From: mposolda <mposolda@gmail.com>
+Date: Mon, 24 Feb 2025 11:47:48 +0100
+Subject: [PATCH 1/2] Encoding context to access token IDs closes #37118
+
+Signed-off-by: mposolda <mposolda@gmail.com>
+---
+ .../java/org/keycloak/models/Constants.java   |   2 +
+ .../protocol/oidc/grants/OAuth2GrantType.java |  23 +--
+ .../oidc/grants/OAuth2GrantTypeFactory.java   |   5 +
+ .../keycloak/protocol/oidc/TokenManager.java  |  15 +-
+ .../oidc/encode/AccessTokenContext.java       |  95 ++++++++++++
+ .../DefaultTokenContextEncoderProvider.java   | 143 ++++++++++++++++++
+ ...ultTokenContextEncoderProviderFactory.java | 138 +++++++++++++++++
+ .../encode/TokenContextEncoderProvider.java   |  38 +++++
+ .../TokenContextEncoderProviderFactory.java   |  28 ++++
+ .../oidc/encode/TokenContextEncoderSpi.java   |  51 +++++++
+ .../AuthorizationCodeGrantTypeFactory.java    |   7 +
+ .../ClientCredentialsGrantTypeFactory.java    |   5 +
+ .../oidc/grants/OAuth2GrantTypeBase.java      |   2 +
+ .../grants/PermissionGrantTypeFactory.java    |   5 +
+ .../grants/PreAuthorizedCodeGrantType.java    |   3 +-
+ .../PreAuthorizedCodeGrantTypeFactory.java    |   5 +
+ .../grants/RefreshTokenGrantTypeFactory.java  |   7 +
+ ...urceOwnerPasswordCredentialsGrantType.java |   2 +
+ ...erPasswordCredentialsGrantTypeFactory.java |   5 +
+ .../grants/TokenExchangeGrantTypeFactory.java |   5 +
+ .../grants/ciba/CibaGrantTypeFactory.java     |   7 +
+ .../grants/device/DeviceGrantTypeFactory.java |   7 +
+ .../mappers/AbstractOIDCProtocolMapper.java   |   2 +-
+ .../StandardTokenExchangeProvider.java        |   2 +
+ ....encode.TokenContextEncoderProviderFactory |  20 +++
+ .../services/org.keycloak.provider.Spi        |   1 +
+ ...efaultTokenContextEncoderProviderTest.java | 114 ++++++++++++++
+ .../org/keycloak/testsuite/AssertEvents.java  |  29 +++-
+ 28 files changed, 740 insertions(+), 26 deletions(-)
+ create mode 100644 services/src/main/java/org/keycloak/protocol/oidc/encode/AccessTokenContext.java
+ create mode 100644 services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProvider.java
+ create mode 100644 services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProviderFactory.java
+ create mode 100644 services/src/main/java/org/keycloak/protocol/oidc/encode/TokenContextEncoderProvider.java
+ create mode 100644 services/src/main/java/org/keycloak/protocol/oidc/encode/TokenContextEncoderProviderFactory.java
+ create mode 100644 services/src/main/java/org/keycloak/protocol/oidc/encode/TokenContextEncoderSpi.java
+ create mode 100644 services/src/main/resources/META-INF/services/org.keycloak.protocol.oidc.encode.TokenContextEncoderProviderFactory
+ create mode 100644 services/src/test/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProviderTest.java
+
+diff --git a/server-spi-private/src/main/java/org/keycloak/models/Constants.java b/server-spi-private/src/main/java/org/keycloak/models/Constants.java
+index 08b4f7156f0b..8a904db2a533 100755
+--- a/server-spi-private/src/main/java/org/keycloak/models/Constants.java
++++ b/server-spi-private/src/main/java/org/keycloak/models/Constants.java
+@@ -203,5 +203,7 @@ public final class Constants {
+     public static final String REQUESTED_AUDIENCE_CLIENTS = "req-aud-clients";
+     // claim used in refresh token to know the requested audience
+     public static final String REQUESTED_AUDIENCE = "req-aud";
++    // Note in clientSessionContext specifying token grant type used
++    public static final String GRANT_TYPE = OAuth2Constants.GRANT_TYPE;
+ 
+ }
+diff --git a/server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantType.java b/server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantType.java
+index 32af14d2f75e..582a20cbfbc4 100644
+--- a/server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantType.java
++++ b/server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantType.java
+@@ -26,6 +26,7 @@
+ import java.util.Map;
+ import java.util.Set;
+ 
++import org.keycloak.OAuth2Constants;
+ import org.keycloak.common.ClientConnection;
+ import org.keycloak.events.EventBuilder;
+ import org.keycloak.events.EventType;
+@@ -81,6 +82,7 @@ public static class Context {
+         protected EventBuilder event;
+         protected Cors cors;
+         protected Object tokenManager;
++        protected String grantType;
+ 
+         public Context(KeycloakSession session, Object clientConfig, Map<String, String> clientAuthAttributes,
+                 MultivaluedMap<String, String> formParams, EventBuilder event, Cors cors, Object tokenManager) {
+@@ -97,22 +99,7 @@ public Context(KeycloakSession session, Object clientConfig, Map<String, String>
+             this.event = event;
+             this.cors = cors;
+             this.tokenManager = tokenManager;
+-        }
+-
+-        public Context(Context context) {
+-            this.session = context.session;
+-            this.realm = context.realm;
+-            this.client = context.client;
+-            this.clientConfig = context.clientConfig;
+-            this.clientConnection = context.clientConnection;
+-            this.clientAuthAttributes = context.clientAuthAttributes;
+-            this.request = context.request;
+-            this.response = context.response;
+-            this.headers = context.headers;
+-            this.formParams = context.formParams;
+-            this.event = context.event;
+-            this.cors = context.cors;
+-            this.tokenManager = context.tokenManager;
++            this.grantType = formParams.getFirst(OAuth2Constants.GRANT_TYPE);
+         }
+ 
+         public void setFormParams(MultivaluedHashMap<String, String> formParams) {
+@@ -182,6 +169,10 @@ public KeycloakSession getSession() {
+         public Object getTokenManager() {
+             return tokenManager;
+         }
++
++        public String getGrantType() {
++            return grantType;
++        }
+     }
+ 
+ }
+diff --git a/server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeFactory.java b/server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeFactory.java
+index 5793956f0832..020613d55cc5 100644
+--- a/server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeFactory.java
++++ b/server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeFactory.java
+@@ -26,4 +26,9 @@
+  */
+ public interface OAuth2GrantTypeFactory extends ProviderFactory<OAuth2GrantType> {
+ 
++    /**
++     * @return usually like 3-letters shortcut of specific grants. It can be useful for example in the tokens when the amount of characters should be limited and hence using full grant name
++     * is not ideal. Shortcut should be unique across grants.
++     */
++    String getShortcut();
+ }
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/TokenManager.java b/services/src/main/java/org/keycloak/protocol/oidc/TokenManager.java
+index 22357929318b..4cd8c0546f41 100755
+--- a/services/src/main/java/org/keycloak/protocol/oidc/TokenManager.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/TokenManager.java
+@@ -64,6 +64,8 @@
+ import org.keycloak.organization.protocol.mappers.oidc.OrganizationScope;
+ import org.keycloak.protocol.ProtocolMapper;
+ import org.keycloak.protocol.ProtocolMapperUtils;
++import org.keycloak.protocol.oidc.encode.AccessTokenContext;
++import org.keycloak.protocol.oidc.encode.TokenContextEncoderProvider;
+ import org.keycloak.protocol.oidc.mappers.TokenIntrospectionTokenMapper;
+ import org.keycloak.protocol.oidc.mappers.OIDCAccessTokenMapper;
+ import org.keycloak.protocol.oidc.mappers.OIDCAccessTokenResponseMapper;
+@@ -243,6 +245,7 @@ public TokenValidation validateToken(KeycloakSession session, UriInfo uriInfo, C
+         if (oldToken.getNonce() != null) {
+             clientSessionCtx.setAttribute(OIDCLoginProtocol.NONCE_PARAM, oldToken.getNonce());
+         }
++        clientSessionCtx.setAttribute(Constants.GRANT_TYPE, OAuth2Constants.REFRESH_TOKEN);
+ 
+         // recreate token.
+         AccessToken newToken = createClientAccessToken(session, realm, client, user, userSession, clientSessionCtx);
+@@ -861,9 +864,9 @@ protected AccessToken applyMapper(AccessToken token, Map.Entry<ProtocolMapperMod
+                         return ((OIDCAccessTokenMapper) mapper.getValue()).transformAccessToken(token, mapper.getKey(), session, userSession, clientSessionCtx);
+                     }
+                 });
+-        final ClientModel[] requestedAucienceClients = clientSessionCtx.getAttribute(Constants.REQUESTED_AUDIENCE_CLIENTS, ClientModel[].class);
+-        if (requestedAucienceClients != null) {
+-            restrictRequestedAudience(accessToken, Arrays.stream(requestedAucienceClients)
++        final ClientModel[] requestedAudienceClients = clientSessionCtx.getAttribute(Constants.REQUESTED_AUDIENCE_CLIENTS, ClientModel[].class);
++        if (requestedAudienceClients != null) {
++            restrictRequestedAudience(accessToken, Arrays.stream(requestedAudienceClients)
+                     .map(ClientModel::getClientId)
+                     .collect(Collectors.toSet()));
+         }
+@@ -1045,7 +1048,11 @@ protected IDToken applyMapper(IDToken token, Map.Entry<ProtocolMapperModel, Prot
+     protected AccessToken initToken(KeycloakSession session, RealmModel realm, ClientModel client, UserModel user, UserSessionModel userSession,
+                                     ClientSessionContext clientSessionCtx, UriInfo uriInfo) {
+         AccessToken token = new AccessToken();
+-        token.id(KeycloakModelUtils.generateId());
++
++        TokenContextEncoderProvider encoder = session.getProvider(TokenContextEncoderProvider.class);
++        AccessTokenContext tokenCtx = encoder.getTokenContextFromClientSessionContext(clientSessionCtx, KeycloakModelUtils.generateId());
++        token.id(encoder.encodeTokenId(tokenCtx));
++
+         token.type(formatTokenType(client, token));
+         if (UserSessionModel.SessionPersistenceState.TRANSIENT.equals(userSession.getPersistenceState())) {
+             token.subject(user.getId());
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/encode/AccessTokenContext.java b/services/src/main/java/org/keycloak/protocol/oidc/encode/AccessTokenContext.java
+new file mode 100644
+index 000000000000..809181248704
+--- /dev/null
++++ b/services/src/main/java/org/keycloak/protocol/oidc/encode/AccessTokenContext.java
+@@ -0,0 +1,95 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ *  and other contributors as indicated by the @author tags.
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ */
++
++package org.keycloak.protocol.oidc.encode;
++
++import java.util.Objects;
++
++/**
++ * Some context info about the token
++ *
++ * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
++ */
++public class AccessTokenContext {
++
++    private final SessionType sessionType;
++    private final TokenType tokenType;
++    private final String grantType;
++    private final String rawTokenId;
++
++    public enum SessionType {
++        ONLINE("on"),
++        OFFLINE("of"),
++        TRANSIENT("tr"),
++        UNKNOWN("un");
++
++        private final String shortcut;
++
++        SessionType(String shortcut) {
++            this.shortcut = shortcut;
++        }
++
++        public String getShortcut() {
++            return shortcut;
++        }
++    }
++
++    public enum TokenType {
++        REGULAR("rt"),
++        LIGHTWEIGHT("lt"),
++        UNKNOWN("un");
++
++        private final String shortcut;
++
++        TokenType(String shortcut) {
++            this.shortcut = shortcut;
++        }
++
++        public String getShortcut() {
++            return shortcut;
++        }
++    }
++
++    public AccessTokenContext(SessionType sessionType, TokenType tokenType, String grantType, String rawTokenId) {
++        Objects.requireNonNull(sessionType, "Null sessionType not allowed");
++        Objects.requireNonNull(tokenType, "Null tokenType not allowed");
++        Objects.requireNonNull(grantType, "Null grantType not allowed");
++        Objects.requireNonNull(grantType, "Null rawTokenId not allowed");
++        this.sessionType = sessionType;
++        this.tokenType = tokenType;
++        this.grantType = grantType;
++        this.rawTokenId = rawTokenId;
++    }
++
++    public SessionType getSessionType() {
++        return sessionType;
++    }
++
++    public TokenType getTokenType() {
++        return tokenType;
++    }
++
++    public String getGrantType() {
++        return grantType;
++    }
++
++    public String getRawTokenId() {
++        return rawTokenId;
++    }
++}
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProvider.java b/services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProvider.java
+new file mode 100644
+index 000000000000..3876820efbed
+--- /dev/null
++++ b/services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProvider.java
+@@ -0,0 +1,143 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ *  and other contributors as indicated by the @author tags.
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ */
++
++package org.keycloak.protocol.oidc.encode;
++
++import java.util.Map;
++
++import org.keycloak.models.ClientSessionContext;
++import org.keycloak.models.Constants;
++import org.keycloak.models.KeycloakSession;
++import org.keycloak.models.UserSessionModel;
++import org.keycloak.protocol.oidc.mappers.AbstractOIDCProtocolMapper;
++
++/**
++ * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
++ */
++public class DefaultTokenContextEncoderProvider implements TokenContextEncoderProvider {
++
++    public static final String UNKNOWN = "na";
++
++    public static final String SESSION_TYPE_PREFIX = "st";
++    public static final String TOKEN_TYPE_PREFIX = "tt";
++    public static final String GRANT_TYPE_PREFIX = "gt";
++
++    private final KeycloakSession session;
++    private final DefaultTokenContextEncoderProviderFactory factory;
++
++    public DefaultTokenContextEncoderProvider(KeycloakSession session,
++                                              DefaultTokenContextEncoderProviderFactory factory) {
++        this.session = session;
++        this.factory = factory;
++    }
++
++    @Override
++    public AccessTokenContext getTokenContextFromClientSessionContext(ClientSessionContext clientSessionContext, String rawTokenId) {
++        AccessTokenContext.SessionType sessionType;
++        UserSessionModel userSession = clientSessionContext.getClientSession().getUserSession();
++        if (userSession.getPersistenceState() == UserSessionModel.SessionPersistenceState.TRANSIENT) {
++            sessionType = AccessTokenContext.SessionType.TRANSIENT;
++        } else {
++            sessionType = userSession.isOffline() ? AccessTokenContext.SessionType.OFFLINE : AccessTokenContext.SessionType.ONLINE;
++        }
++
++        boolean useLightweightToken = AbstractOIDCProtocolMapper.getShouldUseLightweightToken(session);
++        AccessTokenContext.TokenType tokenType = useLightweightToken ? AccessTokenContext.TokenType.LIGHTWEIGHT : AccessTokenContext.TokenType.REGULAR;
++
++        String grantType = clientSessionContext.getAttribute(Constants.GRANT_TYPE, String.class);
++        if (grantType == null) {
++            grantType = UNKNOWN;
++        }
++
++        return new AccessTokenContext(sessionType, tokenType, grantType, rawTokenId);
++    }
++
++    @Override
++    public AccessTokenContext getTokenContextFromTokenId(String encodedTokenId) {
++        int indexOf = encodedTokenId.indexOf(':');
++        if (indexOf == -1) {
++            return new AccessTokenContext(AccessTokenContext.SessionType.UNKNOWN, AccessTokenContext.TokenType.UNKNOWN, UNKNOWN, encodedTokenId);
++        } else {
++            String encodedChunks = encodedTokenId.substring(0, indexOf);
++            String rawId = encodedTokenId.substring(indexOf + 1);
++            String[] chunks = encodedChunks.split("_");
++
++            AccessTokenContext.SessionType st = null;
++            AccessTokenContext.TokenType tt = null;
++            String gt = null;
++
++            for (String chunk : chunks) {
++                int dotIndex = chunk.indexOf('.');
++                if (dotIndex == -1) {
++                    throw new IllegalArgumentException("Incorrect token id: " + encodedTokenId + ". No dot present in the chunk: " + chunk);
++                }
++                String prefix = chunk.substring(0, dotIndex);
++                String value = chunk.substring(dotIndex + 1);
++                switch (prefix) {
++                    case SESSION_TYPE_PREFIX:
++                        st = factory.getSessionTypeByShortcut(value);
++                        if (st == null) {
++                            throw new IllegalArgumentException("Incorrect token id: " + encodedTokenId + ". Unknown value '" + chunk + "' for session type");
++                        }
++                        break;
++                    case TOKEN_TYPE_PREFIX:
++                        tt = factory.getTokenTypeByShortcut(value);
++                        if (tt == null) {
++                            throw new IllegalArgumentException("Incorrect token id: " + encodedTokenId + ". Unknown value '" + chunk + "' for token type");
++                        }
++                        break;
++                    case GRANT_TYPE_PREFIX:
++                        gt = factory.getGrantTypeByShortcut(value);
++                        if (gt == null) {
++                            throw new IllegalArgumentException("Incorrect token id: " + encodedTokenId + ". Unknown value '" + gt + "' for grant type");
++                        }
++                        break;
++                    default:
++                        throw new IllegalArgumentException("Incorrect token id: " + encodedTokenId + ". Unknown prefix: " + prefix);
++                }
++            }
++            return new AccessTokenContext(st, tt, gt, rawId);
++        }
++    }
++
++    @Override
++    public String encodeTokenId(AccessTokenContext tokenContext) {
++        if (tokenContext.getSessionType() == AccessTokenContext.SessionType.UNKNOWN) {
++            throw new IllegalStateException("Cannot encode token with unknown sessionType");
++        }
++        if (tokenContext.getTokenType() == AccessTokenContext.TokenType.UNKNOWN) {
++            throw new IllegalStateException("Cannot encode token with unknown tokenType");
++        }
++
++        String grantShort = factory.getShortcutByGrantType(tokenContext.getGrantType());
++        if (grantShort == null) {
++            throw new IllegalStateException("Cannot encode token with unknown grantType: " + tokenContext.getGrantType());
++        }
++
++        return SESSION_TYPE_PREFIX + '.' + tokenContext.getSessionType().getShortcut() + '_' +
++                TOKEN_TYPE_PREFIX + '.' + tokenContext.getTokenType().getShortcut() + '_' +
++                GRANT_TYPE_PREFIX + '.' + grantShort + ':' +
++                tokenContext.getRawTokenId();
++    }
++
++    @Override
++    public void close() {
++
++    }
++}
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProviderFactory.java b/services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProviderFactory.java
+new file mode 100644
+index 000000000000..54df0d22eb2a
+--- /dev/null
++++ b/services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProviderFactory.java
+@@ -0,0 +1,138 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ *  and other contributors as indicated by the @author tags.
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ */
++
++package org.keycloak.protocol.oidc.encode;
++
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.Map;
++import java.util.concurrent.ConcurrentHashMap;
++
++import org.keycloak.Config;
++import org.keycloak.models.KeycloakSession;
++import org.keycloak.models.KeycloakSessionFactory;
++import org.keycloak.protocol.oidc.grants.OAuth2GrantType;
++import org.keycloak.protocol.oidc.grants.OAuth2GrantTypeFactory;
++
++/**
++ * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
++ */
++public class DefaultTokenContextEncoderProviderFactory implements TokenContextEncoderProviderFactory {
++
++    private KeycloakSessionFactory sessionFactory;
++    private Map<String, AccessTokenContext.SessionType> sessionTypesByShortcut;
++    private Map<String, AccessTokenContext.TokenType> tokenTypesByShortcut;
++    Map<String, String> grantsByShortcuts;
++    Map<String, String> grantsToShortcuts;
++
++    @Override
++    public TokenContextEncoderProvider create(KeycloakSession session) {
++        return new DefaultTokenContextEncoderProvider(session, this);
++    }
++
++    @Override
++    public void init(Config.Scope config) {
++        sessionTypesByShortcut = new HashMap<>();
++        for (AccessTokenContext.SessionType st : AccessTokenContext.SessionType.values()) {
++            sessionTypesByShortcut.put(st.getShortcut(), st);
++        }
++        sessionTypesByShortcut = Collections.unmodifiableMap(sessionTypesByShortcut);
++
++        tokenTypesByShortcut = new HashMap<>();
++        for (AccessTokenContext.TokenType tt : AccessTokenContext.TokenType.values()) {
++            tokenTypesByShortcut.put(tt.getShortcut(), tt);
++        }
++        tokenTypesByShortcut = Collections.unmodifiableMap(tokenTypesByShortcut);
++    }
++
++    @Override
++    public void postInit(KeycloakSessionFactory factory) {
++        this.sessionFactory = factory;
++        grantsByShortcuts = new ConcurrentHashMap<>();
++        grantsToShortcuts = new ConcurrentHashMap<>();
++
++        factory.getProviderFactoriesStream(OAuth2GrantType.class)
++                .forEach((factory1) -> {
++                    OAuth2GrantTypeFactory gtf = (OAuth2GrantTypeFactory) factory1;
++                    String grantName = gtf.getId();
++                    String grantShortcut = gtf.getShortcut();
++                    grantsByShortcuts.put(grantShortcut, grantName);
++                    grantsToShortcuts.put(grantName, grantShortcut);
++                });
++        grantsByShortcuts.put(DefaultTokenContextEncoderProvider.UNKNOWN, DefaultTokenContextEncoderProvider.UNKNOWN);
++        grantsToShortcuts.put(DefaultTokenContextEncoderProvider.UNKNOWN, DefaultTokenContextEncoderProvider.UNKNOWN);
++
++        // Validation if there are not duplicated shortcuts (for example when introducing new grant impl...)
++        if (grantsByShortcuts.size() != grantsToShortcuts.size()) {
++            throw new IllegalStateException("Different lengths of maps. grantsByShortcuts.size=" + grantsByShortcuts.size() + ", grantsToShortcuts.size=" + grantsToShortcuts.size() +
++                    ". Make sure that there is no OAuth2GrantType implementation with same ID or shortcut like other grants");
++        }
++    }
++
++    @Override
++    public void close() {
++
++    }
++
++    @Override
++    public String getId() {
++        return "default";
++    }
++
++    protected AccessTokenContext.SessionType getSessionTypeByShortcut(String sessionTypeShortcut) {
++        return sessionTypesByShortcut.get(sessionTypeShortcut);
++    }
++
++    protected AccessTokenContext.TokenType getTokenTypeByShortcut(String tokenTypeShortcut) {
++        return tokenTypesByShortcut.get(tokenTypeShortcut);
++    }
++
++    protected String getShortcutByGrantType(String grantType) {
++        String grantShortcut = grantsToShortcuts.get(grantType);
++        if (grantShortcut == null) {
++            // Refresh maps in case new grant type was deployed
++            OAuth2GrantTypeFactory factory = (OAuth2GrantTypeFactory) sessionFactory.getProviderFactory(OAuth2GrantType.class, grantType);
++            if (factory != null) {
++                String shortcut = factory.getShortcut();
++                grantsByShortcuts.put(shortcut, grantType);
++                grantsToShortcuts.put(grantType, shortcut);
++            }
++            grantShortcut = grantsToShortcuts.get(grantType);
++        }
++        return grantShortcut;
++    }
++
++    protected String getGrantTypeByShortcut(String shortcut) {
++        String grantType = grantsByShortcuts.get(shortcut);
++        if (grantType == null) {
++            // Refresh maps in case new grant type was deployed
++            sessionFactory.getProviderFactoriesStream(OAuth2GrantType.class)
++                    .map(fct -> (OAuth2GrantTypeFactory) fct)
++                    .filter(fct -> shortcut.equals(fct.getShortcut()))
++                    .map(OAuth2GrantTypeFactory::getId)
++                    .findFirst()
++                    .ifPresent(newGrantType -> {
++                        grantsByShortcuts.put(shortcut, newGrantType);
++                        grantsToShortcuts.put(newGrantType, shortcut);
++                    });
++            grantType = grantsByShortcuts.get(shortcut);
++        }
++        return grantType;
++    }
++}
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/encode/TokenContextEncoderProvider.java b/services/src/main/java/org/keycloak/protocol/oidc/encode/TokenContextEncoderProvider.java
+new file mode 100644
+index 000000000000..907a6eb83250
+--- /dev/null
++++ b/services/src/main/java/org/keycloak/protocol/oidc/encode/TokenContextEncoderProvider.java
+@@ -0,0 +1,38 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ *  and other contributors as indicated by the @author tags.
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ */
++
++package org.keycloak.protocol.oidc.encode;
++
++import org.keycloak.models.ClientSessionContext;
++import org.keycloak.provider.Provider;
++
++/**
++ * Provides ability to encode some context into access token ID, so this information can be later retrieved from the token without the need to use some proprietary/non-standard claims.
++ * For example token context can contain info whether it is lightweight access token or regular token, whether it is coming from online session or offline session etc.
++ *
++ * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
++ */
++public interface TokenContextEncoderProvider extends Provider {
++
++    AccessTokenContext getTokenContextFromClientSessionContext(ClientSessionContext clientSessionContext, String rawTokenId);
++
++    AccessTokenContext getTokenContextFromTokenId(String encodedTokenId);
++
++    String encodeTokenId(AccessTokenContext tokenContext);
++}
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/encode/TokenContextEncoderProviderFactory.java b/services/src/main/java/org/keycloak/protocol/oidc/encode/TokenContextEncoderProviderFactory.java
+new file mode 100644
+index 000000000000..252184a21e89
+--- /dev/null
++++ b/services/src/main/java/org/keycloak/protocol/oidc/encode/TokenContextEncoderProviderFactory.java
+@@ -0,0 +1,28 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ *  and other contributors as indicated by the @author tags.
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ */
++
++package org.keycloak.protocol.oidc.encode;
++
++import org.keycloak.provider.ProviderFactory;
++
++/**
++ * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
++ */
++public interface TokenContextEncoderProviderFactory extends ProviderFactory<TokenContextEncoderProvider> {
++}
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/encode/TokenContextEncoderSpi.java b/services/src/main/java/org/keycloak/protocol/oidc/encode/TokenContextEncoderSpi.java
+new file mode 100644
+index 000000000000..52e77fb306d1
+--- /dev/null
++++ b/services/src/main/java/org/keycloak/protocol/oidc/encode/TokenContextEncoderSpi.java
+@@ -0,0 +1,51 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ *  and other contributors as indicated by the @author tags.
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ */
++
++package org.keycloak.protocol.oidc.encode;
++
++import org.keycloak.provider.Provider;
++import org.keycloak.provider.ProviderFactory;
++import org.keycloak.provider.Spi;
++
++/**
++ * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
++ */
++public class TokenContextEncoderSpi implements Spi {
++
++    @Override
++    public boolean isInternal() {
++        return true;
++    }
++
++    @Override
++    public String getName() {
++        return "tokenContextEncoder";
++    }
++
++    @Override
++    public Class<? extends Provider> getProviderClass() {
++        return TokenContextEncoderProvider.class;
++    }
++
++    @Override
++    public Class<? extends ProviderFactory> getProviderFactoryClass() {
++        return TokenContextEncoderProviderFactory.class;
++    }
++
++}
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/AuthorizationCodeGrantTypeFactory.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/AuthorizationCodeGrantTypeFactory.java
+index cd4a5ddd8a23..82a9751ee1ba 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/grants/AuthorizationCodeGrantTypeFactory.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/AuthorizationCodeGrantTypeFactory.java
+@@ -29,11 +29,18 @@
+  */
+ public class AuthorizationCodeGrantTypeFactory implements OAuth2GrantTypeFactory {
+ 
++    public static final String GRANT_SHORTCUT = "ac";
++
+     @Override
+     public String getId() {
+         return OAuth2Constants.AUTHORIZATION_CODE;
+     }
+ 
++    @Override
++    public String getShortcut() {
++        return GRANT_SHORTCUT;
++    }
++
+     @Override
+     public OAuth2GrantType create(KeycloakSession session) {
+         return new AuthorizationCodeGrantType();
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/ClientCredentialsGrantTypeFactory.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/ClientCredentialsGrantTypeFactory.java
+index cd72faad7554..84ee1f43d131 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/grants/ClientCredentialsGrantTypeFactory.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/ClientCredentialsGrantTypeFactory.java
+@@ -35,6 +35,11 @@ public String getId() {
+         return OAuth2Constants.CLIENT_CREDENTIALS;
+     }
+ 
++    @Override
++    public String getShortcut() {
++        return "cc";
++    }
++
+     @Override
+     public OAuth2GrantType create(KeycloakSession session) {
+         return new ClientCredentialsGrantType();
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeBase.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeBase.java
+index eaf936d710ad..4e26a07dc494 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeBase.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeBase.java
+@@ -42,6 +42,7 @@
+ import org.keycloak.models.AuthenticatedClientSessionModel;
+ import org.keycloak.models.ClientModel;
+ import org.keycloak.models.ClientSessionContext;
++import org.keycloak.models.Constants;
+ import org.keycloak.models.KeycloakSession;
+ import org.keycloak.models.RealmModel;
+ import org.keycloak.models.UserModel;
+@@ -105,6 +106,7 @@ protected void setContext(Context context) {
+ 
+     protected Response createTokenResponse(UserModel user, UserSessionModel userSession, ClientSessionContext clientSessionCtx,
+         String scopeParam, boolean code, Function<TokenManager.AccessTokenResponseBuilder, ClientPolicyContext> clientPolicyContextGenerator) {
++        clientSessionCtx.setAttribute(Constants.GRANT_TYPE, context.getGrantType());
+         AccessToken token = tokenManager.createClientAccessToken(session, realm, client, user, userSession, clientSessionCtx);
+ 
+         TokenManager.AccessTokenResponseBuilder responseBuilder = tokenManager
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/PermissionGrantTypeFactory.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/PermissionGrantTypeFactory.java
+index fcf4db0414af..5160270f7079 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/grants/PermissionGrantTypeFactory.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/PermissionGrantTypeFactory.java
+@@ -35,6 +35,11 @@ public String getId() {
+         return OAuth2Constants.UMA_GRANT_TYPE;
+     }
+ 
++    @Override
++    public String getShortcut() {
++        return "pg";
++    }
++
+     @Override
+     public OAuth2GrantType create(KeycloakSession session) {
+         return new PermissionGrantType();
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/PreAuthorizedCodeGrantType.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/PreAuthorizedCodeGrantType.java
+index 28dd5bfd8069..2e9609cc561a 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/grants/PreAuthorizedCodeGrantType.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/PreAuthorizedCodeGrantType.java
+@@ -29,6 +29,7 @@
+ import org.keycloak.events.EventType;
+ import org.keycloak.models.AuthenticatedClientSessionModel;
+ import org.keycloak.models.ClientSessionContext;
++import org.keycloak.models.Constants;
+ import org.keycloak.models.KeycloakSession;
+ import org.keycloak.protocol.oidc.utils.OAuth2Code;
+ import org.keycloak.protocol.oidc.utils.OAuth2CodeParser;
+@@ -78,7 +79,7 @@ public Response process(Context context) {
+         ClientSessionContext sessionContext = DefaultClientSessionContext.fromClientSessionAndScopeParameter(clientSession,
+                 OAuth2Constants.SCOPE_OPENID, session);
+         clientSession.setNote(VC_ISSUANCE_FLOW, PreAuthorizedCodeGrantTypeFactory.GRANT_TYPE);
+-
++        sessionContext.setAttribute(Constants.GRANT_TYPE, PreAuthorizedCodeGrantTypeFactory.GRANT_TYPE);
+ 
+         // set the client as retrieved from the pre-authorized session
+         session.getContext().setClient(result.getClientSession().getClient());
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/PreAuthorizedCodeGrantTypeFactory.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/PreAuthorizedCodeGrantTypeFactory.java
+index be13b00bd43b..e3a318e592ed 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/grants/PreAuthorizedCodeGrantTypeFactory.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/PreAuthorizedCodeGrantTypeFactory.java
+@@ -55,6 +55,11 @@ public String getId() {
+         return GRANT_TYPE;
+     }
+ 
++    @Override
++    public String getShortcut() {
++        return "pc";
++    }
++
+     @Override
+     public boolean isSupported(Config.Scope config) {
+         return Profile.isFeatureEnabled(Profile.Feature.OID4VC_VCI);
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/RefreshTokenGrantTypeFactory.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/RefreshTokenGrantTypeFactory.java
+index 586a65dbfb36..12887d734342 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/grants/RefreshTokenGrantTypeFactory.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/RefreshTokenGrantTypeFactory.java
+@@ -30,11 +30,18 @@
+  */
+ public class RefreshTokenGrantTypeFactory implements OAuth2GrantTypeFactory {
+ 
++    public static final String GRANT_SHORTCUT = "rt";
++
+     @Override
+     public String getId() {
+         return OAuth2Constants.REFRESH_TOKEN;
+     }
+ 
++    @Override
++    public String getShortcut() {
++        return GRANT_SHORTCUT;
++    }
++
+     @Override
+     public OAuth2GrantType create(KeycloakSession session) {
+         return new RefreshTokenGrantType();
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/ResourceOwnerPasswordCredentialsGrantType.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/ResourceOwnerPasswordCredentialsGrantType.java
+index c0583327505a..717794d11c75 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/grants/ResourceOwnerPasswordCredentialsGrantType.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/ResourceOwnerPasswordCredentialsGrantType.java
+@@ -31,6 +31,7 @@
+ import org.keycloak.models.AuthenticatedClientSessionModel;
+ import org.keycloak.models.AuthenticationFlowModel;
+ import org.keycloak.models.ClientSessionContext;
++import org.keycloak.models.Constants;
+ import org.keycloak.models.UserModel;
+ import org.keycloak.models.UserSessionModel;
+ import org.keycloak.models.utils.AuthenticationFlowResolver;
+@@ -130,6 +131,7 @@ public Response process(Context context) {
+         AuthenticationManager.setClientScopesInSession(session, authSession);
+ 
+         ClientSessionContext clientSessionCtx = processor.attachSession();
++        clientSessionCtx.setAttribute(Constants.GRANT_TYPE, context.getGrantType());
+         UserSessionModel userSession = processor.getUserSession();
+         updateUserSessionFromClientAuth(userSession);
+ 
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/ResourceOwnerPasswordCredentialsGrantTypeFactory.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/ResourceOwnerPasswordCredentialsGrantTypeFactory.java
+index 05b2e4f089d6..e17bc1bf5255 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/grants/ResourceOwnerPasswordCredentialsGrantTypeFactory.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/ResourceOwnerPasswordCredentialsGrantTypeFactory.java
+@@ -35,6 +35,11 @@ public String getId() {
+         return OAuth2Constants.PASSWORD;
+     }
+ 
++    @Override
++    public String getShortcut() {
++        return "ro";
++    }
++
+     @Override
+     public OAuth2GrantType create(KeycloakSession session) {
+         return new ResourceOwnerPasswordCredentialsGrantType();
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/TokenExchangeGrantTypeFactory.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/TokenExchangeGrantTypeFactory.java
+index 89fa88d5e0ff..279a5f6107db 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/grants/TokenExchangeGrantTypeFactory.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/TokenExchangeGrantTypeFactory.java
+@@ -37,6 +37,11 @@ public String getId() {
+         return OAuth2Constants.TOKEN_EXCHANGE_GRANT_TYPE;
+     }
+ 
++    @Override
++    public String getShortcut() {
++        return "te";
++    }
++
+     @Override
+     public OAuth2GrantType create(KeycloakSession session) {
+         return new TokenExchangeGrantType();
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/ciba/CibaGrantTypeFactory.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/ciba/CibaGrantTypeFactory.java
+index b24a39b393c9..ab6fd013f6b5 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/grants/ciba/CibaGrantTypeFactory.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/ciba/CibaGrantTypeFactory.java
+@@ -34,11 +34,18 @@
+  */
+ public class CibaGrantTypeFactory implements OAuth2GrantTypeFactory, EnvironmentDependentProviderFactory {
+ 
++    public static final String GRANT_SHORTCUT = "ci";
++
+     @Override
+     public String getId() {
+         return OAuth2Constants.CIBA_GRANT_TYPE;
+     }
+ 
++    @Override
++    public String getShortcut() {
++        return GRANT_SHORTCUT;
++    }
++
+     @Override
+     public OAuth2GrantType create(KeycloakSession session) {
+         return new CibaGrantType();
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/device/DeviceGrantTypeFactory.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/device/DeviceGrantTypeFactory.java
+index bf8791ae6a50..6b2f226513ca 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/grants/device/DeviceGrantTypeFactory.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/device/DeviceGrantTypeFactory.java
+@@ -34,11 +34,18 @@
+  */
+ public class DeviceGrantTypeFactory implements OAuth2GrantTypeFactory, EnvironmentDependentProviderFactory {
+ 
++    public static final String GRANT_SHORTCUT = "dg";
++
+     @Override
+     public String getId() {
+         return OAuth2Constants.DEVICE_CODE_GRANT_TYPE;
+     }
+ 
++    @Override
++    public String getShortcut() {
++        return GRANT_SHORTCUT;
++    }
++
+     @Override
+     public OAuth2GrantType create(KeycloakSession session) {
+         return new DeviceGrantType();
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/mappers/AbstractOIDCProtocolMapper.java b/services/src/main/java/org/keycloak/protocol/oidc/mappers/AbstractOIDCProtocolMapper.java
+index 98bb964e2074..d479903073b6 100755
+--- a/services/src/main/java/org/keycloak/protocol/oidc/mappers/AbstractOIDCProtocolMapper.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/mappers/AbstractOIDCProtocolMapper.java
+@@ -81,7 +81,7 @@ public AccessToken transformUserInfoToken(AccessToken token, ProtocolMapperModel
+         return token;
+     }
+ 
+-    boolean getShouldUseLightweightToken(KeycloakSession session) {
++    public static boolean getShouldUseLightweightToken(KeycloakSession session) {
+         Object attributeValue = session.getAttribute(Constants.USE_LIGHTWEIGHT_ACCESS_TOKEN_ENABLED);
+         return Boolean.parseBoolean(session.getContext().getClient().getAttribute(Constants.USE_LIGHTWEIGHT_ACCESS_TOKEN_ENABLED)) || (attributeValue != null && (boolean) attributeValue);
+     }
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/tokenexchange/StandardTokenExchangeProvider.java b/services/src/main/java/org/keycloak/protocol/oidc/tokenexchange/StandardTokenExchangeProvider.java
+index a5c358bae3ca..25f464405b6b 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/tokenexchange/StandardTokenExchangeProvider.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/tokenexchange/StandardTokenExchangeProvider.java
+@@ -47,6 +47,7 @@
+ import org.keycloak.protocol.oidc.OIDCAdvancedConfigWrapper;
+ import org.keycloak.protocol.oidc.TokenExchangeContext;
+ import org.keycloak.protocol.oidc.TokenManager;
++import org.keycloak.protocol.oidc.grants.TokenExchangeGrantTypeFactory;
+ import org.keycloak.rar.AuthorizationRequestContext;
+ import org.keycloak.representations.AccessToken;
+ import org.keycloak.representations.AccessTokenResponse;
+@@ -233,6 +234,7 @@ protected Response exchangeClientToOIDCClient(UserModel targetUser, UserSessionM
+         }
+ 
+         validateConsents(targetUser, clientSessionCtx);
++        clientSessionCtx.setAttribute(Constants.GRANT_TYPE, OAuth2Constants.TOKEN_EXCHANGE_GRANT_TYPE);
+ 
+         TokenManager.AccessTokenResponseBuilder responseBuilder = tokenManager.responseBuilder(realm, client, event, this.session, targetUserSession, clientSessionCtx)
+                 .generateAccessToken();
+diff --git a/services/src/main/resources/META-INF/services/org.keycloak.protocol.oidc.encode.TokenContextEncoderProviderFactory b/services/src/main/resources/META-INF/services/org.keycloak.protocol.oidc.encode.TokenContextEncoderProviderFactory
+new file mode 100644
+index 000000000000..8263029ac219
+--- /dev/null
++++ b/services/src/main/resources/META-INF/services/org.keycloak.protocol.oidc.encode.TokenContextEncoderProviderFactory
+@@ -0,0 +1,20 @@
++#
++# Copyright 2025 Red Hat, Inc. and/or its affiliates
++#  and other contributors as indicated by the @author tags.
++#
++#  Licensed under the Apache License, Version 2.0 (the "License");
++#  you may not use this file except in compliance with the License.
++#  You may obtain a copy of the License at
++#
++#  http://www.apache.org/licenses/LICENSE-2.0
++#
++#  Unless required by applicable law or agreed to in writing, software
++#  distributed under the License is distributed on an "AS IS" BASIS,
++#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++#
++#  See the License for the specific language governing permissions and
++#  limitations under the License.
++#
++#
++
++org.keycloak.protocol.oidc.encode.DefaultTokenContextEncoderProviderFactory
+diff --git a/services/src/main/resources/META-INF/services/org.keycloak.provider.Spi b/services/src/main/resources/META-INF/services/org.keycloak.provider.Spi
+index e82fbcb0a680..f2670a55aa1a 100755
+--- a/services/src/main/resources/META-INF/services/org.keycloak.provider.Spi
++++ b/services/src/main/resources/META-INF/services/org.keycloak.provider.Spi
+@@ -25,6 +25,7 @@ org.keycloak.services.x509.X509ClientCertificateLookupSpi
+ org.keycloak.protocol.oidc.ext.OIDCExtSPI
+ org.keycloak.protocol.saml.preprocessor.SamlAuthenticationPreprocessorSpi
+ org.keycloak.encoding.ResourceEncodingSpi
++org.keycloak.protocol.oidc.encode.TokenContextEncoderSpi
+ org.keycloak.protocol.oidc.grants.ciba.channel.AuthenticationChannelSpi
+ org.keycloak.protocol.oidc.grants.ciba.resolvers.CIBALoginUserResolverSpi
+ org.keycloak.protocol.oidc.rar.AuthorizationRequestParserSpi
+diff --git a/services/src/test/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProviderTest.java b/services/src/test/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProviderTest.java
+new file mode 100644
+index 000000000000..fbc816d08b3b
+--- /dev/null
++++ b/services/src/test/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProviderTest.java
+@@ -0,0 +1,114 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ *  and other contributors as indicated by the @author tags.
++ *
++ *  Licensed under the Apache License, Version 2.0 (the "License");
++ *  you may not use this file except in compliance with the License.
++ *  You may obtain a copy of the License at
++ *
++ *  http://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  Unless required by applicable law or agreed to in writing, software
++ *  distributed under the License is distributed on an "AS IS" BASIS,
++ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ *
++ *  See the License for the specific language governing permissions and
++ *  limitations under the License.
++ *
++ */
++
++package org.keycloak.protocol.oidc.encode;
++
++import java.util.HashMap;
++import java.util.Map;
++import java.util.stream.Collectors;
++
++import org.junit.Assert;
++import org.junit.Before;
++import org.junit.Test;
++import org.keycloak.OAuth2Constants;
++
++/**
++ * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
++ */
++public class DefaultTokenContextEncoderProviderTest {
++
++    private DefaultTokenContextEncoderProvider provider;
++
++    @Before
++    public void before() {
++        DefaultTokenContextEncoderProviderFactory factory = new DefaultTokenContextEncoderProviderFactory();
++        factory.init(null);
++        factory.grantsByShortcuts = new HashMap<>();
++        factory.grantsByShortcuts.put("ro", OAuth2Constants.PASSWORD);
++        factory.grantsByShortcuts.put("cc", OAuth2Constants.CLIENT_CREDENTIALS);
++        factory.grantsByShortcuts.put(DefaultTokenContextEncoderProvider.UNKNOWN, DefaultTokenContextEncoderProvider.UNKNOWN);
++        factory.grantsToShortcuts = factory.grantsByShortcuts.entrySet()
++                .stream()
++                .collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));
++        provider = new DefaultTokenContextEncoderProvider(null, factory);
++    }
++
++    @Test
++    public void testSuccessClientCredentialsToken() {
++        String tokenId = "st.tr_tt.lt_gt.cc:1234";
++        AccessTokenContext ctx = provider.getTokenContextFromTokenId(tokenId);
++        Assert.assertEquals(ctx.getSessionType(), AccessTokenContext.SessionType.TRANSIENT);
++        Assert.assertEquals(ctx.getTokenType(), AccessTokenContext.TokenType.LIGHTWEIGHT);
++        Assert.assertEquals(ctx.getGrantType(), OAuth2Constants.CLIENT_CREDENTIALS);
++        Assert.assertEquals(ctx.getRawTokenId(), "1234");
++
++        Assert.assertEquals(tokenId, provider.encodeTokenId(ctx));
++    }
++
++    @Test
++    public void testSuccessOfflineToken() {
++        String tokenId = "st.of_tt.rt_gt.ro:5678";
++        AccessTokenContext ctx = provider.getTokenContextFromTokenId(tokenId);
++        Assert.assertEquals(ctx.getSessionType(), AccessTokenContext.SessionType.OFFLINE);
++        Assert.assertEquals(ctx.getTokenType(), AccessTokenContext.TokenType.REGULAR);
++        Assert.assertEquals(ctx.getGrantType(), OAuth2Constants.PASSWORD);
++        Assert.assertEquals(ctx.getRawTokenId(), "5678");
++
++        Assert.assertEquals(tokenId, provider.encodeTokenId(ctx));
++    }
++
++    @Test
++    public void testIncorrectGrantType() {
++        try {
++            String tokenId = "st.of_tt.rt_gt.ac:5678";
++            AccessTokenContext ctx = provider.getTokenContextFromTokenId(tokenId);
++            Assert.fail("Not expected to success due incorrect grant type");
++        } catch (RuntimeException iae) {
++            // ignored
++        }
++    }
++
++    @Test
++    public void testUnknownGrantType() {
++        String tokenId = "st.on_tt.rt_gt.na:5678";
++        AccessTokenContext ctx = provider.getTokenContextFromTokenId(tokenId);
++        Assert.assertEquals(ctx.getSessionType(), AccessTokenContext.SessionType.ONLINE);
++        Assert.assertEquals(ctx.getTokenType(), AccessTokenContext.TokenType.REGULAR);
++        Assert.assertEquals(ctx.getGrantType(), DefaultTokenContextEncoderProvider.UNKNOWN);
++        Assert.assertEquals(ctx.getRawTokenId(), "5678");
++
++        Assert.assertEquals(tokenId, provider.encodeTokenId(ctx));
++    }
++
++    @Test
++    public void testOldToken() {
++        AccessTokenContext ctx = provider.getTokenContextFromTokenId("1234");
++        Assert.assertEquals(ctx.getSessionType(), AccessTokenContext.SessionType.UNKNOWN);
++        Assert.assertEquals(ctx.getTokenType(), AccessTokenContext.TokenType.UNKNOWN);
++        Assert.assertEquals(ctx.getGrantType(), DefaultTokenContextEncoderProvider.UNKNOWN);
++        Assert.assertEquals(ctx.getRawTokenId(), "1234");
++
++        try {
++            provider.encodeTokenId(ctx);
++            Assert.fail("Should not be possible to encode from ctx with unknown types");
++        } catch (IllegalStateException expected) {
++            // ignore
++        }
++    }
++}
+diff --git a/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/AssertEvents.java b/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/AssertEvents.java
+index fc2936021a5b..f5aa1865a64e 100644
+--- a/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/AssertEvents.java
++++ b/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/AssertEvents.java
+@@ -30,6 +30,10 @@
+ import org.keycloak.common.util.Time;
+ import org.keycloak.events.Details;
+ import org.keycloak.events.EventType;
++import org.keycloak.protocol.oidc.grants.AuthorizationCodeGrantTypeFactory;
++import org.keycloak.protocol.oidc.grants.RefreshTokenGrantTypeFactory;
++import org.keycloak.protocol.oidc.grants.ciba.CibaGrantTypeFactory;
++import org.keycloak.protocol.oidc.grants.device.DeviceGrantTypeFactory;
+ import org.keycloak.representations.idm.ClientRepresentation;
+ import org.keycloak.representations.idm.EventRepresentation;
+ import org.keycloak.representations.idm.RealmRepresentation;
+@@ -138,7 +142,7 @@ public ExpectedEvent expectSocialLogin() {
+     public ExpectedEvent expectCodeToToken(String codeId, String sessionId) {
+         return expect(EventType.CODE_TO_TOKEN)
+                 .detail(Details.CODE_ID, codeId)
+-                .detail(Details.TOKEN_ID, isUUID())
++                .detail(Details.TOKEN_ID, isAccessTokenId(AuthorizationCodeGrantTypeFactory.GRANT_SHORTCUT))
+                 .detail(Details.REFRESH_TOKEN_ID, isUUID())
+                 .detail(Details.REFRESH_TOKEN_TYPE, TokenUtil.TOKEN_TYPE_REFRESH)
+                 .detail(Details.CLIENT_AUTH_METHOD, ClientIdAndSecretAuthenticator.PROVIDER_ID)
+@@ -166,7 +170,7 @@ public ExpectedEvent expectDeviceCodeToToken(String clientId, String codeId, Str
+                 .client(clientId)
+                 .user(userId)
+                 .detail(Details.CODE_ID, codeId)
+-                .detail(Details.TOKEN_ID, isUUID())
++                .detail(Details.TOKEN_ID, isAccessTokenId(DeviceGrantTypeFactory.GRANT_SHORTCUT))
+                 .detail(Details.REFRESH_TOKEN_ID, isUUID())
+                 .detail(Details.REFRESH_TOKEN_TYPE, TokenUtil.TOKEN_TYPE_REFRESH)
+                 .detail(Details.CLIENT_AUTH_METHOD, ClientIdAndSecretAuthenticator.PROVIDER_ID)
+@@ -175,7 +179,7 @@ public ExpectedEvent expectDeviceCodeToToken(String clientId, String codeId, Str
+ 
+     public ExpectedEvent expectRefresh(String refreshTokenId, String sessionId) {
+         return expect(EventType.REFRESH_TOKEN)
+-                .detail(Details.TOKEN_ID, isUUID())
++                .detail(Details.TOKEN_ID, isAccessTokenId(RefreshTokenGrantTypeFactory.GRANT_SHORTCUT))
+                 .detail(Details.REFRESH_TOKEN_ID, refreshTokenId)
+                 .detail(Details.REFRESH_TOKEN_TYPE, TokenUtil.TOKEN_TYPE_REFRESH)
+                 .detail(Details.UPDATED_REFRESH_TOKEN_ID, isUUID())
+@@ -237,7 +241,7 @@ public ExpectedEvent expectAccount(EventType event) {
+     public ExpectedEvent expectAuthReqIdToToken(String codeId, String sessionId) {
+         return expect(EventType.AUTHREQID_TO_TOKEN)
+                 .detail(Details.CODE_ID, codeId)
+-                .detail(Details.TOKEN_ID, isUUID())
++                .detail(Details.TOKEN_ID, isAccessTokenId(CibaGrantTypeFactory.GRANT_SHORTCUT))
+                 .detail(Details.REFRESH_TOKEN_ID, isUUID())
+                 .detail(Details.REFRESH_TOKEN_TYPE, TokenUtil.TOKEN_TYPE_REFRESH)
+                 .detail(Details.CLIENT_AUTH_METHOD, ClientIdAndSecretAuthenticator.PROVIDER_ID)
+@@ -469,6 +473,23 @@ public void describeTo(Description description) {
+         };
+     }
+ 
++    public static Matcher<String> isAccessTokenId(String expectedGrantShortcut) {
++        return new TypeSafeMatcher<String>() {
++            @Override
++            protected boolean matchesSafely(String item) {
++                String[] items = item.split(":");
++                if (items.length != 2) return false;
++                if (!items[0].contains("gt." + expectedGrantShortcut)) return false;
++                return isUUID().matches(items[1]);
++            }
++
++            @Override
++            public void describeTo(Description description) {
++                description.appendText("Not a Token ID with expected grant: " + expectedGrantShortcut);
++            }
++        };
++    }
++
+     public Matcher<String> defaultRealmId() {
+         return new TypeSafeMatcher<String>() {
+             private String realmId;
+
+From daffb05b5ad091d3ec09933c3c99c2b54f448696 Mon Sep 17 00:00:00 2001
+From: mposolda <mposolda@gmail.com>
+Date: Wed, 26 Feb 2025 13:45:59 +0100
+Subject: [PATCH 2/2] Shorter encoding of access token
+
+Signed-off-by: mposolda <mposolda@gmail.com>
+---
+ .../DefaultTokenContextEncoderProvider.java   | 73 +++++++------------
+ ...efaultTokenContextEncoderProviderTest.java |  8 +-
+ .../org/keycloak/testsuite/AssertEvents.java  |  3 +-
+ 3 files changed, 33 insertions(+), 51 deletions(-)
+
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProvider.java b/services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProvider.java
+index 3876820efbed..3488759b3407 100644
+--- a/services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProvider.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProvider.java
+@@ -19,8 +19,6 @@
+ 
+ package org.keycloak.protocol.oidc.encode;
+ 
+-import java.util.Map;
+-
+ import org.keycloak.models.ClientSessionContext;
+ import org.keycloak.models.Constants;
+ import org.keycloak.models.KeycloakSession;
+@@ -34,10 +32,6 @@ public class DefaultTokenContextEncoderProvider implements TokenContextEncoderPr
+ 
+     public static final String UNKNOWN = "na";
+ 
+-    public static final String SESSION_TYPE_PREFIX = "st";
+-    public static final String TOKEN_TYPE_PREFIX = "tt";
+-    public static final String GRANT_TYPE_PREFIX = "gt";
+-
+     private final KeycloakSession session;
+     private final DefaultTokenContextEncoderProviderFactory factory;
+ 
+@@ -74,44 +68,31 @@ public AccessTokenContext getTokenContextFromTokenId(String encodedTokenId) {
+         if (indexOf == -1) {
+             return new AccessTokenContext(AccessTokenContext.SessionType.UNKNOWN, AccessTokenContext.TokenType.UNKNOWN, UNKNOWN, encodedTokenId);
+         } else {
+-            String encodedChunks = encodedTokenId.substring(0, indexOf);
++            String encodedContext = encodedTokenId.substring(0, indexOf);
+             String rawId = encodedTokenId.substring(indexOf + 1);
+-            String[] chunks = encodedChunks.split("_");
+-
+-            AccessTokenContext.SessionType st = null;
+-            AccessTokenContext.TokenType tt = null;
+-            String gt = null;
+-
+-            for (String chunk : chunks) {
+-                int dotIndex = chunk.indexOf('.');
+-                if (dotIndex == -1) {
+-                    throw new IllegalArgumentException("Incorrect token id: " + encodedTokenId + ". No dot present in the chunk: " + chunk);
+-                }
+-                String prefix = chunk.substring(0, dotIndex);
+-                String value = chunk.substring(dotIndex + 1);
+-                switch (prefix) {
+-                    case SESSION_TYPE_PREFIX:
+-                        st = factory.getSessionTypeByShortcut(value);
+-                        if (st == null) {
+-                            throw new IllegalArgumentException("Incorrect token id: " + encodedTokenId + ". Unknown value '" + chunk + "' for session type");
+-                        }
+-                        break;
+-                    case TOKEN_TYPE_PREFIX:
+-                        tt = factory.getTokenTypeByShortcut(value);
+-                        if (tt == null) {
+-                            throw new IllegalArgumentException("Incorrect token id: " + encodedTokenId + ". Unknown value '" + chunk + "' for token type");
+-                        }
+-                        break;
+-                    case GRANT_TYPE_PREFIX:
+-                        gt = factory.getGrantTypeByShortcut(value);
+-                        if (gt == null) {
+-                            throw new IllegalArgumentException("Incorrect token id: " + encodedTokenId + ". Unknown value '" + gt + "' for grant type");
+-                        }
+-                        break;
+-                    default:
+-                        throw new IllegalArgumentException("Incorrect token id: " + encodedTokenId + ". Unknown prefix: " + prefix);
+-                }
++
++            if (encodedContext.length() != 6) {
++                throw new IllegalArgumentException("Incorrect token id: '" + encodedTokenId + "'. Expected length of 6.");
+             }
++
++            // First 2 chars are "sessionType", next 2 chars "tokenType", last 2 chars "grantType"
++            String stShortcut = encodedContext.substring(0, 2);
++            String ttShortcut = encodedContext.substring(2, 4);
++            String gtShortcut = encodedContext.substring(4, 6);
++
++            AccessTokenContext.SessionType st = factory.getSessionTypeByShortcut(stShortcut);
++            if (st == null) {
++                throw new IllegalArgumentException("Incorrect token id: " + encodedTokenId + ". Unknown value '" + stShortcut + "' for session type");
++            }
++            AccessTokenContext.TokenType tt = factory.getTokenTypeByShortcut(ttShortcut);
++            if (tt == null) {
++                throw new IllegalArgumentException("Incorrect token id: " + encodedTokenId + ". Unknown value '" + ttShortcut + "' for token type");
++            }
++            String gt = factory.getGrantTypeByShortcut(gtShortcut);
++            if (gt == null) {
++                throw new IllegalArgumentException("Incorrect token id: " + encodedTokenId + ". Unknown value '" + gtShortcut + "' for grant type");
++            }
++
+             return new AccessTokenContext(st, tt, gt, rawId);
+         }
+     }
+@@ -130,10 +111,10 @@ public String encodeTokenId(AccessTokenContext tokenContext) {
+             throw new IllegalStateException("Cannot encode token with unknown grantType: " + tokenContext.getGrantType());
+         }
+ 
+-        return SESSION_TYPE_PREFIX + '.' + tokenContext.getSessionType().getShortcut() + '_' +
+-                TOKEN_TYPE_PREFIX + '.' + tokenContext.getTokenType().getShortcut() + '_' +
+-                GRANT_TYPE_PREFIX + '.' + grantShort + ':' +
+-                tokenContext.getRawTokenId();
++        return tokenContext.getSessionType().getShortcut() +
++                tokenContext.getTokenType().getShortcut() +
++                grantShort +
++                ':' + tokenContext.getRawTokenId();
+     }
+ 
+     @Override
+diff --git a/services/src/test/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProviderTest.java b/services/src/test/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProviderTest.java
+index fbc816d08b3b..7e94e9948b7b 100644
+--- a/services/src/test/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProviderTest.java
++++ b/services/src/test/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProviderTest.java
+@@ -51,7 +51,7 @@ public void before() {
+ 
+     @Test
+     public void testSuccessClientCredentialsToken() {
+-        String tokenId = "st.tr_tt.lt_gt.cc:1234";
++        String tokenId = "trltcc:1234";
+         AccessTokenContext ctx = provider.getTokenContextFromTokenId(tokenId);
+         Assert.assertEquals(ctx.getSessionType(), AccessTokenContext.SessionType.TRANSIENT);
+         Assert.assertEquals(ctx.getTokenType(), AccessTokenContext.TokenType.LIGHTWEIGHT);
+@@ -63,7 +63,7 @@ public void testSuccessClientCredentialsToken() {
+ 
+     @Test
+     public void testSuccessOfflineToken() {
+-        String tokenId = "st.of_tt.rt_gt.ro:5678";
++        String tokenId = "ofrtro:5678";
+         AccessTokenContext ctx = provider.getTokenContextFromTokenId(tokenId);
+         Assert.assertEquals(ctx.getSessionType(), AccessTokenContext.SessionType.OFFLINE);
+         Assert.assertEquals(ctx.getTokenType(), AccessTokenContext.TokenType.REGULAR);
+@@ -76,7 +76,7 @@ public void testSuccessOfflineToken() {
+     @Test
+     public void testIncorrectGrantType() {
+         try {
+-            String tokenId = "st.of_tt.rt_gt.ac:5678";
++            String tokenId = "ofrtac:5678";
+             AccessTokenContext ctx = provider.getTokenContextFromTokenId(tokenId);
+             Assert.fail("Not expected to success due incorrect grant type");
+         } catch (RuntimeException iae) {
+@@ -86,7 +86,7 @@ public void testIncorrectGrantType() {
+ 
+     @Test
+     public void testUnknownGrantType() {
+-        String tokenId = "st.on_tt.rt_gt.na:5678";
++        String tokenId = "onrtna:5678";
+         AccessTokenContext ctx = provider.getTokenContextFromTokenId(tokenId);
+         Assert.assertEquals(ctx.getSessionType(), AccessTokenContext.SessionType.ONLINE);
+         Assert.assertEquals(ctx.getTokenType(), AccessTokenContext.TokenType.REGULAR);
+diff --git a/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/AssertEvents.java b/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/AssertEvents.java
+index f5aa1865a64e..bde71427e77d 100644
+--- a/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/AssertEvents.java
++++ b/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/AssertEvents.java
+@@ -479,7 +479,8 @@ public static Matcher<String> isAccessTokenId(String expectedGrantShortcut) {
+             protected boolean matchesSafely(String item) {
+                 String[] items = item.split(":");
+                 if (items.length != 2) return false;
+-                if (!items[0].contains("gt." + expectedGrantShortcut)) return false;
++                // Grant type shortcut starts at character 4th char and is 2-chars long
++                if (items[0].substring(3, 5).equals(expectedGrantShortcut)) return false;
+                 return isUUID().matches(items[1]);
+             }
+ 

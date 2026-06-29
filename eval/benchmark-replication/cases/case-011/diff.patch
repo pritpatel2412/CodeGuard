@@ -1,0 +1,100 @@
+From ffbaf8c54269df2ce510de91245760fddce09896 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9gis=20Hanol?= <regis@hanol.fr>
+Date: Wed, 12 Aug 2015 18:33:13 +0200
+Subject: [PATCH] FEATURE: automatically downsize large images
+
+---
+ .../javascripts/discourse/lib/utilities.js      |  4 ++--
+ app/controllers/uploads_controller.rb           | 11 ++++++++++-
+ app/models/optimized_image.rb                   | 17 ++++++++---------
+ 3 files changed, 20 insertions(+), 12 deletions(-)
+
+diff --git a/app/assets/javascripts/discourse/lib/utilities.js b/app/assets/javascripts/discourse/lib/utilities.js
+index 6d08ab9347139..92c66cd53c26b 100644
+--- a/app/assets/javascripts/discourse/lib/utilities.js
++++ b/app/assets/javascripts/discourse/lib/utilities.js
+@@ -179,7 +179,7 @@ Discourse.Utilities = {
+ 
+     // check file size
+     var fileSizeKB = file.size / 1024;
+-    var maxSizeKB = Discourse.SiteSettings['max_' + type + '_size_kb'];
++    var maxSizeKB = 10 * 1024; // 10MB
+     if (fileSizeKB > maxSizeKB) {
+       bootbox.alert(I18n.t('post.errors.file_too_large', { max_size_kb: maxSizeKB }));
+       return false;
+@@ -243,7 +243,7 @@ Discourse.Utilities = {
+ 
+         // entity too large, usually returned from the web server
+         case 413:
+-          var maxSizeKB = Discourse.SiteSettings.max_image_size_kb;
++          var maxSizeKB = 10 * 1024; // 10 MB
+           bootbox.alert(I18n.t('post.errors.file_too_large', { max_size_kb: maxSizeKB }));
+           return;
+ 
+diff --git a/app/controllers/uploads_controller.rb b/app/controllers/uploads_controller.rb
+index 9affe7d0f1d17..57a1442ed6674 100644
+--- a/app/controllers/uploads_controller.rb
++++ b/app/controllers/uploads_controller.rb
+@@ -52,7 +52,7 @@ def create_upload(type, file, url)
+     begin
+       # API can provide a URL
+       if file.nil? && url.present? && is_api?
+-        tempfile = FileHelper.download(url, SiteSetting.max_image_size_kb.kilobytes, "discourse-upload-#{type}") rescue nil
++        tempfile = FileHelper.download(url, 10.megabytes, "discourse-upload-#{type}") rescue nil
+         filename = File.basename(URI.parse(url).path)
+       else
+         tempfile = file.tempfile
+@@ -60,6 +60,15 @@ def create_upload(type, file, url)
+         content_type = file.content_type
+       end
+ 
++      # allow users to upload large images that will be automatically reduced to allowed size
++      if tempfile && tempfile.size > 0 && SiteSetting.max_image_size_kb > 0 && FileHelper.is_image?(filename)
++        attempt = 5
++        while attempt > 0 && tempfile.size > SiteSetting.max_image_size_kb.kilobytes
++          OptimizedImage.downsize(tempfile.path, tempfile.path, "80%", allow_animation: SiteSetting.allow_animated_thumbnails)
++          attempt -= 1
++        end
++      end
++
+       upload = Upload.create_for(current_user.id, tempfile, filename, tempfile.size, content_type: content_type, image_type: type)
+ 
+       if upload.errors.empty? && current_user.admin?
+diff --git a/app/models/optimized_image.rb b/app/models/optimized_image.rb
+index a70c86e63ad39..a4bcc6112e430 100644
+--- a/app/models/optimized_image.rb
++++ b/app/models/optimized_image.rb
+@@ -139,25 +139,24 @@ def self.downsize_instructions_animated(from, to, dimensions, opts={})
+   end
+ 
+   def self.resize(from, to, width, height, opts={})
+-    optimize("resize", from, to, width, height, opts)
++    optimize("resize", from, to, "#{width}x#{height}", opts)
+   end
+ 
+   def self.downsize(from, to, max_width, max_height, opts={})
+-    optimize("downsize", from, to, max_width, max_height, opts)
++    optimize("downsize", from, to, "#{max_width}x#{max_height}", opts)
+   end
+ 
+-  def self.optimize(operation, from, to, width, height, opts={})
+-    dim = dimensions(width, height)
++  def self.downsize(from, to, dimensions, opts={})
++    optimize("downsize", from, to, dimensions, opts)
++  end
++
++  def self.optimize(operation, from, to, dimensions, opts={})
+     method_name = "#{operation}_instructions"
+     method_name += "_animated" if !!opts[:allow_animation] && from =~ /\.GIF$/i
+-    instructions = self.send(method_name.to_sym, from, to, dim, opts)
++    instructions = self.send(method_name.to_sym, from, to, dimensions, opts)
+     convert_with(instructions, to)
+   end
+ 
+-  def self.dimensions(width, height)
+-    "#{width}x#{height}"
+-  end
+-
+   def self.convert_with(instructions, to)
+     `#{instructions.join(" ")} &> /dev/null`
+     return false if $?.exitstatus != 0

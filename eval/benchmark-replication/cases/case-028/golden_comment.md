@@ -1,0 +1,7 @@
+# Golden Comments for Frontend Asset Optimization
+
+## [Medium]
+The GetWebAssets function implements an incomplete double-checked locking pattern for caching web assets. The function first checks if the cache is populated using a read lock (RLock), and if the cache is empty, it acquires a write lock to populate it. However, it fails to re-check whether the cache was populated by another goroutine while waiting to acquire the write lock.
+
+## [High]
+In addition to the missing double-check, the function has a critical flaw in its error handling: it unconditionally assigns the fetch result to the cache (line 69: entryPointAssetsCache = result) regardless of whether the fetch succeeded or failed. When an error occurs during asset fetching, result is nil, and this nil value overwrites any previously valid cache entry.

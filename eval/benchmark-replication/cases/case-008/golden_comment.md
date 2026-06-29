@@ -1,0 +1,7 @@
+# Golden Comments for SMS workflow reminder retry count tracking
+
+## [High]
+Using retryCount: reminder.retryCount + 1 reads a possibly stale value and can lose increments under concurrency; consider an atomic increment via Prisma (increment: 1) to avoid race conditions (also applies to the similar update in the catch block).
+
+## [High]
+The deletion logic in scheduleSMSReminders.ts incorrectly deletes non-SMS workflow reminders (e.g., Email, WhatsApp) that have retryCount > 1. This occurs because the retryCount condition within the OR clause for deletion lacks a method: WorkflowMethods.SMS filter, causing it to apply to all reminder types instead of only SMS reminders, which is the intended scope of this function.

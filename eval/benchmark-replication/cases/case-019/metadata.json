@@ -1,0 +1,15 @@
+{
+  "pr_title": "FEATURE: Localization fallbacks (server-side)",
+  "url": "https://github.com/discourse/discourse/commit/ecfa17b5a79dfdc91e7a4d50b42ae78a35d0a293",
+  "file": "discourse.json",
+  "comments": [
+    {
+      "comment": "Thread-safety issue with lazy @loaded_locales",
+      "severity": "Low"
+    },
+    {
+      "comment": "Consider normalizing the input locale (e.g., to a symbol) when checking/loading here to avoid double-loading if the same locale is passed as a String vs Symbol (also applies to other locations in the PR).",
+      "severity": "Low"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "pr_title": "FEATURE: per-topic unsubscribe option in emails",
+  "url": "https://github.com/discourse/discourse/commit/6669a2d94d76eea3b99b8c476d12b1eb66726b07",
+  "file": "discourse.json",
+  "comments": [
+    {
+      "comment": "logic: Potential nil pointer exception - if no TopicUser record exists, tu will be nil and calling methods on it will crash",
+      "severity": "High"
+    },
+    {
+      "comment": "Typo in property name: 'stopNotificiationsText' should be 'stopNotificationsText' (missing 'n' in 'Notifications')",
+      "severity": "Low"
+    }
+  ]
+}

@@ -1,0 +1,477 @@
+From 3811970706110f515c223df7fc3ff804a2608949 Mon Sep 17 00:00:00 2001
+From: Alex van Andel <me@alexvanandel.com>
+Date: Tue, 4 Apr 2023 16:16:28 +0200
+Subject: [PATCH] Async import of the appStore packages
+
+---
+ packages/app-store/_utils/getCalendar.ts      |  4 +-
+ packages/app-store/index.ts                   | 85 ++++++-------------
+ packages/app-store/vital/lib/reschedule.ts    |  4 +-
+ .../wipemycalother/lib/reschedule.ts          |  4 +-
+ packages/core/CalendarManager.ts              | 15 ++--
+ packages/core/EventManager.ts                 |  3 +-
+ packages/core/videoClient.ts                  | 36 ++++----
+ .../bookings/lib/handleCancelBooking.ts       | 23 ++---
+ .../features/bookings/lib/handleNewBooking.ts |  2 +-
+ packages/lib/payment/deletePayment.ts         |  2 +-
+ packages/lib/payment/handlePayment.ts         |  2 +-
+ .../trpc/server/routers/viewer/bookings.tsx   |  6 +-
+ 12 files changed, 81 insertions(+), 105 deletions(-)
+
+diff --git a/packages/app-store/_utils/getCalendar.ts b/packages/app-store/_utils/getCalendar.ts
+index 8a329485f1650f..10c60ed1c34aeb 100644
+--- a/packages/app-store/_utils/getCalendar.ts
++++ b/packages/app-store/_utils/getCalendar.ts
+@@ -6,13 +6,13 @@ import appStore from "..";
+ 
+ const log = logger.getChildLogger({ prefix: ["CalendarManager"] });
+ 
+-export const getCalendar = (credential: CredentialPayload | null): Calendar | null => {
++export const getCalendar = async (credential: CredentialPayload | null): Promise<Calendar | null> => {
+   if (!credential || !credential.key) return null;
+   let { type: calendarType } = credential;
+   if (calendarType?.endsWith("_other_calendar")) {
+     calendarType = calendarType.split("_other_calendar")[0];
+   }
+-  const calendarApp = appStore[calendarType.split("_").join("") as keyof typeof appStore];
++  const calendarApp = await appStore[calendarType.split("_").join("") as keyof typeof appStore];
+   if (!(calendarApp && "lib" in calendarApp && "CalendarService" in calendarApp.lib)) {
+     log.warn(`calendar of type ${calendarType} is not implemented`);
+     return null;
+diff --git a/packages/app-store/index.ts b/packages/app-store/index.ts
+index 01a4017f7b8fc2..5716725eb63eee 100644
+--- a/packages/app-store/index.ts
++++ b/packages/app-store/index.ts
+@@ -1,61 +1,32 @@
+-// import * as example from "./_example";
+-import * as applecalendar from "./applecalendar";
+-import * as caldavcalendar from "./caldavcalendar";
+-import * as closecom from "./closecom";
+-import * as dailyvideo from "./dailyvideo";
+-import * as exchange2013calendar from "./exchange2013calendar";
+-import * as exchange2016calendar from "./exchange2016calendar";
+-import * as exchangecalendar from "./exchangecalendar";
+-import * as facetime from "./facetime";
+-import * as giphy from "./giphy";
+-import * as googlecalendar from "./googlecalendar";
+-import * as googlevideo from "./googlevideo";
+-import * as hubspot from "./hubspot";
+-import * as huddle01video from "./huddle01video";
+-import * as jitsivideo from "./jitsivideo";
+-import * as larkcalendar from "./larkcalendar";
+-import * as office365calendar from "./office365calendar";
+-import * as office365video from "./office365video";
+-import * as plausible from "./plausible";
+-import * as salesforce from "./salesforce";
+-import * as sendgrid from "./sendgrid";
+-import * as stripepayment from "./stripepayment";
+-import * as tandemvideo from "./tandemvideo";
+-import * as vital from "./vital";
+-import * as wipemycalother from "./wipemycalother";
+-import * as zapier from "./zapier";
+-import * as zohocrm from "./zohocrm";
+-import * as zoomvideo from "./zoomvideo";
+-
+ const appStore = {
+-  //   example,
+-  applecalendar,
+-  caldavcalendar,
+-  closecom,
+-  dailyvideo,
+-  googlecalendar,
+-  googlevideo,
+-  hubspot,
+-  huddle01video,
+-  jitsivideo,
+-  larkcalendar,
+-  office365calendar,
+-  office365video,
+-  plausible,
+-  salesforce,
+-  zohocrm,
+-  sendgrid,
+-  stripepayment,
+-  tandemvideo,
+-  vital,
+-  zoomvideo,
+-  wipemycalother,
+-  giphy,
+-  zapier,
+-  exchange2013calendar,
+-  exchange2016calendar,
+-  exchangecalendar,
+-  facetime,
++  // example: import("./example"),
++  applecalendar: import("./applecalendar"),
++  caldavcalendar: import("./caldavcalendar"),
++  closecom: import("./closecom"),
++  dailyvideo: import("./dailyvideo"),
++  googlecalendar: import("./googlecalendar"),
++  googlevideo: import("./googlevideo"),
++  hubspot: import("./hubspot"),
++  huddle01video: import("./huddle01video"),
++  jitsivideo: import("./jitsivideo"),
++  larkcalendar: import("./larkcalendar"),
++  office365calendar: import("./office365calendar"),
++  office365video: import("./office365video"),
++  plausible: import("./plausible"),
++  salesforce: import("./salesforce"),
++  zohocrm: import("./zohocrm"),
++  sendgrid: import("./sendgrid"),
++  stripepayment: import("./stripepayment"),
++  tandemvideo: import("./tandemvideo"),
++  vital: import("./vital"),
++  zoomvideo: import("./zoomvideo"),
++  wipemycalother: import("./wipemycalother"),
++  giphy: import("./giphy"),
++  zapier: import("./zapier"),
++  exchange2013calendar: import("./exchange2013calendar"),
++  exchange2016calendar: import("./exchange2016calendar"),
++  exchangecalendar: import("./exchangecalendar"),
++  facetime: import("./facetime"),
+ };
+ 
+ export default appStore;
+diff --git a/packages/app-store/vital/lib/reschedule.ts b/packages/app-store/vital/lib/reschedule.ts
+index d216a987cfdcb3..07733c58efefbb 100644
+--- a/packages/app-store/vital/lib/reschedule.ts
++++ b/packages/app-store/vital/lib/reschedule.ts
+@@ -122,10 +122,10 @@ const Reschedule = async (bookingUid: string, cancellationReason: string) => {
+       (ref) => !!credentialsMap.get(ref.type)
+     );
+     try {
+-      bookingRefsFiltered.forEach((bookingRef) => {
++      bookingRefsFiltered.forEach(async (bookingRef) => {
+         if (bookingRef.uid) {
+           if (bookingRef.type.endsWith("_calendar")) {
+-            const calendar = getCalendar(credentialsMap.get(bookingRef.type));
++            const calendar = await getCalendar(credentialsMap.get(bookingRef.type));
+             return calendar?.deleteEvent(bookingRef.uid, builder.calendarEvent);
+           } else if (bookingRef.type.endsWith("_video")) {
+             return deleteMeeting(credentialsMap.get(bookingRef.type), bookingRef.uid);
+diff --git a/packages/app-store/wipemycalother/lib/reschedule.ts b/packages/app-store/wipemycalother/lib/reschedule.ts
+index 5e735097f2da83..bf62fdc5afd01f 100644
+--- a/packages/app-store/wipemycalother/lib/reschedule.ts
++++ b/packages/app-store/wipemycalother/lib/reschedule.ts
+@@ -122,10 +122,10 @@ const Reschedule = async (bookingUid: string, cancellationReason: string) => {
+       (ref) => !!credentialsMap.get(ref.type)
+     );
+     try {
+-      bookingRefsFiltered.forEach((bookingRef) => {
++      bookingRefsFiltered.forEach(async (bookingRef) => {
+         if (bookingRef.uid) {
+           if (bookingRef.type.endsWith("_calendar")) {
+-            const calendar = getCalendar(credentialsMap.get(bookingRef.type));
++            const calendar = await getCalendar(credentialsMap.get(bookingRef.type));
+             return calendar?.deleteEvent(bookingRef.uid, builder.calendarEvent);
+           } else if (bookingRef.type.endsWith("_video")) {
+             return deleteMeeting(credentialsMap.get(bookingRef.type), bookingRef.uid);
+diff --git a/packages/core/CalendarManager.ts b/packages/core/CalendarManager.ts
+index 4d5bf3103ef3ee..9a5c3129499972 100644
+--- a/packages/core/CalendarManager.ts
++++ b/packages/core/CalendarManager.ts
+@@ -28,6 +28,7 @@ export const getCalendarCredentials = (credentials: Array<CredentialPayload>) =>
+         const calendar = getCalendar(credential);
+         return app.variant === "calendar" ? [{ integration: app, credential, calendar }] : [];
+       });
++
+       return credentials.length ? credentials : [];
+     });
+ 
+@@ -43,8 +44,8 @@ export const getConnectedCalendars = async (
+   const connectedCalendars = await Promise.all(
+     calendarCredentials.map(async (item) => {
+       try {
+-        const { calendar, integration, credential } = item;
+-
++        const { integration, credential } = item;
++        const calendar = await item.calendar;
+         // Don't leak credentials to the client
+         const credentialId = credential.id;
+         if (!calendar) {
+@@ -138,7 +139,7 @@ export const getCachedResults = async (
+   selectedCalendars: SelectedCalendar[]
+ ): Promise<EventBusyDate[][]> => {
+   const calendarCredentials = withCredentials.filter((credential) => credential.type.endsWith("_calendar"));
+-  const calendars = calendarCredentials.map((credential) => getCalendar(credential));
++  const calendars = await Promise.all(calendarCredentials.map((credential) => getCalendar(credential)));
+   performance.mark("getBusyCalendarTimesStart");
+   const results = calendars.map(async (c, i) => {
+     /** Filter out nulls */
+@@ -229,7 +230,7 @@ export const createEvent = async (
+   calEvent: CalendarEvent
+ ): Promise<EventResult<NewCalendarEventType>> => {
+   const uid: string = getUid(calEvent);
+-  const calendar = getCalendar(credential);
++  const calendar = await getCalendar(credential);
+   let success = true;
+   let calError: string | undefined = undefined;
+ 
+@@ -280,7 +281,7 @@ export const updateEvent = async (
+   externalCalendarId: string | null
+ ): Promise<EventResult<NewCalendarEventType>> => {
+   const uid = getUid(calEvent);
+-  const calendar = getCalendar(credential);
++  const calendar = await getCalendar(credential);
+   let success = false;
+   let calError: string | undefined = undefined;
+   let calWarnings: string[] | undefined = [];
+@@ -326,12 +327,12 @@ export const updateEvent = async (
+   };
+ };
+ 
+-export const deleteEvent = (
++export const deleteEvent = async (
+   credential: CredentialPayload,
+   uid: string,
+   event: CalendarEvent
+ ): Promise<unknown> => {
+-  const calendar = getCalendar(credential);
++  const calendar = await getCalendar(credential);
+   if (calendar) {
+     return calendar.deleteEvent(uid, event);
+   }
+diff --git a/packages/core/EventManager.ts b/packages/core/EventManager.ts
+index d8bc62d5445325..4b3b3564b134ad 100644
+--- a/packages/core/EventManager.ts
++++ b/packages/core/EventManager.ts
+@@ -485,8 +485,7 @@ export default class EventManager {
+               id: oldCalendarEvent.credentialId,
+             },
+           });
+-          const calendar = getCalendar(calendarCredential);
+-
++          const calendar = await getCalendar(calendarCredential);
+           await calendar?.deleteEvent(oldCalendarEvent.uid, event, oldCalendarEvent.externalCalendarId);
+         }
+       }
+diff --git a/packages/core/videoClient.ts b/packages/core/videoClient.ts
+index ff5308b9562d03..06887ce96daebe 100644
+--- a/packages/core/videoClient.ts
++++ b/packages/core/videoClient.ts
+@@ -18,21 +18,25 @@ const log = logger.getChildLogger({ prefix: ["[lib] videoClient"] });
+ const translator = short();
+ 
+ // factory
+-const getVideoAdapters = (withCredentials: CredentialPayload[]): VideoApiAdapter[] =>
+-  withCredentials.reduce<VideoApiAdapter[]>((acc, cred) => {
++const getVideoAdapters = async (withCredentials: CredentialPayload[]): Promise<VideoApiAdapter[]> => {
++  const videoAdapters: VideoApiAdapter[] = [];
++
++  for (const cred of withCredentials) {
+     const appName = cred.type.split("_").join(""); // Transform `zoom_video` to `zoomvideo`;
+-    const app = appStore[appName as keyof typeof appStore];
++    const app = await appStore[appName as keyof typeof appStore];
++
+     if (app && "lib" in app && "VideoApiAdapter" in app.lib) {
+       const makeVideoApiAdapter = app.lib.VideoApiAdapter as VideoApiAdapterFactory;
+       const videoAdapter = makeVideoApiAdapter(cred);
+-      acc.push(videoAdapter);
+-      return acc;
++      videoAdapters.push(videoAdapter);
+     }
+-    return acc;
+-  }, []);
++  }
++
++  return videoAdapters;
++};
+ 
+-const getBusyVideoTimes = (withCredentials: CredentialPayload[]) =>
+-  Promise.all(getVideoAdapters(withCredentials).map((c) => c?.getAvailability())).then((results) =>
++const getBusyVideoTimes = async (withCredentials: CredentialPayload[]) =>
++  Promise.all((await getVideoAdapters(withCredentials)).map((c) => c?.getAvailability())).then((results) =>
+     results.reduce((acc, availability) => acc.concat(availability), [] as (EventBusyDate | undefined)[])
+   );
+ 
+@@ -45,7 +49,7 @@ const createMeeting = async (credential: CredentialWithAppName, calEvent: Calend
+     );
+   }
+ 
+-  const videoAdapters = getVideoAdapters([credential]);
++  const videoAdapters = await getVideoAdapters([credential]);
+   const [firstVideoAdapter] = videoAdapters;
+   let createdMeeting;
+   let returnObject: {
+@@ -104,7 +108,7 @@ const updateMeeting = async (
+ 
+   let success = true;
+ 
+-  const [firstVideoAdapter] = getVideoAdapters([credential]);
++  const [firstVideoAdapter] = await getVideoAdapters([credential]);
+   const updatedMeeting =
+     credential && bookingRef
+       ? await firstVideoAdapter?.updateMeeting(bookingRef, calEvent).catch(async (e) => {
+@@ -135,9 +139,9 @@ const updateMeeting = async (
+   };
+ };
+ 
+-const deleteMeeting = (credential: CredentialPayload, uid: string): Promise<unknown> => {
++const deleteMeeting = async (credential: CredentialPayload, uid: string): Promise<unknown> => {
+   if (credential) {
+-    const videoAdapter = getVideoAdapters([credential])[0];
++    const videoAdapter = (await getVideoAdapters([credential]))[0];
+     // There are certain video apps with no video adapter defined. e.g. riverby,whereby
+     if (videoAdapter) {
+       return videoAdapter.deleteMeeting(uid);
+@@ -155,7 +159,7 @@ const createMeetingWithCalVideo = async (calEvent: CalendarEvent) => {
+   } catch (e) {
+     return;
+   }
+-  const [videoAdapter] = getVideoAdapters([
++  const [videoAdapter] = await getVideoAdapters([
+     {
+       id: 0,
+       appId: "daily-video",
+@@ -178,7 +182,7 @@ const getRecordingsOfCalVideoByRoomName = async (
+     console.error("Error: Cal video provider is not installed.");
+     return;
+   }
+-  const [videoAdapter] = getVideoAdapters([
++  const [videoAdapter] = await getVideoAdapters([
+     {
+       id: 0,
+       appId: "daily-video",
+@@ -199,7 +203,7 @@ const getDownloadLinkOfCalVideoByRecordingId = async (recordingId: string) => {
+     console.error("Error: Cal video provider is not installed.");
+     return;
+   }
+-  const [videoAdapter] = getVideoAdapters([
++  const [videoAdapter] = await getVideoAdapters([
+     {
+       id: 0,
+       appId: "daily-video",
+diff --git a/packages/features/bookings/lib/handleCancelBooking.ts b/packages/features/bookings/lib/handleCancelBooking.ts
+index ce8dd6dcf80a65..c4390f89b7e738 100644
+--- a/packages/features/bookings/lib/handleCancelBooking.ts
++++ b/packages/features/bookings/lib/handleCancelBooking.ts
+@@ -233,7 +233,7 @@ async function handler(req: CustomRequest) {
+               integrationsToDelete.push(deleteMeeting(credential, reference.uid));
+             }
+             if (reference.type.includes("_calendar")) {
+-              const calendar = getCalendar(credential);
++              const calendar = await getCalendar(credential);
+               if (calendar) {
+                 integrationsToDelete.push(
+                   calendar?.deleteEvent(reference.uid, evt, reference.externalCalendarId)
+@@ -255,7 +255,7 @@ async function handler(req: CustomRequest) {
+               );
+             }
+             if (reference.type.includes("_calendar")) {
+-              const calendar = getCalendar(credential);
++              const calendar = await getCalendar(credential);
+               if (calendar) {
+                 integrationsToDelete.push(
+                   calendar?.updateEvent(reference.uid, updatedEvt, reference.externalCalendarId)
+@@ -442,7 +442,7 @@ async function handler(req: CustomRequest) {
+         (credential) => credential.id === credentialId
+       );
+       if (calendarCredential) {
+-        const calendar = getCalendar(calendarCredential);
++        const calendar = await getCalendar(calendarCredential);
+         if (
+           bookingToDelete.eventType?.recurringEvent &&
+           bookingToDelete.recurringEventId &&
+@@ -451,7 +451,7 @@ async function handler(req: CustomRequest) {
+           bookingToDelete.user.credentials
+             .filter((credential) => credential.type.endsWith("_calendar"))
+             .forEach(async (credential) => {
+-              const calendar = getCalendar(credential);
++              const calendar = await getCalendar(credential);
+               for (const updBooking of updatedBookings) {
+                 const bookingRef = updBooking.references.find((ref) => ref.type.includes("_calendar"));
+                 if (bookingRef) {
+@@ -467,12 +467,13 @@ async function handler(req: CustomRequest) {
+       }
+     } else {
+       // For bookings made before the refactor we go through the old behaviour of running through each calendar credential
+-      bookingToDelete.user.credentials
+-        .filter((credential) => credential.type.endsWith("_calendar"))
+-        .forEach((credential) => {
+-          const calendar = getCalendar(credential);
+-          apiDeletes.push(calendar?.deleteEvent(uid, evt, externalCalendarId) as Promise<unknown>);
+-        });
++      const calendarCredentials = bookingToDelete.user.credentials.filter((credential) =>
++        credential.type.endsWith("_calendar")
++      );
++      for (const credential of calendarCredentials) {
++        const calendar = await getCalendar(credential);
++        apiDeletes.push(calendar?.deleteEvent(uid, evt, externalCalendarId) as Promise<unknown>);
++      }
+     }
+   }
+ 
+@@ -574,7 +575,7 @@ async function handler(req: CustomRequest) {
+     }
+ 
+     // Posible to refactor TODO:
+-    const paymentApp = appStore[paymentAppCredential?.app?.dirName as keyof typeof appStore];
++    const paymentApp = await appStore[paymentAppCredential?.app?.dirName as keyof typeof appStore];
+     if (!(paymentApp && "lib" in paymentApp && "PaymentService" in paymentApp.lib)) {
+       console.warn(`payment App service of type ${paymentApp} is not implemented`);
+       return null;
+diff --git a/packages/features/bookings/lib/handleNewBooking.ts b/packages/features/bookings/lib/handleNewBooking.ts
+index a2d49967a13ac5..73c021934558d5 100644
+--- a/packages/features/bookings/lib/handleNewBooking.ts
++++ b/packages/features/bookings/lib/handleNewBooking.ts
+@@ -883,7 +883,7 @@ async function handler(
+               integrationsToDelete.push(deleteMeeting(credential, reference.uid));
+             }
+             if (reference.type.includes("_calendar") && originalBookingEvt) {
+-              const calendar = getCalendar(credential);
++              const calendar = await getCalendar(credential);
+               if (calendar) {
+                 integrationsToDelete.push(
+                   calendar?.deleteEvent(reference.uid, originalBookingEvt, reference.externalCalendarId)
+diff --git a/packages/lib/payment/deletePayment.ts b/packages/lib/payment/deletePayment.ts
+index b4e1fb4ce7c854..9afa9b3e548fa6 100644
+--- a/packages/lib/payment/deletePayment.ts
++++ b/packages/lib/payment/deletePayment.ts
+@@ -13,7 +13,7 @@ const deletePayment = async (
+     } | null;
+   }
+ ): Promise<boolean> => {
+-  const paymentApp = appStore[paymentAppCredentials?.app?.dirName as keyof typeof appStore];
++  const paymentApp = await appStore[paymentAppCredentials?.app?.dirName as keyof typeof appStore];
+   if (!(paymentApp && "lib" in paymentApp && "PaymentService" in paymentApp.lib)) {
+     console.warn(`payment App service of type ${paymentApp} is not implemented`);
+     return false;
+diff --git a/packages/lib/payment/handlePayment.ts b/packages/lib/payment/handlePayment.ts
+index dcded8e6e8e854..ff65249a076905 100644
+--- a/packages/lib/payment/handlePayment.ts
++++ b/packages/lib/payment/handlePayment.ts
+@@ -23,7 +23,7 @@ const handlePayment = async (
+     uid: string;
+   }
+ ) => {
+-  const paymentApp = appStore[paymentAppCredentials?.app?.dirName as keyof typeof appStore];
++  const paymentApp = await appStore[paymentAppCredentials?.app?.dirName as keyof typeof appStore];
+   if (!(paymentApp && "lib" in paymentApp && "PaymentService" in paymentApp.lib)) {
+     console.warn(`payment App service of type ${paymentApp} is not implemented`);
+     return null;
+diff --git a/packages/trpc/server/routers/viewer/bookings.tsx b/packages/trpc/server/routers/viewer/bookings.tsx
+index 914cec161a3331..1de3e1f87939dd 100644
+--- a/packages/trpc/server/routers/viewer/bookings.tsx
++++ b/packages/trpc/server/routers/viewer/bookings.tsx
+@@ -551,10 +551,10 @@ export const bookingsRouter = router({
+         const bookingRefsFiltered: BookingReference[] = bookingToReschedule.references.filter(
+           (ref) => !!credentialsMap.get(ref.type)
+         );
+-        bookingRefsFiltered.forEach((bookingRef) => {
++        bookingRefsFiltered.forEach(async (bookingRef) => {
+           if (bookingRef.uid) {
+             if (bookingRef.type.endsWith("_calendar")) {
+-              const calendar = getCalendar(credentialsMap.get(bookingRef.type));
++              const calendar = await getCalendar(credentialsMap.get(bookingRef.type));
+ 
+               return calendar?.deleteEvent(
+                 bookingRef.uid,
+@@ -979,7 +979,7 @@ export const bookingsRouter = router({
+             }
+ 
+             // Posible to refactor TODO:
+-            const paymentApp = appStore[paymentAppCredential?.app?.dirName as keyof typeof appStore];
++            const paymentApp = await appStore[paymentAppCredential?.app?.dirName as keyof typeof appStore];
+             if (!(paymentApp && "lib" in paymentApp && "PaymentService" in paymentApp.lib)) {
+               console.warn(`payment App service of type ${paymentApp} is not implemented`);
+               return null;

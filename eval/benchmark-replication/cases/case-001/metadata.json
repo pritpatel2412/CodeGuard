@@ -1,0 +1,15 @@
+{
+  "pr_title": "Async import of the appStore packages",
+  "url": "https://github.com/calcom/cal.com/pull/8087",
+  "file": "cal_dot_com.json",
+  "comments": [
+    {
+      "comment": "Consider adding try-catch around the await to handle import failures gracefully",
+      "severity": "Low"
+    },
+    {
+      "comment": "The code uses forEach with async callbacks, which causes asynchronous operations (e.g., calendar/video event deletions, payment refunds) to run concurrently without being awaited. This 'fire-and-forget' behavior leads to unhandled promise rejections, race conditions, and incomplete cleanup, as surrounding try-catch blocks cannot properly handle errors from these unawaited promises. Replace forEach with for...of loops or Promise.all() with map() to ensure proper sequential execution and error handling.",
+      "severity": "Critical"
+    }
+  ]
+}

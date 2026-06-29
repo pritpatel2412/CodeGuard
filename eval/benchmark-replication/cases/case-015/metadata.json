@@ -1,0 +1,15 @@
+{
+  "pr_title": "Optimize header layout performance with flexbox mixins",
+  "url": "https://github.com/discourse/discourse/commit/5b229316ee4c661836ed1161139692a3e8527444",
+  "file": "discourse.json",
+  "comments": [
+    {
+      "comment": "Mixing float: left with flexbox causes layout issues. Further this PR removes the float-based right alignment for .d-header .panel, which may cause the login panel in the non-Ember/noscript header (where .panel is nested inside .row and not a flex item) to stack under the title instead of remaining right-aligned.",
+      "severity": "Low"
+    },
+    {
+      "comment": "-ms-align-items never existed in any version of IE/Edge; the correct legacy property is -ms-flex-align.",
+      "severity": "Low"
+    }
+  ]
+}

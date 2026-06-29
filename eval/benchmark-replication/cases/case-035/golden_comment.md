@@ -1,0 +1,10 @@
+# Golden Comments for Add Client resource type and scopes to authorization schema
+
+## [High]
+Inconsistent feature flag bug causing orphaned permissions. The AdminPermissions event listener, responsible for cleaning up permissions upon role, client, or group removal, is incorrectly guarded by the ADMIN_FINE_GRAINED_AUTHZ (V1) feature flag. This is inconsistent with other methods in the class that use ADMIN_FINE_GRAINED_AUTHZ_V2. Consequently, if ADMIN_FINE_GRAINED_AUTHZ_V2 is enabled but V1 is not, the permission cleanup logic will not execute, leading to orphaned permission data. Cleanup should occur regardless of which fine-grained authorization version is enabled.
+
+## [High]
+In hasPermission(ClientModel client, String scope), the resource lookup uses findByName(server, client.getId(), server.getId()), but AdminPermissionsSchema.getOrCreateResource creates per-client resources with the owner set to resourceServer.getClientId(), so this lookup will never find those resources and will always fall back to the 'all-clients' resource, effectively ignoring client-specific permissions.
+
+## [High]
+In getClientsWithPermission(String scope), iterating resourceStore.findByType(server, AdminPermissionsSchema.CLIENTS_RESOURCE_TYPE) and returning resource.getName() will only ever consider the type-level 'Clients' resource (per-client resources have no type) and return its name, while AvailableRoleMappingResource#getRoleIdsWithPermissions expects actual client IDs to pass to realm.getClientById, which can lead to incorrect behavior or a null client and subsequent failures.

@@ -1,0 +1,7 @@
+# Golden Comments for Add Groups resource type and scopes to authorization schema
+
+## [High]
+Incorrect permission check in canManage() method
+
+## [High]
+In getGroupIdsWithViewPermission, hasPermission is called with groupResource.getId() and the same groupResource.getId() is added to granted, but hasPermission resolves resources by name (treating the argument as a group id) and the GroupPermissionEvaluator contract says this method returns group IDs that are later used as UserModel.GROUPS and in getUsersCount group filters. This mismatch means per-group VIEW_MEMBERS/MANAGE_MEMBERS permissions may not yield the expected group IDs for filtering and counts, and evaluation may effectively only look at the type-level 'all-groups' resource; consider revisiting whether this should operate on the underlying group ids (resource names) instead so it aligns with the JPA queries and the interface contract.

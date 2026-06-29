@@ -1,0 +1,15 @@
+{
+  "pr_title": "Add AuthzClientCryptoProvider for authorization client cryptographic operations",
+  "url": "https://github.com/keycloak/keycloak/pull/33832",
+  "file": "keycloak.json",
+  "comments": [
+    {
+      "comment": "Returns wrong provider (default keystore instead of BouncyCastle)",
+      "severity": "High"
+    },
+    {
+      "comment": "Dead code exists where ASN1Encoder instances are created and written to, but their results are immediately discarded. The actual encoding is performed by new ASN1Encoder instances created in the subsequent return statement, rendering the earlier operations useless.",
+      "severity": "Low"
+    }
+  ]
+}

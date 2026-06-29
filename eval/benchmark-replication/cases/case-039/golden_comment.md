@@ -1,0 +1,7 @@
+# Golden Comments for Implement recovery key support for user storage providers
+
+## [Medium]
+Unsafe raw List deserialization without type safety. Calling Optional.get() directly on the Optional returned by RecoveryAuthnCodesUtils.getCredential(user) without checking isPresent() can lead to a NoSuchElementException if the Optional is empty.
+
+## [Low]
+After creating the RecoveryAuthnCodesCredentialModel, consider setting its id from the stored credential (e.g., myUser.recoveryCodes.getId()); otherwise getId() will be null and downstream removal by id (e.g., removeStoredCredentialById in the authenticator flow) may not work.

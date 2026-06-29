@@ -1,0 +1,324 @@
+From 6e6ed73416ebed5e92c98963937a5f349534c76a Mon Sep 17 00:00:00 2001
+From: Scott Lepper <scott.lepper@gmail.com>
+Date: Fri, 27 Sep 2024 11:16:42 -0400
+Subject: [PATCH 1/2] disable sql expressions
+
+remove duckdb ref
+---
+ pkg/expr/reader.go      | 12 ++++++++++++
+ pkg/expr/sql/db.go      | 26 ++++++++++++++++++++++++++
+ pkg/expr/sql/parser.go  |  3 +--
+ pkg/expr/sql_command.go |  5 ++---
+ 4 files changed, 41 insertions(+), 5 deletions(-)
+ create mode 100644 pkg/expr/sql/db.go
+
+diff --git a/pkg/expr/reader.go b/pkg/expr/reader.go
+index 3bb3abdbe43e7..ef18d9d8c2b14 100644
+--- a/pkg/expr/reader.go
++++ b/pkg/expr/reader.go
+@@ -126,6 +126,10 @@ func (h *ExpressionQueryReader) ReadQuery(
+ 		}
+ 
+ 	case QueryTypeSQL:
++		enabled := enableSqlExpressions(h)
++		if !enabled {
++			return eq, fmt.Errorf("sqlExpressions is not implemented")
++		}
+ 		q := &SQLExpression{}
+ 		err = iter.ReadVal(q)
+ 		if err == nil {
+@@ -186,3 +190,11 @@ func getReferenceVar(exp string, refId string) (string, error) {
+ 	}
+ 	return exp, nil
+ }
++
++func enableSqlExpressions(h *ExpressionQueryReader) bool {
++	enabled := !h.features.IsEnabledGlobally(featuremgmt.FlagSqlExpressions)
++	if enabled {
++		return false
++	}
++	return false
++}
+diff --git a/pkg/expr/sql/db.go b/pkg/expr/sql/db.go
+new file mode 100644
+index 0000000000000..1e7aca0c1b619
+--- /dev/null
++++ b/pkg/expr/sql/db.go
+@@ -0,0 +1,26 @@
++package sql
++
++import (
++	"errors"
++
++	"github.com/grafana/grafana-plugin-sdk-go/data"
++)
++
++type DB struct {
++}
++
++func (db *DB) TablesList(rawSQL string) ([]string, error) {
++	return nil, errors.New("not implemented")
++}
++
++func (db *DB) RunCommands(commands []string) (string, error) {
++	return "", errors.New("not implemented")
++}
++
++func (db *DB) QueryFramesInto(name string, query string, frames []*data.Frame, f *data.Frame) error {
++	return errors.New("not implemented")
++}
++
++func NewInMemoryDB() *DB {
++	return &DB{}
++}
+diff --git a/pkg/expr/sql/parser.go b/pkg/expr/sql/parser.go
+index 809bbe96f9b33..a5ca1fb6f5bbc 100644
+--- a/pkg/expr/sql/parser.go
++++ b/pkg/expr/sql/parser.go
+@@ -8,7 +8,6 @@ import (
+ 
+ 	"github.com/grafana/grafana/pkg/infra/log"
+ 	"github.com/jeremywohl/flatten"
+-	"github.com/scottlepp/go-duck/duck"
+ )
+ 
+ const (
+@@ -21,7 +20,7 @@ var logger = log.New("sql_expr")
+ 
+ // TablesList returns a list of tables for the sql statement
+ func TablesList(rawSQL string) ([]string, error) {
+-	duckDB := duck.NewInMemoryDB()
++	duckDB := NewInMemoryDB()
+ 	rawSQL = strings.Replace(rawSQL, "'", "''", -1)
+ 	cmd := fmt.Sprintf("SELECT json_serialize_sql('%s')", rawSQL)
+ 	ret, err := duckDB.RunCommands([]string{cmd})
+diff --git a/pkg/expr/sql_command.go b/pkg/expr/sql_command.go
+index 05636f79ffc65..9f0e1faf3e864 100644
+--- a/pkg/expr/sql_command.go
++++ b/pkg/expr/sql_command.go
+@@ -7,7 +7,6 @@ import (
+ 	"time"
+ 
+ 	"github.com/grafana/grafana-plugin-sdk-go/data"
+-	"github.com/scottlepp/go-duck/duck"
+ 
+ 	"github.com/grafana/grafana/pkg/apimachinery/errutil"
+ 	"github.com/grafana/grafana/pkg/expr/mathexp"
+@@ -94,11 +93,11 @@ func (gr *SQLCommand) Execute(ctx context.Context, now time.Time, vars mathexp.V
+ 
+ 	rsp := mathexp.Results{}
+ 
+-	duckDB := duck.NewInMemoryDB()
++	db := sql.NewInMemoryDB()
+ 	var frame = &data.Frame{}
+ 
+ 	logger.Debug("Executing query", "query", gr.query, "frames", len(allFrames))
+-	err := duckDB.QueryFramesInto(gr.refID, gr.query, allFrames, frame)
++	err := db.QueryFramesInto(gr.refID, gr.query, allFrames, frame)
+ 	if err != nil {
+ 		logger.Error("Failed to query frames", "error", err.Error())
+ 		rsp.Error = err
+
+From f3317b329b4eb8fd96f99dd86525bc4a22d20248 Mon Sep 17 00:00:00 2001
+From: Sam Jewell <sam.jewell@grafana.com>
+Date: Fri, 18 Oct 2024 10:47:08 +0100
+Subject: [PATCH 2/2] Run `make update-workspace`
+
+---
+ go.mod      |  8 --------
+ go.sum      | 15 ---------------
+ go.work.sum | 12 ++++++------
+ 3 files changed, 6 insertions(+), 29 deletions(-)
+
+diff --git a/go.mod b/go.mod
+index 694a46bfe31ee..7e9c07b61c3e1 100644
+--- a/go.mod
++++ b/go.mod
+@@ -142,7 +142,6 @@ require (
+ 	github.com/redis/go-redis/v9 v9.1.0 // @grafana/alerting-backend
+ 	github.com/robfig/cron/v3 v3.0.1 // @grafana/grafana-backend-group
+ 	github.com/russellhaering/goxmldsig v1.4.0 // @grafana/grafana-backend-group
+-	github.com/scottlepp/go-duck v0.1.0 // @grafana/grafana-app-platform-squad
+ 	github.com/spf13/cobra v1.8.1 // @grafana/grafana-app-platform-squad
+ 	github.com/spf13/pflag v1.0.5 // @grafana-app-platform-squad
+ 	github.com/spyzhov/ajson v0.9.0 // @grafana/grafana-app-platform-squad
+@@ -220,7 +219,6 @@ require (
+ 	github.com/AzureAD/microsoft-authentication-library-for-go v1.2.2 // indirect
+ 	github.com/DATA-DOG/go-sqlmock v1.5.2 // @grafana/grafana-search-and-storage
+ 	github.com/FZambia/eagle v0.1.0 // indirect
+-	github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c // indirect
+ 	github.com/Masterminds/goutils v1.1.1 // indirect
+ 	github.com/Masterminds/squirrel v1.5.4 // indirect
+ 	github.com/NYTimes/gziphandler v1.1.1 // indirect
+@@ -229,7 +227,6 @@ require (
+ 	github.com/alecthomas/units v0.0.0-20231202071711-9a357b53e9c9 // indirect
+ 	github.com/alicebob/gopher-json v0.0.0-20200520072559-a9ecdc9d1d3a // indirect
+ 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
+-	github.com/apache/thrift v0.20.0 // indirect
+ 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
+ 	github.com/apparentlymart/go-textseg/v13 v13.0.0 // indirect
+ 	github.com/armon/go-metrics v0.4.1 // indirect
+@@ -335,7 +332,6 @@ require (
+ 	github.com/jpillora/backoff v1.0.0 // indirect
+ 	github.com/jszwedko/go-datemath v0.1.1-0.20230526204004-640a500621d6 // indirect
+ 	github.com/karlseguin/ccache/v3 v3.0.5 // indirect
+-	github.com/klauspost/asmfmt v1.3.2 // indirect
+ 	github.com/klauspost/compress v1.17.9 // indirect
+ 	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
+ 	github.com/kr/text v0.2.0 // indirect
+@@ -351,8 +347,6 @@ require (
+ 	github.com/mattn/go-runewidth v0.0.16 // indirect
+ 	github.com/mfridman/interpolate v0.0.2 // indirect
+ 	github.com/miekg/dns v1.1.59 // indirect
+-	github.com/minio/asm2plan9s v0.0.0-20200509001527-cdd76441f9d8 // indirect
+-	github.com/minio/c2goasm v0.0.0-20190812172519-36a3d3bbc4f3 // indirect
+ 	github.com/mitchellh/copystructure v1.2.0 // indirect
+ 	github.com/mitchellh/go-homedir v1.1.0 // indirect
+ 	github.com/mitchellh/go-testing-interface v1.14.1 // indirect
+@@ -487,8 +481,6 @@ require (
+ 	github.com/grafana/grafana-app-sdk v0.19.0 // indirect
+ 	github.com/grafana/grafana/pkg/semconv v0.0.0-20240808213237-f4d2e064f435 // indirect
+ 	github.com/grafana/sqlds/v4 v4.1.0 // indirect
+-	github.com/hairyhenderson/go-which v0.2.0 // indirect
+-	github.com/iancoleman/orderedmap v0.3.0 // indirect
+ 	github.com/maypok86/otter v1.2.2 // indirect
+ 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
+ 	github.com/shadowspore/fossil-delta v0.0.0-20240102155221-e3a8590b820b // indirect
+diff --git a/go.sum b/go.sum
+index 8d33fc977f1fb..806b1ca832718 100644
+--- a/go.sum
++++ b/go.sum
+@@ -1430,7 +1430,6 @@ github.com/FZambia/eagle v0.1.0/go.mod h1:YjGSPVkQTNcVLfzEUQJNgW9ScPR0K4u/Ky0yeF
+ github.com/HdrHistogram/hdrhistogram-go v1.1.0/go.mod h1:yDgFjdqOqDEKOvasDdhWNXYg9BVp4O+o5f6V/ehm6Oo=
+ github.com/HdrHistogram/hdrhistogram-go v1.1.2 h1:5IcZpTvzydCQeHzK4Ef/D5rrSqwxob0t8PQPMybUNFM=
+ github.com/HdrHistogram/hdrhistogram-go v1.1.2/go.mod h1:yDgFjdqOqDEKOvasDdhWNXYg9BVp4O+o5f6V/ehm6Oo=
+-github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c h1:RGWPOewvKIROun94nF7v2cua9qP+thov/7M50KEoeSU=
+ github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c/go.mod h1:X0CRv0ky0k6m906ixxpzmDRLvX58TFUKS2eePweuyxk=
+ github.com/KimMachineGun/automemlimit v0.6.0/go.mod h1:T7xYht7B8r6AG/AqFcUdc7fzd2bIdBKmepfP2S1svPY=
+ github.com/Knetic/govaluate v3.0.1-0.20171022003610-9aa49832a739+incompatible/go.mod h1:r7JcOSlj0wfOMncg0iLm8Leh48TZaKVeNIfJntJ2wa0=
+@@ -1513,14 +1512,10 @@ github.com/apache/thrift v0.12.0/go.mod h1:cp2SuWMxlEZw2r+iP2GNCdIi4C1qmUzdZFSVb
+ github.com/apache/thrift v0.13.0/go.mod h1:cp2SuWMxlEZw2r+iP2GNCdIi4C1qmUzdZFSVb+bacwQ=
+ github.com/apache/thrift v0.16.0/go.mod h1:PHK3hniurgQaNMZYaCLEqXKsYK8upmhPbmdP2FXSqgU=
+ github.com/apache/thrift v0.17.0/go.mod h1:OLxhMRJxomX+1I/KUw03qoV3mMz16BwaKI+d4fPBx7Q=
+-github.com/apache/thrift v0.20.0 h1:631+KvYbsBZxmuJjYwhezVsrfc/TbqtZV4QcxOX1fOI=
+-github.com/apache/thrift v0.20.0/go.mod h1:hOk1BQqcp2OLzGsyVXdfMk7YFlMxK3aoEVhjD06QhB8=
+ github.com/apapsch/go-jsonmerge/v2 v2.0.0 h1:axGnT1gRIfimI7gJifB699GoE/oq+F2MU7Dml6nw9rQ=
+ github.com/apapsch/go-jsonmerge/v2 v2.0.0/go.mod h1:lvDnEdqiQrp0O42VQGgmlKpxL1AP2+08jFMw88y4klk=
+ github.com/apparentlymart/go-textseg/v13 v13.0.0 h1:Y+KvPE1NYz0xl601PVImeQfFyEy6iT90AvPUL1NNfNw=
+ github.com/apparentlymart/go-textseg/v13 v13.0.0/go.mod h1:ZK2fH7c4NqDTLtiYLvIkEghdlcqw7yxLeM89kiTRPUo=
+-github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de h1:FxWPpzIjnTlhPwqqXc4/vE0f7GvRjuAsbW+HOIe8KnA=
+-github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de/go.mod h1:DCaWoUhZrYW9p1lxo/cm8EmUOOzAPSEZNGF2DK1dJgw=
+ github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e/go.mod h1:3U/XgcO3hCbHZ8TKRvWD2dDTCfh9M9ya+I9JpbB7O8o=
+ github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6/go.mod h1:grANhF5doyWs3UAsr3K4I6qtAmlQcZDesFNEHPZAzj8=
+ github.com/armon/go-metrics v0.0.0-20180917152333-f0300d1749da/go.mod h1:Q73ZrmVTwzkszR9V5SSuryQ31EELlFMUz1kKyl939pY=
+@@ -2343,8 +2338,6 @@ github.com/grpc-ecosystem/grpc-gateway/v2 v2.19.0/go.mod h1:qmOFXW2epJhM0qSnUUYp
+ github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0 h1:asbCHRVmodnJTuQ3qamDwqVOIjwqUPTYmYuemVOx+Ys=
+ github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0/go.mod h1:ggCgvZ2r7uOoQjOyu2Y1NhHmEPPzzuhWgcza5M1Ji1I=
+ github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed/go.mod h1:tMWxXQ9wFIaZeTI9F+hmhFiGpFmhOHzyShyFUhRm0H4=
+-github.com/hairyhenderson/go-which v0.2.0 h1:vxoCKdgYc6+MTBzkJYhWegksHjjxuXPNiqo5G2oBM+4=
+-github.com/hairyhenderson/go-which v0.2.0/go.mod h1:U1BQQRCjxYHfOkXDyCgst7OZVknbqI7KuGKhGnmyIik=
+ github.com/hashicorp/consul/api v1.3.0/go.mod h1:MmDNSzIMUjNpY/mQ398R4bk2FnqQLoPndWW5VkKPlCE=
+ github.com/hashicorp/consul/api v1.10.1/go.mod h1:XjsvQN+RJGWI2TWy1/kqaE16HrR2J/FWgkYjdZQsX9M=
+ github.com/hashicorp/consul/api v1.12.0/go.mod h1:6pVBMo0ebnYdt2S3H87XhekM/HHrUoTD2XXb/VrZVy0=
+@@ -2449,8 +2442,6 @@ github.com/huandu/xstrings v1.3.3 h1:/Gcsuc1x8JVbJ9/rlye4xZnVAbEkGauT8lbebqcQws4
+ github.com/huandu/xstrings v1.3.3/go.mod h1:y5/lhBue+AyNmUVz9RLU9xbLR0o4KIIExikq4ovT0aE=
+ github.com/hudl/fargo v1.3.0/go.mod h1:y3CKSmjA+wD2gak7sUSXTAoopbhU08POFhmITJgmKTg=
+ github.com/hudl/fargo v1.4.0/go.mod h1:9Ai6uvFy5fQNq6VPKtg+Ceq1+eTY4nKUlR2JElEOcDo=
+-github.com/iancoleman/orderedmap v0.3.0 h1:5cbR2grmZR/DiVt+VJopEhtVs9YGInGIxAoMJn+Ichc=
+-github.com/iancoleman/orderedmap v0.3.0/go.mod h1:XuLcCUkdL5owUCQeF2Ue9uuw1EptkJDkXXS7VoV7XGE=
+ github.com/iancoleman/strcase v0.2.0/go.mod h1:iwCmte+B7n89clKwxIoIXy/HfoL7AsD47ZCWhYzw7ho=
+ github.com/iancoleman/strcase v0.3.0/go.mod h1:iwCmte+B7n89clKwxIoIXy/HfoL7AsD47ZCWhYzw7ho=
+ github.com/ianlancetaylor/demangle v0.0.0-20181102032728-5e5cf60278f6/go.mod h1:aSSvb/t6k1mPoxDqO4vJh6VOCGPwU4O0C2/Eqndh1Sc=
+@@ -2559,7 +2550,6 @@ github.com/kisielk/errcheck v1.1.0/go.mod h1:EZBBE59ingxPouuu3KfxchcWSUPOHkagtvW
+ github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
+ github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
+ github.com/kisielk/sqlstruct v0.0.0-20201105191214-5f3e10d3ab46/go.mod h1:yyMNCyc/Ib3bDTKd379tNMpB/7/H5TjM2Y9QJ5THLbE=
+-github.com/klauspost/asmfmt v1.3.2 h1:4Ri7ox3EwapiOjCki+hw14RyKk201CN4rzyCJRFLpK4=
+ github.com/klauspost/asmfmt v1.3.2/go.mod h1:AG8TuvYojzulgDAMCnYn50l/5QV3Bs/tp6j0HLHbNSE=
+ github.com/klauspost/compress v1.13.4/go.mod h1:8dP1Hq4DHOhN9w426knH3Rhby4rFm6D8eO+e+Dq5Gzg=
+ github.com/klauspost/compress v1.13.6/go.mod h1:/3/Vjq9QcHkK5uEr5lBEmyoZ1iFhe47etQ6QUkpK6sk=
+@@ -2686,9 +2676,7 @@ github.com/miekg/dns v1.1.41/go.mod h1:p6aan82bvRIyn+zDIv9xYNUpwa73JcSh9BKwknJys
+ github.com/miekg/dns v1.1.43/go.mod h1:+evo5L0630/F6ca/Z9+GAqzhjGyn8/c+TBaOyfEl0V4=
+ github.com/miekg/dns v1.1.59 h1:C9EXc/UToRwKLhK5wKU/I4QVsBUc8kE6MkHBkeypWZs=
+ github.com/miekg/dns v1.1.59/go.mod h1:nZpewl5p6IvctfgrckopVx2OlSEHPRO/U4SYkRklrEk=
+-github.com/minio/asm2plan9s v0.0.0-20200509001527-cdd76441f9d8 h1:AMFGa4R4MiIpspGNG7Z948v4n35fFGB3RR3G/ry4FWs=
+ github.com/minio/asm2plan9s v0.0.0-20200509001527-cdd76441f9d8/go.mod h1:mC1jAcsrzbxHt8iiaC+zU4b1ylILSosueou12R++wfY=
+-github.com/minio/c2goasm v0.0.0-20190812172519-36a3d3bbc4f3 h1:+n/aFZefKZp7spd8DFdX7uMikMLXX4oubIzJF4kv/wI=
+ github.com/minio/c2goasm v0.0.0-20190812172519-36a3d3bbc4f3/go.mod h1:RagcQ7I8IeTMnF8JTXieKnO4Z6JCsikNEzj0DwauVzE=
+ github.com/minio/highwayhash v1.0.1/go.mod h1:BQskDq+xkJ12lmlUUi7U0M5Swg3EWR+dLTk+kldvVxY=
+ github.com/minio/highwayhash v1.0.2/go.mod h1:BQskDq+xkJ12lmlUUi7U0M5Swg3EWR+dLTk+kldvVxY=
+@@ -3060,8 +3048,6 @@ github.com/samuel/go-zookeeper v0.0.0-20190923202752-2cc03de413da/go.mod h1:gi+0
+ github.com/satori/go.uuid v1.2.0/go.mod h1:dA0hQrYB0VpLJoorglMZABFdXlWrHn1NEOzdhQKdks0=
+ github.com/scaleway/scaleway-sdk-go v1.0.0-beta.26 h1:F+GIVtGqCFxPxO46ujf8cEOP574MBoRm3gNbPXECbxs=
+ github.com/scaleway/scaleway-sdk-go v1.0.0-beta.26/go.mod h1:fCa7OJZ/9DRTnOKmxvT6pn+LPWUptQAmHF/SBJUGEcg=
+-github.com/scottlepp/go-duck v0.1.0 h1:Lfunl1wd767v0dF0/dr+mBh+KnUFuDmgNycC76NJjeE=
+-github.com/scottlepp/go-duck v0.1.0/go.mod h1:xGoYUbgph5AbxwsMElWv2i/mgzQl89WIgwE69Ytml7Q=
+ github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 h1:nn5Wsu0esKSJiIVhscUtVbo7ada43DJhG55ua/hjS5I=
+ github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529/go.mod h1:DxrIzT+xaE7yg65j358z/aeFdxmN0P9QXhEzd20vsDc=
+ github.com/segmentio/asm v1.2.0 h1:9BQrFxC+YOHJlTlHGkTrFWf59nbL3XnCoFLTwDCI7ys=
+@@ -4501,7 +4487,6 @@ gotest.tools v2.2.0+incompatible h1:VsBPFP1AI068pPrMxtb/S8Zkgf9xEmTLJjfM+P5UIEo=
+ gotest.tools v2.2.0+incompatible/go.mod h1:DsYFclhRJ6vuDpmuTbkuFWG+y2sxOXAzmJt81HFBacw=
+ gotest.tools/v3 v3.0.2/go.mod h1:3SzNCllyD9/Y+b5r9JIKQ474KzkZyqLqEfYqMsX94Bk=
+ gotest.tools/v3 v3.0.3/go.mod h1:Z7Lb0S5l+klDB31fvDQX8ss/FlKDxtlFlw3Oa8Ymbl8=
+-gotest.tools/v3 v3.5.1 h1:EENdUnS3pdur5nybKYIh2Vfgc8IUNBjxDPSjtiJcOzU=
+ gotest.tools/v3 v3.5.1/go.mod h1:isy3WKz7GK6uNw/sbHzfKBLvlvXwUyV06n6brMxxopU=
+ honnef.co/go/tools v0.0.0-20180728063816-88497007e858/go.mod h1:rf3lG4BRIbNafJWhAfAdb/ePZxsR/4RtNHQocxwk9r4=
+ honnef.co/go/tools v0.0.0-20190102054323-c2f93a96b099/go.mod h1:rf3lG4BRIbNafJWhAfAdb/ePZxsR/4RtNHQocxwk9r4=
+diff --git a/go.work.sum b/go.work.sum
+index 45e08b6424a5f..aadaa823b6ddd 100644
+--- a/go.work.sum
++++ b/go.work.sum
+@@ -283,8 +283,6 @@ github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/internal v1.1.2 h1:mLY+pNL
+ github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/internal/v2 v2.0.0 h1:PTFGRSlMKCQelWwxUyYVEUqseBJVemLyqWJjvMyt0do=
+ github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/managementgroups/armmanagementgroups v1.0.0 h1:pPvTJ1dY0sA35JOeFq6TsY2xj6Z85Yo23Pj4wCCvu4o=
+ github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources v1.1.1 h1:7CBQ+Ei8SP2c6ydQTGCCrS35bDxgTMfoP2miAwK++OU=
+-github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.3.2 h1:YUUxeiOWgdAQE3pXt2H7QXzZs0q8UBjgRbl56qo8GYM=
+-github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.3.2/go.mod h1:dmXQgZuiSubAecswZE+Sm8jkvEa7kQgTPVRvwL/nd0E=
+ github.com/Azure/go-amqp v1.0.5 h1:po5+ljlcNSU8xtapHTe8gIc8yHxCzC03E8afH2g1ftU=
+ github.com/Azure/go-amqp v1.0.5/go.mod h1:vZAogwdrkbyK3Mla8m/CxSc/aKdnTZ4IbPxl51Y5WZE=
+ github.com/Azure/go-autorest/autorest/azure/auth v0.5.12 h1:wkAZRgT/pn8HhFyzfe9UnqOjJYqlembgCTi72Bm/xKk=
+@@ -311,6 +309,7 @@ github.com/GoogleCloudPlatform/grpc-gcp-go/grpcgcp v1.5.0 h1:oVLqHXhnYtUwM89y9T1
+ github.com/GoogleCloudPlatform/grpc-gcp-go/grpcgcp v1.5.0/go.mod h1:dppbR7CwXD4pgtV9t3wD1812RaLDcBjtblcDF5f1vI0=
+ github.com/IBM/sarama v1.43.0 h1:YFFDn8mMI2QL0wOrG0J2sFoVIAFl7hS9JQi2YZsXtJc=
+ github.com/IBM/sarama v1.43.0/go.mod h1:zlE6HEbC/SMQ9mhEYaF7nNLYOUyrs0obySKCckWP9BM=
++github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c h1:RGWPOewvKIROun94nF7v2cua9qP+thov/7M50KEoeSU=
+ github.com/Joker/jade v1.1.3 h1:Qbeh12Vq6BxURXT1qZBRHsDxeURB8ztcL6f3EXSGeHk=
+ github.com/Joker/jade v1.1.3/go.mod h1:T+2WLyt7VH6Lp0TRxQrUYEs64nRc83wkMQrfeIQKduM=
+ github.com/KimMachineGun/automemlimit v0.6.0 h1:p/BXkH+K40Hax+PuWWPQ478hPjsp9h1CPDhLlA3Z37E=
+@@ -369,6 +368,8 @@ github.com/apache/arrow/go/v12 v12.0.1 h1:JsR2+hzYYjgSUkBSaahpqCetqZMr76djX80fF/
+ github.com/apache/arrow/go/v13 v13.0.0 h1:kELrvDQuKZo8csdWYqBQfyi431x6Zs/YJTEgUuSVcWk=
+ github.com/apache/arrow/go/v13 v13.0.0/go.mod h1:W69eByFNO0ZR30q1/7Sr9d83zcVZmF2MiP3fFYAWJOc=
+ github.com/apache/arrow/go/v14 v14.0.2 h1:N8OkaJEOfI3mEZt07BIkvo4sC6XDbL+48MBPWO5IONw=
++github.com/apache/thrift v0.20.0 h1:631+KvYbsBZxmuJjYwhezVsrfc/TbqtZV4QcxOX1fOI=
++github.com/apache/thrift v0.20.0/go.mod h1:hOk1BQqcp2OLzGsyVXdfMk7YFlMxK3aoEVhjD06QhB8=
+ github.com/apparentlymart/go-dump v0.0.0-20180507223929-23540a00eaa3 h1:ZSTrOEhiM5J5RFxEaFvMZVEAM1KvT1YzbEOwB2EAGjA=
+ github.com/apparentlymart/go-dump v0.0.0-20180507223929-23540a00eaa3/go.mod h1:oL81AME2rN47vu18xqj1S1jPIPuN7afo62yKTNn3XMM=
+ github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e h1:QEF07wC0T1rKkctt1RINW/+RMTVmiwxETico2l3gxJA=
+@@ -608,10 +609,6 @@ github.com/gomodule/redigo v1.8.9/go.mod h1:7ArFNvsTjH8GMMzB4uy1snslv2BwmginuMs0
+ github.com/google/go-jsonnet v0.18.0 h1:/6pTy6g+Jh1a1I2UMoAODkqELFiVIdOxbNwv0DDzoOg=
+ github.com/google/go-jsonnet v0.18.0/go.mod h1:C3fTzyVJDslXdiTqw/bTFk7vSGyCtH3MGRbDfvEwGd0=
+ github.com/google/go-pkcs11 v0.2.1-0.20230907215043-c6f79328ddf9 h1:OF1IPgv+F4NmqmJ98KTjdN97Vs1JxDPB3vbmYzV2dpk=
+-github.com/google/go-replayers/grpcreplay v1.3.0 h1:1Keyy0m1sIpqstQmgz307zhiJ1pV4uIlFds5weTmxbo=
+-github.com/google/go-replayers/grpcreplay v1.3.0/go.mod h1:v6NgKtkijC0d3e3RW8il6Sy5sqRVUwoQa4mHOGEy8DI=
+-github.com/google/go-replayers/httpreplay v1.2.0 h1:VM1wEyyjaoU53BwrOnaf9VhAyQQEEioJvFYxYcLRKzk=
+-github.com/google/go-replayers/httpreplay v1.2.0/go.mod h1:WahEFFZZ7a1P4VM1qEeHy+tME4bwyqPcwWbNlUI1Mcg=
+ github.com/google/pprof v0.0.0-20240424215950-a892ee059fd6/go.mod h1:kf6iHlnVGwgKolg33glAes7Yg/8iWP8ukqeldJSO7jw=
+ github.com/google/renameio v0.1.0 h1:GOZbcHa3HfsPKPlmyPyN2KEohoMXOhdMbHrvbpl2QaA=
+ github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 h1:El6M4kTTCOh6aBiKaUGG7oYTSPP8MxqL4YI3kZKwcP4=
+@@ -707,6 +704,7 @@ github.com/kevinmbeaulieu/eq-go v1.0.0/go.mod h1:G3S8ajA56gKBZm4UB9AOyoOS37JO3ro
+ github.com/kisielk/errcheck v1.5.0 h1:e8esj/e4R+SAOwFwN+n3zr0nYeCyeweozKfO23MvHzY=
+ github.com/kisielk/gotool v1.0.0 h1:AV2c/EiW3KqPNT9ZKl07ehoAGi4C5/01Cfbblndcapg=
+ github.com/kisielk/sqlstruct v0.0.0-20201105191214-5f3e10d3ab46 h1:veS9QfglfvqAw2e+eeNT/SbGySq8ajECXJ9e4fPoLhY=
++github.com/klauspost/asmfmt v1.3.2 h1:4Ri7ox3EwapiOjCki+hw14RyKk201CN4rzyCJRFLpK4=
+ github.com/klauspost/compress v1.17.3/go.mod h1:/dCuZOvVtNoHsyb+cuJD3itjs3NbnF6KH9zAO4BDxPM=
+ github.com/klauspost/cpuid v1.3.1 h1:5JNjFYYQrZeKRJ0734q51WCEEn2huer72Dc7K+R/b6s=
+ github.com/klauspost/cpuid v1.3.1/go.mod h1:bYW4mA6ZgKPob1/Dlai2LviZJO7KGI3uoWLd42rAQw4=
+@@ -754,6 +752,8 @@ github.com/mfridman/xflag v0.0.0-20240825232106-efb77353e578/go.mod h1:/483ywM5Z
+ github.com/microcosm-cc/bluemonday v1.0.25 h1:4NEwSfiJ+Wva0VxN5B8OwMicaJvD8r9tlJWm9rtloEg=
+ github.com/microcosm-cc/bluemonday v1.0.25/go.mod h1:ZIOjCQp1OrzBBPIJmfX4qDYFuhU02nx4bn030ixfHLE=
+ github.com/miekg/dns v1.1.50/go.mod h1:e3IlAVfNqAllflbibAZEWOXOQ+Ynzk/dDozDxY7XnME=
++github.com/minio/asm2plan9s v0.0.0-20200509001527-cdd76441f9d8 h1:AMFGa4R4MiIpspGNG7Z948v4n35fFGB3RR3G/ry4FWs=
++github.com/minio/c2goasm v0.0.0-20190812172519-36a3d3bbc4f3 h1:+n/aFZefKZp7spd8DFdX7uMikMLXX4oubIzJF4kv/wI=
+ github.com/minio/highwayhash v1.0.2 h1:Aak5U0nElisjDCfPSG79Tgzkn2gl66NxOMspRrKnA/g=
+ github.com/mitchellh/cli v1.1.5 h1:OxRIeJXpAMztws/XHlN2vu6imG5Dpq+j61AzAX5fLng=
+ github.com/mitchellh/gox v0.4.0 h1:lfGJxY7ToLJQjHHwi0EX6uYBdK78egf954SQl13PQJc=

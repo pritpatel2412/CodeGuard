@@ -1,0 +1,46 @@
+From b1613e320acff00623e6efc59f00ee68c7684a97 Mon Sep 17 00:00:00 2001
+From: Diego Augusto Molina <diegoaugustomolina@gmail.com>
+Date: Thu, 25 Jul 2024 08:26:32 -0300
+Subject: [PATCH] fix data race in GetWebAssets
+
+---
+ pkg/api/webassets/webassets.go | 16 +++++++++++++---
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/pkg/api/webassets/webassets.go b/pkg/api/webassets/webassets.go
+index 197c5f7628151..dc26b5761e6c9 100644
+--- a/pkg/api/webassets/webassets.go
++++ b/pkg/api/webassets/webassets.go
+@@ -8,6 +8,7 @@ import (
+ 	"net/http"
+ 	"os"
+ 	"path/filepath"
++	"sync"
+ 
+ 	"github.com/grafana/grafana/pkg/api/dtos"
+ 	"github.com/grafana/grafana/pkg/services/licensing"
+@@ -31,12 +32,21 @@ type EntryPointInfo struct {
+ 	} `json:"assets,omitempty"`
+ }
+ 
+-var entryPointAssetsCache *dtos.EntryPointAssets = nil
++var (
++	entryPointAssetsCacheMu sync.RWMutex           // guard entryPointAssetsCache
++	entryPointAssetsCache   *dtos.EntryPointAssets // TODO: get rid of global state
++)
+ 
+ func GetWebAssets(ctx context.Context, cfg *setting.Cfg, license licensing.Licensing) (*dtos.EntryPointAssets, error) {
+-	if cfg.Env != setting.Dev && entryPointAssetsCache != nil {
+-		return entryPointAssetsCache, nil
++	entryPointAssetsCacheMu.RLock()
++	ret := entryPointAssetsCache
++	entryPointAssetsCacheMu.RUnlock()
++
++	if cfg.Env != setting.Dev && ret != nil {
++		return ret, nil
+ 	}
++	entryPointAssetsCacheMu.Lock()
++	defer entryPointAssetsCacheMu.Unlock()
+ 
+ 	var err error
+ 	var result *dtos.EntryPointAssets

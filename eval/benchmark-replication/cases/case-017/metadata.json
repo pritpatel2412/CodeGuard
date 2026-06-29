@@ -1,0 +1,19 @@
+{
+  "pr_title": "scale-color $lightness must use $secondary for dark themes",
+  "url": "https://github.com/discourse/discourse/commit/d38c4d5f7443223c81529c22470293771baf9f38",
+  "file": "discourse.json",
+  "comments": [
+    {
+      "comment": "In .topic-meta-data h5 a, the original code had color: scale-color($primary, $lightness: 30%) but was changed to dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%)). The lightness for the light theme changed from 30% to 70%, which is a dramatic inversion",
+      "severity": "Low"
+    },
+    {
+      "comment": "This change for desktop/user.css changes $primary from 30% to 50% for the light theme; most other changes preserve the original $primary value and move the complement to $secondary for dark. Consider reviewing this (also applies to a similar .name change in the mobile variant).",
+      "severity": "Low"
+    },
+    {
+      "comment": "In topic-post.css the original code used $lightness: 70% but the replacement uses $lightness: 30% for the light theme. This makes the text significantly darker than intended.",
+      "severity": "Low"
+    }
+  ]
+}

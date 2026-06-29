@@ -1,0 +1,15 @@
+{
+  "pr_title": "feat: convert InsightsBookingService to use Prisma.sql raw queries",
+  "url": "https://github.com/calcom/cal.com/pull/22345",
+  "file": "cal_dot_com.json",
+  "comments": [
+    {
+      "comment": "In getBaseConditions(), the else if (filterConditions) and final else branches are unreachable. This is because getAuthorizationConditions() always returns a non-null Prisma.Sql object, making authConditions always truthy, which means only the first two if/else if conditions are ever evaluated.",
+      "severity": "Low"
+    },
+    {
+      "comment": "Fetching userIdsFromOrg only when teamsFromOrg.length > 0 can exclude org-level members for orgs without child teams; consider deriving from teamIds (which includes orgId) or removing the guard so org-only orgs still include member user bookings.",
+      "severity": "Medium"
+    }
+  ]
+}

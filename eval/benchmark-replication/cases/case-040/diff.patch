@@ -1,0 +1,140 @@
+From 4def149a50c4b9b2c24fbb753ac60fe4f4df0cac Mon Sep 17 00:00:00 2001
+From: vramik <vramik@redhat.com>
+Date: Fri, 4 Jul 2025 21:18:27 +0200
+Subject: [PATCH] Fix NPE when accessing group concurrently
+
+Closes #40368
+
+Signed-off-by: vramik <vramik@redhat.com>
+---
+ .../models/cache/infinispan/GroupAdapter.java |  3 +-
+ .../infinispan/entities/CachedGroup.java      |  1 +
+ .../java/org/keycloak/utils/GroupUtils.java   | 10 ----
+ .../keycloak/tests/admin/group/GroupTest.java | 48 +++++++++++++++++++
+ 4 files changed, 51 insertions(+), 11 deletions(-)
+
+diff --git a/model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/GroupAdapter.java b/model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/GroupAdapter.java
+index ed4ce6c6774d..d414e8dc6e00 100755
+--- a/model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/GroupAdapter.java
++++ b/model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/GroupAdapter.java
+@@ -271,7 +271,8 @@ public Stream<GroupModel> getSubGroupsStream(String search, Boolean exact, Integ
+     @Override
+     public Long getSubGroupsCount() {
+         if (isUpdated()) return updated.getSubGroupsCount();
+-        return getGroupModel().getSubGroupsCount();
++        GroupModel model = modelSupplier.get();
++        return model == null ? null : model.getSubGroupsCount();
+     }
+ 
+     @Override
+diff --git a/model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/entities/CachedGroup.java b/model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/entities/CachedGroup.java
+index a7024010e490..4345d256ce42 100755
+--- a/model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/entities/CachedGroup.java
++++ b/model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/entities/CachedGroup.java
+@@ -58,6 +58,7 @@ public CachedGroup(Long revision, RealmModel realm, GroupModel group) {
+         this.type = group.getType();
+     }
+ 
++    @Override
+     public String getRealm() {
+         return realm;
+     }
+diff --git a/services/src/main/java/org/keycloak/utils/GroupUtils.java b/services/src/main/java/org/keycloak/utils/GroupUtils.java
+index 3c0495192b57..68343a2f0597 100644
+--- a/services/src/main/java/org/keycloak/utils/GroupUtils.java
++++ b/services/src/main/java/org/keycloak/utils/GroupUtils.java
+@@ -98,14 +98,4 @@ public static GroupRepresentation toRepresentation(GroupPermissionEvaluator grou
+         rep.setAccess(groupsEvaluator.getAccess(groupTree));
+         return rep;
+     }
+-
+-    private static boolean groupMatchesSearchOrIsPathElement(GroupModel group, String search) {
+-        if (StringUtil.isBlank(search)) {
+-            return true;
+-        }
+-        if (group.getName().contains(search)) {
+-            return true;
+-        }
+-        return group.getSubGroupsStream().findAny().isPresent();
+-    }
+ }
+diff --git a/tests/base/src/test/java/org/keycloak/tests/admin/group/GroupTest.java b/tests/base/src/test/java/org/keycloak/tests/admin/group/GroupTest.java
+index d20a12cac8fe..92d5ec172cee 100755
+--- a/tests/base/src/test/java/org/keycloak/tests/admin/group/GroupTest.java
++++ b/tests/base/src/test/java/org/keycloak/tests/admin/group/GroupTest.java
+@@ -25,6 +25,7 @@
+ import org.apache.http.client.methods.CloseableHttpResponse;
+ import org.apache.http.client.methods.HttpGet;
+ import org.apache.http.impl.client.CloseableHttpClient;
++import org.hamcrest.Matchers;
+ import org.junit.jupiter.api.Assertions;
+ import org.junit.jupiter.api.Test;
+ import org.keycloak.admin.client.Keycloak;
+@@ -76,6 +77,9 @@
+ import java.util.List;
+ import java.util.Map;
+ import java.util.UUID;
++import java.util.concurrent.CopyOnWriteArrayList;
++import java.util.concurrent.atomic.AtomicBoolean;
++import java.util.stream.IntStream;
+ 
+ import static org.hamcrest.MatcherAssert.assertThat;
+ import static org.hamcrest.Matchers.anEmptyMap;
+@@ -90,6 +94,7 @@
+ import static org.junit.jupiter.api.Assertions.assertNotNull;
+ import static org.junit.jupiter.api.Assertions.assertNull;
+ import static org.junit.jupiter.api.Assertions.assertTrue;
++import static org.junit.jupiter.api.Assertions.fail;
+ 
+ /**
+  * @author <a href="mailto:mstrukel@redhat.com">Marko Strukelj</a>
+@@ -109,6 +114,49 @@ public class GroupTest extends AbstractGroupTest {
+     @InjectHttpClient
+     CloseableHttpClient httpClient;
+ 
++    
++    @Test
++    public void createMultiDeleteMultiReadMulti() {
++        // create multiple groups
++        List<String> groupUuuids = new ArrayList<>();
++        IntStream.range(0, 100).forEach(groupIndex -> {
++            GroupRepresentation group = new GroupRepresentation();
++            group.setName("Test Group " + groupIndex);
++            try (Response response = managedRealm.admin().groups().add(group)) {
++                boolean created = response.getStatusInfo().getFamily() == Response.Status.Family.SUCCESSFUL;
++                if (created) {
++                    final String groupUuid = ApiUtil.getCreatedId(response);
++                    groupUuuids.add(groupUuid);
++                } else {
++                    fail("Failed to create group: " + response.getStatusInfo().getReasonPhrase());
++                }
++            }
++        });
++
++        AtomicBoolean deletedAll = new AtomicBoolean(false);
++        List<Exception> caughtExceptions = new CopyOnWriteArrayList<>();
++        // read groups in a separate thread
++        new Thread(() -> {
++            while (!deletedAll.get()) {
++                try {
++                    // just loading briefs
++                    managedRealm.admin().groups().groups(null, 0, Integer.MAX_VALUE, true);
++                } catch (Exception e) {
++
++                    caughtExceptions.add(e);
++                }
++            }
++        }).start();
++
++        // delete groups
++        groupUuuids.forEach(groupUuid -> {
++            managedRealm.admin().groups().group(groupUuid).remove();
++        });
++        deletedAll.set(true);
++
++        assertThat(caughtExceptions, Matchers.empty());
++    }
++
+     // KEYCLOAK-2716 Can't delete client if its role is assigned to a group
+     @Test
+     public void testClientRemoveWithClientRoleGroupMapping() {

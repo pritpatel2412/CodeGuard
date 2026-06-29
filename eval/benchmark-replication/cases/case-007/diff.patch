@@ -1,0 +1,1777 @@
+From f34b597806813f0485629dd301e0058bb80b2b6d Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Wed, 30 Aug 2023 16:58:42 -0400
+Subject: [PATCH 01/15] Add credential sync .env variables
+
+---
+ .env.example | 14 ++++++++++++++
+ turbo.json   |  2 ++
+ 2 files changed, 16 insertions(+)
+
+diff --git a/.env.example b/.env.example
+index 56b08079bac5ba..a7ee6f378ec6b3 100644
+--- a/.env.example
++++ b/.env.example
+@@ -225,3 +225,17 @@ AUTH_BEARER_TOKEN_VERCEL=
+ # Used for E2E tests on Apple Calendar
+ E2E_TEST_APPLE_CALENDAR_EMAIL=""
+ E2E_TEST_APPLE_CALENDAR_PASSWORD=""
++
++# - APP CREDENTIAL SYNC ***********************************************************************************
++# Used for self-hosters that are implementing Cal.com into their applications that already have certain integrations
++# Under settings/admin/apps ensure that all app secrets are set the same as the parent application
++DISABLE_APP_STORE=false
++# You can use: `openssl rand -base64 32` to generate one
++CALCOM_WEBHOOK_SECRET=""
++# This is the header name that will be used to verify the webhook secret. Should be in lowercase
++CALCOM_WEBHOOK_HEADER_NAME="calcom-webhook-secret"
++CALCOM_CREDENTIAL_SYNC_ENDPOINT=""
++# Should key should match on Cal.com and your application
++# must be 32 bytes for AES256 encryption algorithm
++# You can use: `openssl rand -base64 24` to generate one
++CALCOM_APP_CREDENTIAL_ENCRYPTION_KEY=""
+diff --git a/turbo.json b/turbo.json
+index 52b8c966649b79..001108b4c4b0cf 100644
+--- a/turbo.json
++++ b/turbo.json
+@@ -185,10 +185,12 @@
+     "BASECAMP3_USER_AGENT",
+     "AUTH_BEARER_TOKEN_VERCEL",
+     "BUILD_ID",
++    "CALCOM_APP_CREDENTIAL_ENCRYPTION_KEY",
+     "CALCOM_ENV",
+     "CALCOM_LICENSE_KEY",
+     "CALCOM_TELEMETRY_DISABLED",
+     "CALENDSO_ENCRYPTION_KEY",
++    "CALCOM_WEBHOOK_SECRET",
+     "CI",
+     "CLOSECOM_API_KEY",
+     "CRON_API_KEY",
+
+From c93a46ba93858a6507b1b214e997a1d0d67267c3 Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Wed, 30 Aug 2023 16:59:07 -0400
+Subject: [PATCH 02/15] Add webhook to send app credentials
+
+---
+ apps/web/pages/api/webhook/app-credential.ts | 62 ++++++++++++++++++++
+ packages/lib/constants.ts                    |  3 +
+ 2 files changed, 65 insertions(+)
+ create mode 100644 apps/web/pages/api/webhook/app-credential.ts
+
+diff --git a/apps/web/pages/api/webhook/app-credential.ts b/apps/web/pages/api/webhook/app-credential.ts
+new file mode 100644
+index 00000000000000..53295058d7c299
+--- /dev/null
++++ b/apps/web/pages/api/webhook/app-credential.ts
+@@ -0,0 +1,62 @@
++import type { NextApiRequest, NextApiResponse } from "next";
++import z from "zod";
++
++import { appStoreMetadata } from "@calcom/app-store/appStoreMetaData";
++import { APP_CREDENTIAL_SHARING_ENABLED } from "@calcom/lib/constants";
++import prisma from "@calcom/prisma";
++
++const appCredentialWebhookRequestBodySchema = z.object({
++  // UserId of the cal.com user
++  userId: z.number().int(),
++  //   The dirname of the app under packages/app-store
++  appDirName: z.string(),
++  //   keys: z.object({}),
++});
++/** */
++export default async function handler(req: NextApiRequest, res: NextApiResponse) {
++  // Check that credential sharing is enabled
++  if (!APP_CREDENTIAL_SHARING_ENABLED) {
++    return res.status(403).json({ message: "Credential sharing is not enabled" });
++  }
++
++  // Check that the webhook secret matches
++  if (req.headers["calcom-webhook-secret"] !== process.env.CALCOM_WEBHOOK_SECRET) {
++    return res.status(403).json({ message: "Invalid webhook secret" });
++  }
++
++  const reqBody = appCredentialWebhookRequestBodySchema.parse(req.body);
++
++  // Check that the user exists
++  const user = await prisma.user.findUnique({ where: { id: reqBody.userId } });
++
++  if (!user) {
++    return res.status(404).json({ message: "User not found" });
++  }
++
++  //   Search for the app's slug and type
++  const appMetadata = appStoreMetadata[reqBody.appDirName as keyof typeof appStoreMetadata];
++
++  if (!appMetadata) {
++    return res.status(404).json({ message: "App not found. Ensure that you have the correct appDir" });
++  }
++
++  // Write the credential to the database
++  await prisma.credential.upsert({
++    where: {
++      userId: reqBody.userId,
++      type: appMetadata.type,
++      appId: appMetadata.slug,
++    },
++    create: {
++      type: appMetadata.type,
++      key: reqBody.keys,
++      userId: reqBody.userId,
++      appId: appMetadata.slug,
++    },
++    update: {
++      key: reqBody.keys,
++    },
++  });
++
++  return res.status(200).json({ message: `Credentials updated for userId: ${reqBody.userId}` });
++}
+diff --git a/packages/lib/constants.ts b/packages/lib/constants.ts
+index 714626527b983b..05607b8c248241 100644
+--- a/packages/lib/constants.ts
++++ b/packages/lib/constants.ts
+@@ -98,3 +98,6 @@ export const ORGANIZATION_MIN_SEATS = 30;
+ // Needed for emails in E2E
+ export const IS_MAILHOG_ENABLED = process.env.E2E_TEST_MAILHOG_ENABLED === "1";
+ export const CALCOM_VERSION = process.env.NEXT_PUBLIC_CALCOM_VERSION as string;
++
++export const APP_CREDENTIAL_SHARING_ENABLED =
++  process.env.CALCOM_WEBHOOK_SECRET && process.env.CALCOM_APP_CREDENTIAL_ENCRYPTION_KEY;
+
+From 142631c6756f493f584f88b5cc1ccffda715dc1b Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Thu, 31 Aug 2023 13:13:35 -0400
+Subject: [PATCH 03/15] Upsert credentials when webhook called
+
+---
+ apps/web/pages/api/webhook/app-credential.ts | 40 +++++++++++++-------
+ 1 file changed, 27 insertions(+), 13 deletions(-)
+
+diff --git a/apps/web/pages/api/webhook/app-credential.ts b/apps/web/pages/api/webhook/app-credential.ts
+index 53295058d7c299..d3d7f6786fad59 100644
+--- a/apps/web/pages/api/webhook/app-credential.ts
++++ b/apps/web/pages/api/webhook/app-credential.ts
+@@ -10,7 +10,7 @@ const appCredentialWebhookRequestBodySchema = z.object({
+   userId: z.number().int(),
+   //   The dirname of the app under packages/app-store
+   appDirName: z.string(),
+-  //   keys: z.object({}),
++  keys: z.record(z.any()),
+ });
+ /** */
+ export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+@@ -25,6 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
+   }
+ 
+   const reqBody = appCredentialWebhookRequestBodySchema.parse(req.body);
++  console.log("🚀 ~ file: app-credential.ts:28 ~ handler ~ reqBody:", reqBody);
+ 
+   // Check that the user exists
+   const user = await prisma.user.findUnique({ where: { id: reqBody.userId } });
+@@ -40,23 +41,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
+     return res.status(404).json({ message: "App not found. Ensure that you have the correct appDir" });
+   }
+ 
+-  // Write the credential to the database
+-  await prisma.credential.upsert({
++  // Can't use prisma upsert as we don't know the id of the credential
++  const appCredential = await prisma.credential.findFirst({
+     where: {
+       userId: reqBody.userId,
+-      type: appMetadata.type,
+       appId: appMetadata.slug,
+     },
+-    create: {
+-      type: appMetadata.type,
+-      key: reqBody.keys,
+-      userId: reqBody.userId,
+-      appId: appMetadata.slug,
+-    },
+-    update: {
+-      key: reqBody.keys,
++    select: {
++      id: true,
+     },
+   });
+ 
+-  return res.status(200).json({ message: `Credentials updated for userId: ${reqBody.userId}` });
++  if (appCredential) {
++    await prisma.credential.update({
++      where: {
++        id: appCredential.id,
++      },
++      data: {
++        key: reqBody.keys,
++      },
++    });
++    return res.status(200).json({ message: `Credentials updated for userId: ${reqBody.userId}` });
++  } else {
++    await prisma.credential.create({
++      data: {
++        key: reqBody.keys,
++        userId: reqBody.userId,
++        appId: appMetadata.slug,
++        type: appMetadata.type,
++      },
++    });
++    return res.status(200).json({ message: `Credentials created for userId: ${reqBody.userId}` });
++  }
+ }
+
+From db5112de1fd3463fb1615825d694a53dee740cb9 Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Thu, 31 Aug 2023 19:29:21 -0400
+Subject: [PATCH 04/15] Refresh oauth token from a specific endpoint
+
+---
+ apps/web/pages/api/webhook/app-credential.ts  |  1 -
+ .../app-store/_utils/refreshOAuthTokens.ts    | 20 ++++++++++
+ .../zoomvideo/lib/VideoApiAdapter.ts          | 39 +++++++++++++------
+ turbo.json                                    |  1 +
+ 4 files changed, 49 insertions(+), 12 deletions(-)
+ create mode 100644 packages/app-store/_utils/refreshOAuthTokens.ts
+
+diff --git a/apps/web/pages/api/webhook/app-credential.ts b/apps/web/pages/api/webhook/app-credential.ts
+index d3d7f6786fad59..87b6212aa1ed81 100644
+--- a/apps/web/pages/api/webhook/app-credential.ts
++++ b/apps/web/pages/api/webhook/app-credential.ts
+@@ -25,7 +25,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
+   }
+ 
+   const reqBody = appCredentialWebhookRequestBodySchema.parse(req.body);
+-  console.log("🚀 ~ file: app-credential.ts:28 ~ handler ~ reqBody:", reqBody);
+ 
+   // Check that the user exists
+   const user = await prisma.user.findUnique({ where: { id: reqBody.userId } });
+diff --git a/packages/app-store/_utils/refreshOAuthTokens.ts b/packages/app-store/_utils/refreshOAuthTokens.ts
+new file mode 100644
+index 00000000000000..eaa8ef1e09de8d
+--- /dev/null
++++ b/packages/app-store/_utils/refreshOAuthTokens.ts
+@@ -0,0 +1,20 @@
++import { APP_CREDENTIAL_SHARING_ENABLED } from "@calcom/lib/constants";
++
++const refreshOAuthTokens = async (refreshFunction: () => any, userId: number) => {
++  // Check that app syncing is enabled
++  if (APP_CREDENTIAL_SHARING_ENABLED && process.env.CALCOM_CREDENTIAL_SYNC_ENDPOINT) {
++    // Customize the payload based on what your endpoint requires
++    const response = await fetch(process.env.CALCOM_CREDENTIAL_SYNC_ENDPOINT, {
++      method: "POST",
++      body: new URLSearchParams({
++        calcomUserId: userId.toString(),
++      }),
++    });
++    return response;
++  } else {
++    const response = await refreshFunction();
++    return response;
++  }
++};
++
++export default refreshOAuthTokens;
+diff --git a/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts b/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts
+index ef227596c7c6b1..0e7ff0437f9fe8 100644
+--- a/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts
++++ b/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts
+@@ -9,6 +9,7 @@ import type { CredentialPayload } from "@calcom/types/Credential";
+ import type { PartialReference } from "@calcom/types/EventManager";
+ import type { VideoApiAdapter, VideoCallData } from "@calcom/types/VideoApiAdapter";
+ 
++import refreshOAuthTokens from "../../_utils/refreshOAuthTokens";
+ import { getZoomAppKeys } from "./getZoomAppKeys";
+ 
+ /** @link https://marketplace.zoom.us/docs/api-reference/zoom-api/meetings/meetingcreate */
+@@ -74,17 +75,33 @@ const zoomAuth = (credential: CredentialPayload) => {
+     const { client_id, client_secret } = await getZoomAppKeys();
+     const authHeader = "Basic " + Buffer.from(client_id + ":" + client_secret).toString("base64");
+ 
+-    const response = await fetch("https://zoom.us/oauth/token", {
+-      method: "POST",
+-      headers: {
+-        Authorization: authHeader,
+-        "Content-Type": "application/x-www-form-urlencoded",
+-      },
+-      body: new URLSearchParams({
+-        refresh_token: refreshToken,
+-        grant_type: "refresh_token",
+-      }),
+-    });
++    const response = await refreshOAuthTokens(
++      () =>
++        fetch("https://zoom.us/oauth/token", {
++          method: "POST",
++          headers: {
++            Authorization: authHeader,
++            "Content-Type": "application/x-www-form-urlencoded",
++          },
++          body: new URLSearchParams({
++            refresh_token: refreshToken,
++            grant_type: "refresh_token",
++          }),
++        }),
++      credential.userId
++    );
++
++    // const response = await fetch("https://zoom.us/oauth/token", {
++    //   method: "POST",
++    //   headers: {
++    //     Authorization: authHeader,
++    //     "Content-Type": "application/x-www-form-urlencoded",
++    //   },
++    //   body: new URLSearchParams({
++    //     refresh_token: refreshToken,
++    //     grant_type: "refresh_token",
++    //   }),
++    // });
+ 
+     const responseBody = await handleZoomResponse(response, credential.id);
+ 
+diff --git a/turbo.json b/turbo.json
+index 001108b4c4b0cf..32e301b8838c29 100644
+--- a/turbo.json
++++ b/turbo.json
+@@ -186,6 +186,7 @@
+     "AUTH_BEARER_TOKEN_VERCEL",
+     "BUILD_ID",
+     "CALCOM_APP_CREDENTIAL_ENCRYPTION_KEY",
++    "CALCOM_CREDENTIAL_SYNC_ENDPOINT",
+     "CALCOM_ENV",
+     "CALCOM_LICENSE_KEY",
+     "CALCOM_TELEMETRY_DISABLED",
+
+From 5c49eb2c28cc2c281c24a857142ca95202aab5aa Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Thu, 31 Aug 2023 19:30:26 -0400
+Subject: [PATCH 05/15] Pass appSlug
+
+---
+ packages/app-store/_utils/refreshOAuthTokens.ts     | 3 ++-
+ packages/app-store/zoomvideo/lib/VideoApiAdapter.ts | 3 ++-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/packages/app-store/_utils/refreshOAuthTokens.ts b/packages/app-store/_utils/refreshOAuthTokens.ts
+index eaa8ef1e09de8d..64c694bc4b990f 100644
+--- a/packages/app-store/_utils/refreshOAuthTokens.ts
++++ b/packages/app-store/_utils/refreshOAuthTokens.ts
+@@ -1,6 +1,6 @@
+ import { APP_CREDENTIAL_SHARING_ENABLED } from "@calcom/lib/constants";
+ 
+-const refreshOAuthTokens = async (refreshFunction: () => any, userId: number) => {
++const refreshOAuthTokens = async (refreshFunction: () => any, userId: number, appSlug: string) => {
+   // Check that app syncing is enabled
+   if (APP_CREDENTIAL_SHARING_ENABLED && process.env.CALCOM_CREDENTIAL_SYNC_ENDPOINT) {
+     // Customize the payload based on what your endpoint requires
+@@ -8,6 +8,7 @@ const refreshOAuthTokens = async (refreshFunction: () => any, userId: number) =>
+       method: "POST",
+       body: new URLSearchParams({
+         calcomUserId: userId.toString(),
++        appSlug,
+       }),
+     });
+     return response;
+diff --git a/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts b/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts
+index 0e7ff0437f9fe8..9b91215b2369b5 100644
+--- a/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts
++++ b/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts
+@@ -88,7 +88,8 @@ const zoomAuth = (credential: CredentialPayload) => {
+             grant_type: "refresh_token",
+           }),
+         }),
+-      credential.userId
++      credential.userId,
++      "zoomvideo"
+     );
+ 
+     // const response = await fetch("https://zoom.us/oauth/token", {
+
+From 4f70a448767cb9741320e511bca018329613941c Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Tue, 5 Sep 2023 12:35:20 -0400
+Subject: [PATCH 06/15] Add credential encryption
+
+---
+ apps/web/pages/api/webhook/app-credential.ts  | 27 ++++++++++++++-----
+ .../app-store/_utils/refreshOAuthTokens.ts    |  1 +
+ turbo.json                                    |  1 +
+ 3 files changed, 23 insertions(+), 6 deletions(-)
+
+diff --git a/apps/web/pages/api/webhook/app-credential.ts b/apps/web/pages/api/webhook/app-credential.ts
+index 87b6212aa1ed81..edaf27a18c8820 100644
+--- a/apps/web/pages/api/webhook/app-credential.ts
++++ b/apps/web/pages/api/webhook/app-credential.ts
+@@ -3,14 +3,21 @@ import z from "zod";
+ 
+ import { appStoreMetadata } from "@calcom/app-store/appStoreMetaData";
+ import { APP_CREDENTIAL_SHARING_ENABLED } from "@calcom/lib/constants";
++import { symmetricDecrypt } from "@calcom/lib/crypto";
+ import prisma from "@calcom/prisma";
+ 
++// https://github.com/colinhacks/zod/discussions/839#discussioncomment-6488540
++const [firstAppKey, ...otherAppKeys] = Object.keys(appStoreMetadata) as (keyof typeof appStoreMetadata)[];
++
++const appMetadataEnum = z.enum([firstAppKey, ...otherAppKeys]);
++
+ const appCredentialWebhookRequestBodySchema = z.object({
+   // UserId of the cal.com user
+   userId: z.number().int(),
+-  //   The dirname of the app under packages/app-store
+-  appDirName: z.string(),
+-  keys: z.record(z.any()),
++  // The dirname of the app under packages/app-store
++  appDirName: appMetadataEnum,
++  // Keys should be AES256 encrypted with the CALCOM_APP_CREDENTIAL_ENCRYPTION_KEY
++  keys: z.string(),
+ });
+ /** */
+ export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+@@ -20,7 +27,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
+   }
+ 
+   // Check that the webhook secret matches
+-  if (req.headers["calcom-webhook-secret"] !== process.env.CALCOM_WEBHOOK_SECRET) {
++  if (
++    req.headers[process.env.CALCOM_WEBHOOK_HEADER_NAME || "calcom-webhook-secret"] !==
++    process.env.CALCOM_WEBHOOK_SECRET
++  ) {
+     return res.status(403).json({ message: "Invalid webhook secret" });
+   }
+ 
+@@ -40,6 +50,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
+     return res.status(404).json({ message: "App not found. Ensure that you have the correct appDir" });
+   }
+ 
++  // Decrypt the keys
++  const keys = JSON.parse(
++    symmetricDecrypt(reqBody.keys, process.env.CALCOM_APP_CREDENTIAL_ENCRYPTION_KEY || "")
++  );
++
+   // Can't use prisma upsert as we don't know the id of the credential
+   const appCredential = await prisma.credential.findFirst({
+     where: {
+@@ -57,14 +72,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
+         id: appCredential.id,
+       },
+       data: {
+-        key: reqBody.keys,
++        key: keys,
+       },
+     });
+     return res.status(200).json({ message: `Credentials updated for userId: ${reqBody.userId}` });
+   } else {
+     await prisma.credential.create({
+       data: {
+-        key: reqBody.keys,
++        key: keys,
+         userId: reqBody.userId,
+         appId: appMetadata.slug,
+         type: appMetadata.type,
+diff --git a/packages/app-store/_utils/refreshOAuthTokens.ts b/packages/app-store/_utils/refreshOAuthTokens.ts
+index 64c694bc4b990f..63afddcbcad778 100644
+--- a/packages/app-store/_utils/refreshOAuthTokens.ts
++++ b/packages/app-store/_utils/refreshOAuthTokens.ts
+@@ -4,6 +4,7 @@ const refreshOAuthTokens = async (refreshFunction: () => any, userId: number, ap
+   // Check that app syncing is enabled
+   if (APP_CREDENTIAL_SHARING_ENABLED && process.env.CALCOM_CREDENTIAL_SYNC_ENDPOINT) {
+     // Customize the payload based on what your endpoint requires
++    // The response should only contain the access token and expiry date
+     const response = await fetch(process.env.CALCOM_CREDENTIAL_SYNC_ENDPOINT, {
+       method: "POST",
+       body: new URLSearchParams({
+diff --git a/turbo.json b/turbo.json
+index 07a7babf0594ed..e3712469d8c401 100644
+--- a/turbo.json
++++ b/turbo.json
+@@ -202,6 +202,7 @@
+     "CALCOM_ENV",
+     "CALCOM_LICENSE_KEY",
+     "CALCOM_TELEMETRY_DISABLED",
++    "CALCOM_WEBHOOK_HEADER_NAME",
+     "CALENDSO_ENCRYPTION_KEY",
+     "CALCOM_WEBHOOK_SECRET",
+     "CI",
+
+From b122c7a5ce0a9eb12837266354aa151c7890c43d Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Tue, 5 Sep 2023 13:38:21 -0400
+Subject: [PATCH 07/15] Move oauth helps into a folder
+
+---
+ .../_utils/{ => oauth}/createOAuthAppCredential.ts         | 4 ++--
+ packages/app-store/_utils/{ => oauth}/decodeOAuthState.ts  | 2 +-
+ packages/app-store/_utils/{ => oauth}/encodeOAuthState.ts  | 2 +-
+ .../app-store/_utils/{ => oauth}/refreshOAuthTokens.ts     | 7 ++++---
+ packages/app-store/googlecalendar/api/add.ts               | 2 +-
+ packages/app-store/googlecalendar/api/callback.ts          | 2 +-
+ packages/app-store/hubspot/api/add.ts                      | 2 +-
+ packages/app-store/hubspot/api/callback.ts                 | 4 ++--
+ packages/app-store/larkcalendar/api/add.ts                 | 2 +-
+ packages/app-store/larkcalendar/api/callback.ts            | 2 +-
+ packages/app-store/office365calendar/api/add.ts            | 2 +-
+ packages/app-store/office365calendar/api/callback.ts       | 2 +-
+ packages/app-store/office365video/api/add.ts               | 2 +-
+ packages/app-store/office365video/api/callback.ts          | 4 ++--
+ packages/app-store/salesforce/api/add.ts                   | 2 +-
+ packages/app-store/salesforce/api/callback.ts              | 4 ++--
+ packages/app-store/stripepayment/api/callback.ts           | 2 +-
+ packages/app-store/tandemvideo/api/callback.ts             | 2 +-
+ packages/app-store/webex/api/callback.ts                   | 2 +-
+ packages/app-store/zoho-bigin/api/add.ts                   | 2 +-
+ packages/app-store/zoho-bigin/api/callback.ts              | 4 ++--
+ packages/app-store/zohocrm/api/_getAdd.ts                  | 2 +-
+ packages/app-store/zohocrm/api/callback.ts                 | 4 ++--
+ packages/app-store/zoomvideo/api/add.ts                    | 2 +-
+ packages/app-store/zoomvideo/api/callback.ts               | 2 +-
+ 25 files changed, 34 insertions(+), 33 deletions(-)
+ rename packages/app-store/_utils/{ => oauth}/createOAuthAppCredential.ts (92%)
+ rename packages/app-store/_utils/{ => oauth}/decodeOAuthState.ts (80%)
+ rename packages/app-store/_utils/{ => oauth}/encodeOAuthState.ts (81%)
+ rename packages/app-store/_utils/{ => oauth}/refreshOAuthTokens.ts (66%)
+
+diff --git a/packages/app-store/_utils/createOAuthAppCredential.ts b/packages/app-store/_utils/oauth/createOAuthAppCredential.ts
+similarity index 92%
+rename from packages/app-store/_utils/createOAuthAppCredential.ts
+rename to packages/app-store/_utils/oauth/createOAuthAppCredential.ts
+index fdd3dbe0256662..3e334e534a42a3 100644
+--- a/packages/app-store/_utils/createOAuthAppCredential.ts
++++ b/packages/app-store/_utils/oauth/createOAuthAppCredential.ts
+@@ -3,8 +3,8 @@ import type { NextApiRequest } from "next";
+ import { HttpError } from "@calcom/lib/http-error";
+ import prisma from "@calcom/prisma";
+ 
+-import { decodeOAuthState } from "./decodeOAuthState";
+-import { throwIfNotHaveAdminAccessToTeam } from "./throwIfNotHaveAdminAccessToTeam";
++import { decodeOAuthState } from "../oauth/decodeOAuthState";
++import { throwIfNotHaveAdminAccessToTeam } from "../throwIfNotHaveAdminAccessToTeam";
+ 
+ /**
+  * This function is used to create app credentials for either a user or a team
+diff --git a/packages/app-store/_utils/decodeOAuthState.ts b/packages/app-store/_utils/oauth/decodeOAuthState.ts
+similarity index 80%
+rename from packages/app-store/_utils/decodeOAuthState.ts
+rename to packages/app-store/_utils/oauth/decodeOAuthState.ts
+index 082d61177f932c..c300a808c66c36 100644
+--- a/packages/app-store/_utils/decodeOAuthState.ts
++++ b/packages/app-store/_utils/oauth/decodeOAuthState.ts
+@@ -1,6 +1,6 @@
+ import type { NextApiRequest } from "next";
+ 
+-import type { IntegrationOAuthCallbackState } from "../types";
++import type { IntegrationOAuthCallbackState } from "../../types";
+ 
+ export function decodeOAuthState(req: NextApiRequest) {
+   if (typeof req.query.state !== "string") {
+diff --git a/packages/app-store/_utils/encodeOAuthState.ts b/packages/app-store/_utils/oauth/encodeOAuthState.ts
+similarity index 81%
+rename from packages/app-store/_utils/encodeOAuthState.ts
+rename to packages/app-store/_utils/oauth/encodeOAuthState.ts
+index 03cfaafbbdd918..285642b8c8f207 100644
+--- a/packages/app-store/_utils/encodeOAuthState.ts
++++ b/packages/app-store/_utils/oauth/encodeOAuthState.ts
+@@ -1,6 +1,6 @@
+ import type { NextApiRequest } from "next";
+ 
+-import type { IntegrationOAuthCallbackState } from "../types";
++import type { IntegrationOAuthCallbackState } from "../../types";
+ 
+ export function encodeOAuthState(req: NextApiRequest) {
+   if (typeof req.query.state !== "string") {
+diff --git a/packages/app-store/_utils/refreshOAuthTokens.ts b/packages/app-store/_utils/oauth/refreshOAuthTokens.ts
+similarity index 66%
+rename from packages/app-store/_utils/refreshOAuthTokens.ts
+rename to packages/app-store/_utils/oauth/refreshOAuthTokens.ts
+index 63afddcbcad778..17cf222dbf58c5 100644
+--- a/packages/app-store/_utils/refreshOAuthTokens.ts
++++ b/packages/app-store/_utils/oauth/refreshOAuthTokens.ts
+@@ -1,8 +1,8 @@
+ import { APP_CREDENTIAL_SHARING_ENABLED } from "@calcom/lib/constants";
+ 
+-const refreshOAuthTokens = async (refreshFunction: () => any, userId: number, appSlug: string) => {
+-  // Check that app syncing is enabled
+-  if (APP_CREDENTIAL_SHARING_ENABLED && process.env.CALCOM_CREDENTIAL_SYNC_ENDPOINT) {
++const refreshOAuthTokens = async (refreshFunction: () => any, appSlug: string, userId: number | null) => {
++  // Check that app syncing is enabled and that the credential belongs to a user
++  if (APP_CREDENTIAL_SHARING_ENABLED && process.env.CALCOM_CREDENTIAL_SYNC_ENDPOINT && userId) {
+     // Customize the payload based on what your endpoint requires
+     // The response should only contain the access token and expiry date
+     const response = await fetch(process.env.CALCOM_CREDENTIAL_SYNC_ENDPOINT, {
+@@ -12,6 +12,7 @@ const refreshOAuthTokens = async (refreshFunction: () => any, userId: number, ap
+         appSlug,
+       }),
+     });
++    console.log("🚀 ~ file: refreshOAuthTokens.ts:15 ~ refreshOAuthTokens ~ response:", response);
+     return response;
+   } else {
+     const response = await refreshFunction();
+diff --git a/packages/app-store/googlecalendar/api/add.ts b/packages/app-store/googlecalendar/api/add.ts
+index 3f377c3eb47d09..d8e66a4818aa06 100644
+--- a/packages/app-store/googlecalendar/api/add.ts
++++ b/packages/app-store/googlecalendar/api/add.ts
+@@ -3,8 +3,8 @@ import type { NextApiRequest, NextApiResponse } from "next";
+ 
+ import { WEBAPP_URL_FOR_OAUTH } from "@calcom/lib/constants";
+ 
+-import { encodeOAuthState } from "../../_utils/encodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
++import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
+ 
+ const scopes = [
+   "https://www.googleapis.com/auth/calendar.readonly",
+diff --git a/packages/app-store/googlecalendar/api/callback.ts b/packages/app-store/googlecalendar/api/callback.ts
+index 61c40be381f23b..c65847396aa184 100644
+--- a/packages/app-store/googlecalendar/api/callback.ts
++++ b/packages/app-store/googlecalendar/api/callback.ts
+@@ -5,9 +5,9 @@ import { WEBAPP_URL_FOR_OAUTH, CAL_URL } from "@calcom/lib/constants";
+ import { getSafeRedirectUrl } from "@calcom/lib/getSafeRedirectUrl";
+ import prisma from "@calcom/prisma";
+ 
+-import { decodeOAuthState } from "../../_utils/decodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
+ import getInstalledAppPath from "../../_utils/getInstalledAppPath";
++import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
+ 
+ let client_id = "";
+ let client_secret = "";
+diff --git a/packages/app-store/hubspot/api/add.ts b/packages/app-store/hubspot/api/add.ts
+index a2af10fad6f050..ed7956fce75e5a 100644
+--- a/packages/app-store/hubspot/api/add.ts
++++ b/packages/app-store/hubspot/api/add.ts
+@@ -3,8 +3,8 @@ import type { NextApiRequest, NextApiResponse } from "next";
+ 
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ 
+-import { encodeOAuthState } from "../../_utils/encodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
++import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
+ 
+ const scopes = ["crm.objects.contacts.read", "crm.objects.contacts.write"];
+ 
+diff --git a/packages/app-store/hubspot/api/callback.ts b/packages/app-store/hubspot/api/callback.ts
+index d119573a2937b5..6321fce4097ddd 100644
+--- a/packages/app-store/hubspot/api/callback.ts
++++ b/packages/app-store/hubspot/api/callback.ts
+@@ -5,10 +5,10 @@ import type { NextApiRequest, NextApiResponse } from "next";
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ import { getSafeRedirectUrl } from "@calcom/lib/getSafeRedirectUrl";
+ 
+-import createOAuthAppCredential from "../../_utils/createOAuthAppCredential";
+-import { decodeOAuthState } from "../../_utils/decodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
+ import getInstalledAppPath from "../../_utils/getInstalledAppPath";
++import createOAuthAppCredential from "../../_utils/oauth/createOAuthAppCredential";
++import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
+ 
+ let client_id = "";
+ let client_secret = "";
+diff --git a/packages/app-store/larkcalendar/api/add.ts b/packages/app-store/larkcalendar/api/add.ts
+index 40b0ef79de4fff..5a1a5f4a3ee333 100644
+--- a/packages/app-store/larkcalendar/api/add.ts
++++ b/packages/app-store/larkcalendar/api/add.ts
+@@ -5,8 +5,8 @@ import { z } from "zod";
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ import { defaultHandler, defaultResponder } from "@calcom/lib/server";
+ 
+-import { encodeOAuthState } from "../../_utils/encodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
++import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
+ import { LARK_HOST } from "../common";
+ 
+ const larkKeysSchema = z.object({
+diff --git a/packages/app-store/larkcalendar/api/callback.ts b/packages/app-store/larkcalendar/api/callback.ts
+index 080aa4c331240e..accb63d9a602b7 100644
+--- a/packages/app-store/larkcalendar/api/callback.ts
++++ b/packages/app-store/larkcalendar/api/callback.ts
+@@ -6,8 +6,8 @@ import logger from "@calcom/lib/logger";
+ import { defaultHandler, defaultResponder } from "@calcom/lib/server";
+ import prisma from "@calcom/prisma";
+ 
+-import { decodeOAuthState } from "../../_utils/decodeOAuthState";
+ import getInstalledAppPath from "../../_utils/getInstalledAppPath";
++import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
+ import { LARK_HOST } from "../common";
+ import { getAppAccessToken } from "../lib/AppAccessToken";
+ import type { LarkAuthCredentials } from "../types/LarkCalendar";
+diff --git a/packages/app-store/office365calendar/api/add.ts b/packages/app-store/office365calendar/api/add.ts
+index 686fd8544de910..0cdeafaa2ee87d 100644
+--- a/packages/app-store/office365calendar/api/add.ts
++++ b/packages/app-store/office365calendar/api/add.ts
+@@ -3,8 +3,8 @@ import { stringify } from "querystring";
+ 
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ 
+-import { encodeOAuthState } from "../../_utils/encodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
++import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
+ 
+ const scopes = ["User.Read", "Calendars.Read", "Calendars.ReadWrite", "offline_access"];
+ 
+diff --git a/packages/app-store/office365calendar/api/callback.ts b/packages/app-store/office365calendar/api/callback.ts
+index b1ce89937f9e23..17ae98c4f5a22c 100644
+--- a/packages/app-store/office365calendar/api/callback.ts
++++ b/packages/app-store/office365calendar/api/callback.ts
+@@ -4,9 +4,9 @@ import { WEBAPP_URL } from "@calcom/lib/constants";
+ import { getSafeRedirectUrl } from "@calcom/lib/getSafeRedirectUrl";
+ import prisma from "@calcom/prisma";
+ 
+-import { decodeOAuthState } from "../../_utils/decodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
+ import getInstalledAppPath from "../../_utils/getInstalledAppPath";
++import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
+ 
+ const scopes = ["offline_access", "Calendars.Read", "Calendars.ReadWrite"];
+ 
+diff --git a/packages/app-store/office365video/api/add.ts b/packages/app-store/office365video/api/add.ts
+index f1a3e622bd3c8c..2f3424cb2ea6ff 100644
+--- a/packages/app-store/office365video/api/add.ts
++++ b/packages/app-store/office365video/api/add.ts
+@@ -3,8 +3,8 @@ import { stringify } from "querystring";
+ 
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ 
+-import { encodeOAuthState } from "../../_utils/encodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
++import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
+ 
+ const scopes = ["OnlineMeetings.ReadWrite", "offline_access"];
+ 
+diff --git a/packages/app-store/office365video/api/callback.ts b/packages/app-store/office365video/api/callback.ts
+index 2a9c8bafe44959..27211f3dea4f1c 100644
+--- a/packages/app-store/office365video/api/callback.ts
++++ b/packages/app-store/office365video/api/callback.ts
+@@ -4,10 +4,10 @@ import { WEBAPP_URL } from "@calcom/lib/constants";
+ import { getSafeRedirectUrl } from "@calcom/lib/getSafeRedirectUrl";
+ import prisma from "@calcom/prisma";
+ 
+-import createOAuthAppCredential from "../../_utils/createOAuthAppCredential";
+-import { decodeOAuthState } from "../../_utils/decodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
+ import getInstalledAppPath from "../../_utils/getInstalledAppPath";
++import createOAuthAppCredential from "../../_utils/oauth/createOAuthAppCredential";
++import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
+ 
+ const scopes = ["OnlineMeetings.ReadWrite", "offline_access"];
+ 
+diff --git a/packages/app-store/salesforce/api/add.ts b/packages/app-store/salesforce/api/add.ts
+index 1406b50f0a2877..907afc723a35a6 100644
+--- a/packages/app-store/salesforce/api/add.ts
++++ b/packages/app-store/salesforce/api/add.ts
+@@ -3,8 +3,8 @@ import type { NextApiRequest, NextApiResponse } from "next";
+ 
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ 
+-import { encodeOAuthState } from "../../_utils/encodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
++import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
+ 
+ let consumer_key = "";
+ 
+diff --git a/packages/app-store/salesforce/api/callback.ts b/packages/app-store/salesforce/api/callback.ts
+index 7239406a5a4b85..739dbc2d962773 100644
+--- a/packages/app-store/salesforce/api/callback.ts
++++ b/packages/app-store/salesforce/api/callback.ts
+@@ -4,10 +4,10 @@ import type { NextApiRequest, NextApiResponse } from "next";
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ import { getSafeRedirectUrl } from "@calcom/lib/getSafeRedirectUrl";
+ 
+-import createOAuthAppCredential from "../../_utils/createOAuthAppCredential";
+-import { decodeOAuthState } from "../../_utils/decodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
+ import getInstalledAppPath from "../../_utils/getInstalledAppPath";
++import createOAuthAppCredential from "../../_utils/oauth/createOAuthAppCredential";
++import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
+ 
+ let consumer_key = "";
+ let consumer_secret = "";
+diff --git a/packages/app-store/stripepayment/api/callback.ts b/packages/app-store/stripepayment/api/callback.ts
+index 1ef7c274302be2..95c86fe408987e 100644
+--- a/packages/app-store/stripepayment/api/callback.ts
++++ b/packages/app-store/stripepayment/api/callback.ts
+@@ -2,8 +2,8 @@ import type { Prisma } from "@prisma/client";
+ import type { NextApiRequest, NextApiResponse } from "next";
+ import { stringify } from "querystring";
+ 
+-import createOAuthAppCredential from "../../_utils/createOAuthAppCredential";
+ import getInstalledAppPath from "../../_utils/getInstalledAppPath";
++import createOAuthAppCredential from "../../_utils/oauth/createOAuthAppCredential";
+ import type { StripeData } from "../lib/server";
+ import stripe from "../lib/server";
+ 
+diff --git a/packages/app-store/tandemvideo/api/callback.ts b/packages/app-store/tandemvideo/api/callback.ts
+index f5275f4f74a58c..7d94f7dc177c92 100644
+--- a/packages/app-store/tandemvideo/api/callback.ts
++++ b/packages/app-store/tandemvideo/api/callback.ts
+@@ -2,9 +2,9 @@ import type { NextApiRequest, NextApiResponse } from "next";
+ 
+ import prisma from "@calcom/prisma";
+ 
+-import createOAuthAppCredential from "../../_utils/createOAuthAppCredential";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
+ import getInstalledAppPath from "../../_utils/getInstalledAppPath";
++import createOAuthAppCredential from "../../_utils/oauth/createOAuthAppCredential";
+ 
+ let client_id = "";
+ let client_secret = "";
+diff --git a/packages/app-store/webex/api/callback.ts b/packages/app-store/webex/api/callback.ts
+index b2f5bad081b48e..7ad60171682508 100644
+--- a/packages/app-store/webex/api/callback.ts
++++ b/packages/app-store/webex/api/callback.ts
+@@ -3,8 +3,8 @@ import type { NextApiRequest, NextApiResponse } from "next";
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ import prisma from "@calcom/prisma";
+ 
+-import createOAuthAppCredential from "../../_utils/createOAuthAppCredential";
+ import getInstalledAppPath from "../../_utils/getInstalledAppPath";
++import createOAuthAppCredential from "../../_utils/oauth/createOAuthAppCredential";
+ import config from "../config.json";
+ import { getWebexAppKeys } from "../lib/getWebexAppKeys";
+ 
+diff --git a/packages/app-store/zoho-bigin/api/add.ts b/packages/app-store/zoho-bigin/api/add.ts
+index a77721186e373a..7f08cea4ac07c8 100644
+--- a/packages/app-store/zoho-bigin/api/add.ts
++++ b/packages/app-store/zoho-bigin/api/add.ts
+@@ -3,8 +3,8 @@ import type { NextApiRequest, NextApiResponse } from "next";
+ 
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ 
+-import { encodeOAuthState } from "../../_utils/encodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
++import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
+ import appConfig from "../config.json";
+ 
+ export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+diff --git a/packages/app-store/zoho-bigin/api/callback.ts b/packages/app-store/zoho-bigin/api/callback.ts
+index c8f219045f794e..85f5487d01d38c 100644
+--- a/packages/app-store/zoho-bigin/api/callback.ts
++++ b/packages/app-store/zoho-bigin/api/callback.ts
+@@ -5,10 +5,10 @@ import qs from "qs";
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ import { getSafeRedirectUrl } from "@calcom/lib/getSafeRedirectUrl";
+ 
+-import createOAuthAppCredential from "../../_utils/createOAuthAppCredential";
+-import { decodeOAuthState } from "../../_utils/decodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
+ import getInstalledAppPath from "../../_utils/getInstalledAppPath";
++import createOAuthAppCredential from "../../_utils/oauth/createOAuthAppCredential";
++import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
+ import appConfig from "../config.json";
+ 
+ export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+diff --git a/packages/app-store/zohocrm/api/_getAdd.ts b/packages/app-store/zohocrm/api/_getAdd.ts
+index edcc31888500bf..44be480eb5114a 100644
+--- a/packages/app-store/zohocrm/api/_getAdd.ts
++++ b/packages/app-store/zohocrm/api/_getAdd.ts
+@@ -2,8 +2,8 @@ import type { NextApiRequest, NextApiResponse } from "next";
+ 
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ 
+-import { encodeOAuthState } from "../../_utils/encodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
++import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
+ 
+ let client_id = "";
+ 
+diff --git a/packages/app-store/zohocrm/api/callback.ts b/packages/app-store/zohocrm/api/callback.ts
+index 32ae5bbb1beee9..224157a34c12cd 100644
+--- a/packages/app-store/zohocrm/api/callback.ts
++++ b/packages/app-store/zohocrm/api/callback.ts
+@@ -5,10 +5,10 @@ import qs from "qs";
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ import { getSafeRedirectUrl } from "@calcom/lib/getSafeRedirectUrl";
+ 
+-import createOAuthAppCredential from "../../_utils/createOAuthAppCredential";
+-import { decodeOAuthState } from "../../_utils/decodeOAuthState";
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
+ import getInstalledAppPath from "../../_utils/getInstalledAppPath";
++import createOAuthAppCredential from "../../_utils/oauth/createOAuthAppCredential";
++import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
+ 
+ let client_id = "";
+ let client_secret = "";
+diff --git a/packages/app-store/zoomvideo/api/add.ts b/packages/app-store/zoomvideo/api/add.ts
+index 508355605119b8..17c8797928459f 100644
+--- a/packages/app-store/zoomvideo/api/add.ts
++++ b/packages/app-store/zoomvideo/api/add.ts
+@@ -5,7 +5,7 @@ import { WEBAPP_URL } from "@calcom/lib/constants";
+ import { defaultHandler, defaultResponder } from "@calcom/lib/server";
+ import prisma from "@calcom/prisma";
+ 
+-import { encodeOAuthState } from "../../_utils/encodeOAuthState";
++import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
+ import { getZoomAppKeys } from "../lib";
+ 
+ async function handler(req: NextApiRequest) {
+diff --git a/packages/app-store/zoomvideo/api/callback.ts b/packages/app-store/zoomvideo/api/callback.ts
+index b97bab0f0249db..7c9c20d60ade04 100644
+--- a/packages/app-store/zoomvideo/api/callback.ts
++++ b/packages/app-store/zoomvideo/api/callback.ts
+@@ -3,8 +3,8 @@ import type { NextApiRequest, NextApiResponse } from "next";
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ import prisma from "@calcom/prisma";
+ 
+-import createOAuthAppCredential from "../../_utils/createOAuthAppCredential";
+ import getInstalledAppPath from "../../_utils/getInstalledAppPath";
++import createOAuthAppCredential from "../../_utils/oauth/createOAuthAppCredential";
+ import { getZoomAppKeys } from "../lib";
+ 
+ export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+
+From 8cae0001e24bde18dafd7dd10ba0664fa49aaba3 Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Tue, 5 Sep 2023 14:24:01 -0400
+Subject: [PATCH 08/15] Create parse token response wrapper
+
+---
+ .../_utils/oauth/parseRefreshTokenResponse.ts | 32 +++++++++++++++++++
+ .../_utils/oauth/refreshOAuthTokens.ts        |  1 -
+ 2 files changed, 32 insertions(+), 1 deletion(-)
+ create mode 100644 packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts
+
+diff --git a/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts b/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts
+new file mode 100644
+index 00000000000000..1abbdb99da9098
+--- /dev/null
++++ b/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts
+@@ -0,0 +1,32 @@
++import { z } from "zod";
++
++import { APP_CREDENTIAL_SHARING_ENABLED } from "@calcom/lib/constants";
++
++const minimumTokenReponseSchema = z.object({
++  access_token: z.string(),
++  //   Assume that any property with a number is the expiry
++  [z.string().toString()]: z.number(),
++  //   Allow other properties in the token response
++  [z.string().optional().toString()]: z.unknown().optional(),
++});
++
++const parseRefreshTokenResponse = (response: any, schema: z.ZodTypeAny) => {
++  let refreshTokenResponse;
++  if (APP_CREDENTIAL_SHARING_ENABLED && process.env.CALCOM_CREDENTIAL_SYNC_ENDPOINT) {
++    refreshTokenResponse = minimumTokenReponseSchema.safeParse(response);
++  } else {
++    refreshTokenResponse = schema.parse(response);
++  }
++
++  if (!refreshTokenResponse.success) {
++    throw new Error("Invalid refreshed tokens were returned");
++  }
++
++  if (!refreshTokenResponse.data.refresh_token) {
++    refreshTokenResponse.data.refresh_token = "refresh_token";
++  }
++
++  return refreshTokenResponse;
++};
++
++export default parseRefreshTokenResponse;
+diff --git a/packages/app-store/_utils/oauth/refreshOAuthTokens.ts b/packages/app-store/_utils/oauth/refreshOAuthTokens.ts
+index 17cf222dbf58c5..b667154c90752f 100644
+--- a/packages/app-store/_utils/oauth/refreshOAuthTokens.ts
++++ b/packages/app-store/_utils/oauth/refreshOAuthTokens.ts
+@@ -12,7 +12,6 @@ const refreshOAuthTokens = async (refreshFunction: () => any, appSlug: string, u
+         appSlug,
+       }),
+     });
+-    console.log("🚀 ~ file: refreshOAuthTokens.ts:15 ~ refreshOAuthTokens ~ response:", response);
+     return response;
+   } else {
+     const response = await refreshFunction();
+
+From 93622b818d6e413de6509ef66fceee9474a8e479 Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Tue, 5 Sep 2023 23:26:37 -0400
+Subject: [PATCH 09/15] Add OAuth helpers to apps
+
+---
+ .../googlecalendar/lib/CalendarService.ts     | 16 ++++++--
+ .../larkcalendar/lib/CalendarService.ts       | 28 ++++++++------
+ .../office365calendar/lib/CalendarService.ts  | 31 +++++++++------
+ .../office365video/lib/VideoApiAdapter.ts     | 26 ++++++++-----
+ .../salesforce/lib/CalendarService.ts         | 38 +++++++++++++++++++
+ .../app-store/webex/lib/VideoApiAdapter.ts    | 30 +++++++++------
+ packages/app-store/zoho-bigin/api/add.ts      |  2 +-
+ .../zoho-bigin/lib/CalendarService.ts         | 16 +++++---
+ packages/app-store/zohocrm/api/_getAdd.ts     | 18 ++++++++-
+ .../app-store/zohocrm/lib/CalendarService.ts  | 22 +++++++----
+ .../zoomvideo/lib/VideoApiAdapter.ts          | 25 ++++--------
+ 11 files changed, 170 insertions(+), 82 deletions(-)
+
+diff --git a/packages/app-store/googlecalendar/lib/CalendarService.ts b/packages/app-store/googlecalendar/lib/CalendarService.ts
+index e0b98b2ca00224..abfce4425e2f87 100644
+--- a/packages/app-store/googlecalendar/lib/CalendarService.ts
++++ b/packages/app-store/googlecalendar/lib/CalendarService.ts
+@@ -17,6 +17,8 @@ import type {
+ } from "@calcom/types/Calendar";
+ import type { CredentialPayload } from "@calcom/types/Credential";
+ 
++import parseRefreshTokenResponse from "../../_utils/oauth/parseRefreshTokenResponse";
++import refreshOAuthTokens from "../../_utils/oauth/refreshOAuthTokens";
+ import { getGoogleAppKeys } from "./getGoogleAppKeys";
+ import { googleCredentialSchema } from "./googleCredentialSchema";
+ 
+@@ -47,11 +49,18 @@ export default class GoogleCalendarService implements Calendar {
+ 
+     const refreshAccessToken = async (myGoogleAuth: Awaited<ReturnType<typeof getGoogleAuth>>) => {
+       try {
+-        const { res } = await myGoogleAuth.refreshToken(googleCredentials.refresh_token);
++        const res = await refreshOAuthTokens(
++          async () => {
++            const fetchTokens = await myGoogleAuth.refreshToken(googleCredentials.refresh_token);
++            return fetchTokens.res;
++          },
++          "google-calendar",
++          credential.userId
++        );
+         const token = res?.data;
+         googleCredentials.access_token = token.access_token;
+         googleCredentials.expiry_date = token.expiry_date;
+-        const key = googleCredentialSchema.parse(googleCredentials);
++        const key = parseRefreshTokenResponse(googleCredentials, googleCredentialSchema);
+         await prisma.credential.update({
+           where: { id: credential.id },
+           data: { key },
+@@ -78,7 +87,8 @@ export default class GoogleCalendarService implements Calendar {
+     return {
+       getToken: async () => {
+         const myGoogleAuth = await getGoogleAuth();
+-        const isExpired = () => myGoogleAuth.isTokenExpiring();
++        // const isExpired = () => myGoogleAuth.isTokenExpiring();
++        const isExpired = () => true;
+         return !isExpired() ? Promise.resolve(myGoogleAuth) : refreshAccessToken(myGoogleAuth);
+       },
+     };
+diff --git a/packages/app-store/larkcalendar/lib/CalendarService.ts b/packages/app-store/larkcalendar/lib/CalendarService.ts
+index f2979b5952616a..5c4520d33c32c7 100644
+--- a/packages/app-store/larkcalendar/lib/CalendarService.ts
++++ b/packages/app-store/larkcalendar/lib/CalendarService.ts
+@@ -11,6 +11,7 @@ import type {
+ } from "@calcom/types/Calendar";
+ import type { CredentialPayload } from "@calcom/types/Credential";
+ 
++import refreshOAuthTokens from "../../_utils/oauth/refreshOAuthTokens";
+ import { handleLarkError, isExpired, LARK_HOST } from "../common";
+ import type {
+   CreateAttendeesResp,
+@@ -61,17 +62,22 @@ export default class LarkCalendarService implements Calendar {
+     }
+     try {
+       const appAccessToken = await getAppAccessToken();
+-      const resp = await fetch(`${this.url}/authen/v1/refresh_access_token`, {
+-        method: "POST",
+-        headers: {
+-          Authorization: `Bearer ${appAccessToken}`,
+-          "Content-Type": "application/json; charset=utf-8",
+-        },
+-        body: JSON.stringify({
+-          grant_type: "refresh_token",
+-          refresh_token: refreshToken,
+-        }),
+-      });
++      const resp = await refreshOAuthTokens(
++        async () =>
++          await fetch(`${this.url}/authen/v1/refresh_access_token`, {
++            method: "POST",
++            headers: {
++              Authorization: `Bearer ${appAccessToken}`,
++              "Content-Type": "application/json; charset=utf-8",
++            },
++            body: JSON.stringify({
++              grant_type: "refresh_token",
++              refresh_token: refreshToken,
++            }),
++          }),
++        "lark-calendar",
++        credential.userId
++      );
+ 
+       const data = await handleLarkError<RefreshTokenResp>(resp, this.log);
+       this.log.debug(
+diff --git a/packages/app-store/office365calendar/lib/CalendarService.ts b/packages/app-store/office365calendar/lib/CalendarService.ts
+index 5283eed71910ce..76b052a8d84aaa 100644
+--- a/packages/app-store/office365calendar/lib/CalendarService.ts
++++ b/packages/app-store/office365calendar/lib/CalendarService.ts
+@@ -17,6 +17,8 @@ import type {
+ } from "@calcom/types/Calendar";
+ import type { CredentialPayload } from "@calcom/types/Credential";
+ 
++import parseRefreshTokenResponse from "../../_utils/oauth/parseRefreshTokenResponse";
++import refreshOAuthTokens from "../../_utils/oauth/refreshOAuthTokens";
+ import type { O365AuthCredentials } from "../types/Office365Calendar";
+ import { getOfficeAppKeys } from "./getOfficeAppKeys";
+ 
+@@ -237,19 +239,24 @@ export default class Office365CalendarService implements Calendar {
+ 
+     const refreshAccessToken = async (o365AuthCredentials: O365AuthCredentials) => {
+       const { client_id, client_secret } = await getOfficeAppKeys();
+-      const response = await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
+-        method: "POST",
+-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+-        body: new URLSearchParams({
+-          scope: "User.Read Calendars.Read Calendars.ReadWrite",
+-          client_id,
+-          refresh_token: o365AuthCredentials.refresh_token,
+-          grant_type: "refresh_token",
+-          client_secret,
+-        }),
+-      });
++      const response = await refreshOAuthTokens(
++        async () =>
++          await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
++            method: "POST",
++            headers: { "Content-Type": "application/x-www-form-urlencoded" },
++            body: new URLSearchParams({
++              scope: "User.Read Calendars.Read Calendars.ReadWrite",
++              client_id,
++              refresh_token: o365AuthCredentials.refresh_token,
++              grant_type: "refresh_token",
++              client_secret,
++            }),
++          }),
++        "office365-calendar",
++        credential.userId
++      );
+       const responseJson = await handleErrorsJson(response);
+-      const tokenResponse = refreshTokenResponseSchema.safeParse(responseJson);
++      const tokenResponse = parseRefreshTokenResponse(responseJson, refreshTokenResponseSchema);
+       o365AuthCredentials = { ...o365AuthCredentials, ...(tokenResponse.success && tokenResponse.data) };
+       if (!tokenResponse.success) {
+         console.error(
+diff --git a/packages/app-store/office365video/lib/VideoApiAdapter.ts b/packages/app-store/office365video/lib/VideoApiAdapter.ts
+index 44c096b4aa4b4a..06521d11239083 100644
+--- a/packages/app-store/office365video/lib/VideoApiAdapter.ts
++++ b/packages/app-store/office365video/lib/VideoApiAdapter.ts
+@@ -9,6 +9,7 @@ import type { PartialReference } from "@calcom/types/EventManager";
+ import type { VideoApiAdapter, VideoCallData } from "@calcom/types/VideoApiAdapter";
+ 
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
++import refreshOAuthTokens from "../../_utils/oauth/refreshOAuthTokens";
+ 
+ let client_id = "";
+ let client_secret = "";
+@@ -57,16 +58,21 @@ const o365Auth = async (credential: CredentialPayload) => {
+   const o365AuthCredentials = credential.key as unknown as O365AuthCredentials;
+ 
+   const refreshAccessToken = async (refreshToken: string) => {
+-    const response = await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
+-      method: "POST",
+-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+-      body: new URLSearchParams({
+-        client_id,
+-        refresh_token: refreshToken,
+-        grant_type: "refresh_token",
+-        client_secret,
+-      }),
+-    });
++    const response = await refreshOAuthTokens(
++      async () =>
++        await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
++          method: "POST",
++          headers: { "Content-Type": "application/x-www-form-urlencoded" },
++          body: new URLSearchParams({
++            client_id,
++            refresh_token: refreshToken,
++            grant_type: "refresh_token",
++            client_secret,
++          }),
++        }),
++      "msteams",
++      credential.userId
++    );
+ 
+     const responseBody = await handleErrorsJson<ITokenResponse>(response);
+ 
+diff --git a/packages/app-store/salesforce/lib/CalendarService.ts b/packages/app-store/salesforce/lib/CalendarService.ts
+index ab09fff1e78316..3d14994af4d6d1 100644
+--- a/packages/app-store/salesforce/lib/CalendarService.ts
++++ b/packages/app-store/salesforce/lib/CalendarService.ts
+@@ -1,6 +1,7 @@
+ import type { TokenResponse } from "jsforce";
+ import jsforce from "jsforce";
+ import { RRule } from "rrule";
++import { z } from "zod";
+ 
+ import { getLocation } from "@calcom/lib/CalEventParser";
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+@@ -16,6 +17,7 @@ import type {
+ import type { CredentialPayload } from "@calcom/types/Credential";
+ 
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
++import parseRefreshTokenResponse from "../../_utils/oauth/parseRefreshTokenResponse";
+ 
+ type ExtendedTokenResponse = TokenResponse & {
+   instance_url: string;
+@@ -34,6 +36,16 @@ const sfApiErrors = {
+   INVALID_EVENTWHOIDS: "INVALID_FIELD: No such column 'EventWhoIds' on sobject of type Event",
+ };
+ 
++const salesforceTokenSchema = z.object({
++  id: z.string(),
++  issued_at: z.string(),
++  instance_url: z.string(),
++  signature: z.string(),
++  access_token: z.string(),
++  scope: z.string(),
++  token_type: z.string(),
++});
++
+ export default class SalesforceCalendarService implements Calendar {
+   private integrationName = "";
+   private conn: Promise<jsforce.Connection>;
+@@ -60,6 +72,32 @@ export default class SalesforceCalendarService implements Calendar {
+ 
+     const credentialKey = credential.key as unknown as ExtendedTokenResponse;
+ 
++    const response = await fetch("https://login.salesforce.com/services/oauth2/token", {
++      method: "POST",
++      body: new URLSearchParams({
++        grant_type: "refresh_token",
++        client_id: consumer_key,
++        client_secret: consumer_secret,
++        refresh_token: credentialKey.refresh_token,
++        format: "json",
++      }),
++    });
++
++    if (response.statusText !== "OK") throw new HttpError({ statusCode: 400, message: response.statusText });
++
++    const accessTokenJson = await response.json();
++
++    const accessTokenParsed = parseRefreshTokenResponse(accessTokenJson, salesforceTokenSchema);
++
++    if (!accessTokenParsed.success) {
++      return Promise.reject(new Error("Invalid refreshed tokens were returned"));
++    }
++
++    await prisma.credential.update({
++      where: { id: credential.id },
++      data: { key: { ...accessTokenParsed.data, refresh_token: credentialKey.refresh_token } },
++    });
++
+     return new jsforce.Connection({
+       clientId: consumer_key,
+       clientSecret: consumer_secret,
+diff --git a/packages/app-store/webex/lib/VideoApiAdapter.ts b/packages/app-store/webex/lib/VideoApiAdapter.ts
+index f7f47291143122..37b0d3b1993a36 100644
+--- a/packages/app-store/webex/lib/VideoApiAdapter.ts
++++ b/packages/app-store/webex/lib/VideoApiAdapter.ts
+@@ -8,6 +8,7 @@ import type { CredentialPayload } from "@calcom/types/Credential";
+ import type { PartialReference } from "@calcom/types/EventManager";
+ import type { VideoApiAdapter, VideoCallData } from "@calcom/types/VideoApiAdapter";
+ 
++import refreshOAuthTokens from "../../_utils/oauth/refreshOAuthTokens";
+ import { getWebexAppKeys } from "./getWebexAppKeys";
+ 
+ /** @link https://developer.webex.com/docs/meetings **/
+@@ -58,18 +59,23 @@ const webexAuth = (credential: CredentialPayload) => {
+   const refreshAccessToken = async (refreshToken: string) => {
+     const { client_id, client_secret } = await getWebexAppKeys();
+ 
+-    const response = await fetch("https://webexapis.com/v1/access_token", {
+-      method: "POST",
+-      headers: {
+-        "Content-type": "application/x-www-form-urlencoded",
+-      },
+-      body: new URLSearchParams({
+-        grant_type: "refresh_token",
+-        client_id: client_id,
+-        client_secret: client_secret,
+-        refresh_token: refreshToken,
+-      }),
+-    });
++    const response = await refreshOAuthTokens(
++      async () =>
++        await fetch("https://webexapis.com/v1/access_token", {
++          method: "POST",
++          headers: {
++            "Content-type": "application/x-www-form-urlencoded",
++          },
++          body: new URLSearchParams({
++            grant_type: "refresh_token",
++            client_id: client_id,
++            client_secret: client_secret,
++            refresh_token: refreshToken,
++          }),
++        }),
++      "webex",
++      credential.userId
++    );
+ 
+     const responseBody = await handleWebexResponse(response, credential.id);
+ 
+diff --git a/packages/app-store/zoho-bigin/api/add.ts b/packages/app-store/zoho-bigin/api/add.ts
+index 7f08cea4ac07c8..807321df7120b7 100644
+--- a/packages/app-store/zoho-bigin/api/add.ts
++++ b/packages/app-store/zoho-bigin/api/add.ts
+@@ -14,7 +14,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
+     const clientId = typeof appKeys.client_id === "string" ? appKeys.client_id : "";
+     if (!clientId) return res.status(400).json({ message: "Zoho Bigin client_id missing." });
+ 
+-    const redirectUri = WEBAPP_URL + `/api/integrations/${appConfig.slug}/callback`;
++    const redirectUri = WEBAPP_URL + `/api/integrations/zoho-bigin/callback`;
+ 
+     const authUrl = axios.getUri({
+       url: "https://accounts.zoho.com/oauth/v2/auth",
+diff --git a/packages/app-store/zoho-bigin/lib/CalendarService.ts b/packages/app-store/zoho-bigin/lib/CalendarService.ts
+index 7f1ba1625bcf11..676c8062ef7be5 100644
+--- a/packages/app-store/zoho-bigin/lib/CalendarService.ts
++++ b/packages/app-store/zoho-bigin/lib/CalendarService.ts
+@@ -15,6 +15,7 @@ import type {
+ import type { CredentialPayload } from "@calcom/types/Credential";
+ 
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
++import refreshOAuthTokens from "../../_utils/oauth/refreshOAuthTokens";
+ import { appKeysSchema } from "../zod";
+ 
+ export type BiginToken = {
+@@ -81,11 +82,16 @@ export default class BiginCalendarService implements Calendar {
+       refresh_token: credentialKey.refresh_token,
+     };
+ 
+-    const tokenInfo = await axios.post(accountsUrl, qs.stringify(formData), {
+-      headers: {
+-        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+-      },
+-    });
++    const tokenInfo = await refreshOAuthTokens(
++      async () =>
++        await axios.post(accountsUrl, qs.stringify(formData), {
++          headers: {
++            "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
++          },
++        }),
++      "zoho-bigin",
++      credentialId
++    );
+ 
+     if (!tokenInfo.data.error) {
+       // set expiry date as offset from current time.
+diff --git a/packages/app-store/zohocrm/api/_getAdd.ts b/packages/app-store/zohocrm/api/_getAdd.ts
+index 44be480eb5114a..382531fa3610de 100644
+--- a/packages/app-store/zohocrm/api/_getAdd.ts
++++ b/packages/app-store/zohocrm/api/_getAdd.ts
+@@ -1,4 +1,5 @@
+ import type { NextApiRequest, NextApiResponse } from "next";
++import { stringify } from "querystring";
+ 
+ import { WEBAPP_URL } from "@calcom/lib/constants";
+ 
+@@ -13,7 +14,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
+   if (!client_id) return res.status(400).json({ message: "zohocrm client id missing." });
+   const state = encodeOAuthState(req);
+ 
+-  const redirectUri = WEBAPP_URL + "/api/integrations/zohocrm/callback";
+-  const url = `https://accounts.zoho.com/oauth/v2/auth?scope=ZohoCRM.modules.ALL,ZohoCRM.users.READ,AaaServer.profile.READ&client_id=${client_id}&response_type=code&access_type=offline&redirect_uri=${redirectUri}&state=${state}`;
++  const params = {
++    client_id,
++    response_type: "code",
++    redirect_uri: WEBAPP_URL + "/api/integrations/zohocrm/callback",
++    scope: ["ZohoCRM.modules.ALL", "ZohoCRM.users.READ", "AaaServer.profile.READ"],
++    access_type: "offline",
++    state,
++    prompt: "consent",
++  };
++
++  // const redirectUri = WEBAPP_URL + "/api/integrations/zohocrm/callback";
++  // const url = `https://accounts.zoho.com/oauth/v2/auth?scope=ZohoCRM.modules.ALL,ZohoCRM.users.READ,AaaServer.profile.READ&client_id=${client_id}&response_type=code&access_type=offline&redirect_uri=${redirectUri}&state=${state}&prompt=consent`;
++  const query = stringify(params);
++  const url = `https://accounts.zoho.com/oauth/v2/auth?${query}`;
++
+   res.status(200).json({ url });
+ }
+diff --git a/packages/app-store/zohocrm/lib/CalendarService.ts b/packages/app-store/zohocrm/lib/CalendarService.ts
+index e5a7e8fcf0c30e..ef5bb4ec827200 100644
+--- a/packages/app-store/zohocrm/lib/CalendarService.ts
++++ b/packages/app-store/zohocrm/lib/CalendarService.ts
+@@ -16,6 +16,7 @@ import type {
+ import type { CredentialPayload } from "@calcom/types/Credential";
+ 
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
++import refreshOAuthTokens from "../../_utils/oauth/refreshOAuthTokens";
+ 
+ export type ZohoToken = {
+   scope: string;
+@@ -200,14 +201,19 @@ export default class ZohoCrmCalendarService implements Calendar {
+           client_secret: this.client_secret,
+           refresh_token: credentialKey.refresh_token,
+         };
+-        const zohoCrmTokenInfo = await axios({
+-          method: "post",
+-          url: url,
+-          data: qs.stringify(formData),
+-          headers: {
+-            "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+-          },
+-        });
++        const zohoCrmTokenInfo = await refreshOAuthTokens(
++          async () =>
++            await axios({
++              method: "post",
++              url: url,
++              data: qs.stringify(formData),
++              headers: {
++                "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
++              },
++            }),
++          "zohocrm",
++          credential.userId
++        );
+         if (!zohoCrmTokenInfo.data.error) {
+           // set expiry date as offset from current time.
+           zohoCrmTokenInfo.data.expiryDate = Math.round(Date.now() + 60 * 60);
+diff --git a/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts b/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts
+index 9b91215b2369b5..20e8f900eb4f43 100644
+--- a/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts
++++ b/packages/app-store/zoomvideo/lib/VideoApiAdapter.ts
+@@ -9,7 +9,8 @@ import type { CredentialPayload } from "@calcom/types/Credential";
+ import type { PartialReference } from "@calcom/types/EventManager";
+ import type { VideoApiAdapter, VideoCallData } from "@calcom/types/VideoApiAdapter";
+ 
+-import refreshOAuthTokens from "../../_utils/refreshOAuthTokens";
++import parseRefreshTokenResponse from "../../_utils/oauth/parseRefreshTokenResponse";
++import refreshOAuthTokens from "../../_utils/oauth/refreshOAuthTokens";
+ import { getZoomAppKeys } from "./getZoomAppKeys";
+ 
+ /** @link https://marketplace.zoom.us/docs/api-reference/zoom-api/meetings/meetingcreate */
+@@ -76,8 +77,8 @@ const zoomAuth = (credential: CredentialPayload) => {
+     const authHeader = "Basic " + Buffer.from(client_id + ":" + client_secret).toString("base64");
+ 
+     const response = await refreshOAuthTokens(
+-      () =>
+-        fetch("https://zoom.us/oauth/token", {
++      async () =>
++        await fetch("https://zoom.us/oauth/token", {
+           method: "POST",
+           headers: {
+             Authorization: authHeader,
+@@ -88,22 +89,10 @@ const zoomAuth = (credential: CredentialPayload) => {
+             grant_type: "refresh_token",
+           }),
+         }),
+-      credential.userId,
+-      "zoomvideo"
++      "zoomvideo",
++      credential.userId
+     );
+ 
+-    // const response = await fetch("https://zoom.us/oauth/token", {
+-    //   method: "POST",
+-    //   headers: {
+-    //     Authorization: authHeader,
+-    //     "Content-Type": "application/x-www-form-urlencoded",
+-    //   },
+-    //   body: new URLSearchParams({
+-    //     refresh_token: refreshToken,
+-    //     grant_type: "refresh_token",
+-    //   }),
+-    // });
+-
+     const responseBody = await handleZoomResponse(response, credential.id);
+ 
+     if (responseBody.error) {
+@@ -112,7 +101,7 @@ const zoomAuth = (credential: CredentialPayload) => {
+       }
+     }
+     // We check the if the new credentials matches the expected response structure
+-    const parsedToken = zoomRefreshedTokenSchema.safeParse(responseBody);
++    const parsedToken = parseRefreshTokenResponse(responseBody, zoomRefreshedTokenSchema);
+ 
+     // TODO: If the new token is invalid, initiate the fallback sequence instead of throwing
+     // Expanding on this we can use server-to-server app and create meeting from admin calcom account
+
+From 9bd5b3827bc695b1ab691bab5596b5143324fe0f Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Wed, 6 Sep 2023 12:14:58 -0400
+Subject: [PATCH 10/15] Clean up
+
+---
+ .env.example                                  |  1 -
+ .../googlecalendar/lib/CalendarService.ts     |  3 +--
+ .../app-store/hubspot/lib/CalendarService.ts  | 20 ++++++++++++-------
+ packages/app-store/zohocrm/api/_getAdd.ts     |  2 --
+ 4 files changed, 14 insertions(+), 12 deletions(-)
+
+diff --git a/.env.example b/.env.example
+index a7ee6f378ec6b3..9f9f4ddaa6ef82 100644
+--- a/.env.example
++++ b/.env.example
+@@ -229,7 +229,6 @@ E2E_TEST_APPLE_CALENDAR_PASSWORD=""
+ # - APP CREDENTIAL SYNC ***********************************************************************************
+ # Used for self-hosters that are implementing Cal.com into their applications that already have certain integrations
+ # Under settings/admin/apps ensure that all app secrets are set the same as the parent application
+-DISABLE_APP_STORE=false
+ # You can use: `openssl rand -base64 32` to generate one
+ CALCOM_WEBHOOK_SECRET=""
+ # This is the header name that will be used to verify the webhook secret. Should be in lowercase
+diff --git a/packages/app-store/googlecalendar/lib/CalendarService.ts b/packages/app-store/googlecalendar/lib/CalendarService.ts
+index 50ba66ea01bcac..eb0b8ea0c62b9b 100644
+--- a/packages/app-store/googlecalendar/lib/CalendarService.ts
++++ b/packages/app-store/googlecalendar/lib/CalendarService.ts
+@@ -87,8 +87,7 @@ export default class GoogleCalendarService implements Calendar {
+     return {
+       getToken: async () => {
+         const myGoogleAuth = await getGoogleAuth();
+-        // const isExpired = () => myGoogleAuth.isTokenExpiring();
+-        const isExpired = () => true;
++        const isExpired = () => myGoogleAuth.isTokenExpiring();
+         return !isExpired() ? Promise.resolve(myGoogleAuth) : refreshAccessToken(myGoogleAuth);
+       },
+     };
+diff --git a/packages/app-store/hubspot/lib/CalendarService.ts b/packages/app-store/hubspot/lib/CalendarService.ts
+index b9817c6168afe3..66095d6de0e3c4 100644
+--- a/packages/app-store/hubspot/lib/CalendarService.ts
++++ b/packages/app-store/hubspot/lib/CalendarService.ts
+@@ -23,6 +23,7 @@ import type {
+ import type { CredentialPayload } from "@calcom/types/Credential";
+ 
+ import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
++import refreshOAuthTokens from "../../_utils/oauth/refreshOAuthTokens";
+ import type { HubspotToken } from "../api/callback";
+ 
+ const hubspotClient = new hubspot.Client();
+@@ -173,13 +174,18 @@ export default class HubspotCalendarService implements Calendar {
+ 
+     const refreshAccessToken = async (refreshToken: string) => {
+       try {
+-        const hubspotRefreshToken: HubspotToken = await hubspotClient.oauth.tokensApi.createToken(
+-          "refresh_token",
+-          undefined,
+-          WEBAPP_URL + "/api/integrations/hubspot/callback",
+-          this.client_id,
+-          this.client_secret,
+-          refreshToken
++        const hubspotRefreshToken: HubspotToken = await refreshOAuthTokens(
++          async () =>
++            await hubspotClient.oauth.tokensApi.createToken(
++              "refresh_token",
++              undefined,
++              WEBAPP_URL + "/api/integrations/hubspot/callback",
++              this.client_id,
++              this.client_secret,
++              refreshToken
++            ),
++          "hubspot",
++          credential.userId
+         );
+ 
+         // set expiry date as offset from current time.
+diff --git a/packages/app-store/zohocrm/api/_getAdd.ts b/packages/app-store/zohocrm/api/_getAdd.ts
+index 382531fa3610de..34fcde771d1d70 100644
+--- a/packages/app-store/zohocrm/api/_getAdd.ts
++++ b/packages/app-store/zohocrm/api/_getAdd.ts
+@@ -24,8 +24,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
+     prompt: "consent",
+   };
+ 
+-  // const redirectUri = WEBAPP_URL + "/api/integrations/zohocrm/callback";
+-  // const url = `https://accounts.zoho.com/oauth/v2/auth?scope=ZohoCRM.modules.ALL,ZohoCRM.users.READ,AaaServer.profile.READ&client_id=${client_id}&response_type=code&access_type=offline&redirect_uri=${redirectUri}&state=${state}&prompt=consent`;
+   const query = stringify(params);
+   const url = `https://accounts.zoho.com/oauth/v2/auth?${query}`;
+ 
+
+From ca29cf2bf1079dfccd68fa93356884b1653dd520 Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Mon, 18 Sep 2023 14:36:20 -0400
+Subject: [PATCH 11/15] Refactor `appDirName` to `appSlug`
+
+---
+ apps/web/pages/api/webhook/app-credential.ts | 19 +++++++++++--------
+ 1 file changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/apps/web/pages/api/webhook/app-credential.ts b/apps/web/pages/api/webhook/app-credential.ts
+index edaf27a18c8820..f9df7bfeeb56a0 100644
+--- a/apps/web/pages/api/webhook/app-credential.ts
++++ b/apps/web/pages/api/webhook/app-credential.ts
+@@ -6,16 +6,10 @@ import { APP_CREDENTIAL_SHARING_ENABLED } from "@calcom/lib/constants";
+ import { symmetricDecrypt } from "@calcom/lib/crypto";
+ import prisma from "@calcom/prisma";
+ 
+-// https://github.com/colinhacks/zod/discussions/839#discussioncomment-6488540
+-const [firstAppKey, ...otherAppKeys] = Object.keys(appStoreMetadata) as (keyof typeof appStoreMetadata)[];
+-
+-const appMetadataEnum = z.enum([firstAppKey, ...otherAppKeys]);
+-
+ const appCredentialWebhookRequestBodySchema = z.object({
+   // UserId of the cal.com user
+   userId: z.number().int(),
+-  // The dirname of the app under packages/app-store
+-  appDirName: appMetadataEnum,
++  appSlug: z.string(),
+   // Keys should be AES256 encrypted with the CALCOM_APP_CREDENTIAL_ENCRYPTION_KEY
+   keys: z.string(),
+ });
+@@ -43,8 +37,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
+     return res.status(404).json({ message: "User not found" });
+   }
+ 
++  const appDirName = await prisma.app.findUnique({
++    where: { slug: reqBody.appSlug },
++    select: { slug: true },
++  });
++
++  if (!appDirName) {
++    return res.status(404).json({ message: "App not found" });
++  }
++
+   //   Search for the app's slug and type
+-  const appMetadata = appStoreMetadata[reqBody.appDirName as keyof typeof appStoreMetadata];
++  const appMetadata = appStoreMetadata[appDirName.slug as keyof typeof appStoreMetadata];
+ 
+   if (!appMetadata) {
+     return res.status(404).json({ message: "App not found. Ensure that you have the correct appDir" });
+
+From b024880288c3bb54bf9c298475b5b182d8383905 Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Tue, 19 Sep 2023 10:44:18 -0400
+Subject: [PATCH 12/15] Address feedback
+
+---
+ .env.example                                 | 2 +-
+ apps/web/pages/api/webhook/app-credential.ts | 8 ++++----
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/.env.example b/.env.example
+index 4dc395b12597f2..f6f6188a1b5d54 100644
+--- a/.env.example
++++ b/.env.example
+@@ -238,7 +238,7 @@ CALCOM_WEBHOOK_SECRET=""
+ # This is the header name that will be used to verify the webhook secret. Should be in lowercase
+ CALCOM_WEBHOOK_HEADER_NAME="calcom-webhook-secret"
+ CALCOM_CREDENTIAL_SYNC_ENDPOINT=""
+-# Should key should match on Cal.com and your application
++# Key should match on Cal.com and your application
+ # must be 32 bytes for AES256 encryption algorithm
+ # You can use: `openssl rand -base64 24` to generate one
+ CALCOM_APP_CREDENTIAL_ENCRYPTION_KEY=""
+diff --git a/apps/web/pages/api/webhook/app-credential.ts b/apps/web/pages/api/webhook/app-credential.ts
+index f9df7bfeeb56a0..326cfb5b4d87fa 100644
+--- a/apps/web/pages/api/webhook/app-credential.ts
++++ b/apps/web/pages/api/webhook/app-credential.ts
+@@ -37,20 +37,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
+     return res.status(404).json({ message: "User not found" });
+   }
+ 
+-  const appDirName = await prisma.app.findUnique({
++  const app = await prisma.app.findUnique({
+     where: { slug: reqBody.appSlug },
+     select: { slug: true },
+   });
+ 
+-  if (!appDirName) {
++  if (!app) {
+     return res.status(404).json({ message: "App not found" });
+   }
+ 
+   //   Search for the app's slug and type
+-  const appMetadata = appStoreMetadata[appDirName.slug as keyof typeof appStoreMetadata];
++  const appMetadata = appStoreMetadata[app.slug as keyof typeof appStoreMetadata];
+ 
+   if (!appMetadata) {
+-    return res.status(404).json({ message: "App not found. Ensure that you have the correct appDir" });
++    return res.status(404).json({ message: "App not found. Ensure that you have the correct app slug" });
+   }
+ 
+   // Decrypt the keys
+
+From 6e6167e173028231cbce40c0f8e3c24b359cad3d Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Tue, 19 Sep 2023 16:23:54 -0400
+Subject: [PATCH 13/15] Change to safe parse
+
+---
+ .../app-store/_utils/oauth/parseRefreshTokenResponse.ts     | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts b/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts
+index 1abbdb99da9098..4b6a411841a2fc 100644
+--- a/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts
++++ b/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts
+@@ -15,7 +15,11 @@ const parseRefreshTokenResponse = (response: any, schema: z.ZodTypeAny) => {
+   if (APP_CREDENTIAL_SHARING_ENABLED && process.env.CALCOM_CREDENTIAL_SYNC_ENDPOINT) {
+     refreshTokenResponse = minimumTokenReponseSchema.safeParse(response);
+   } else {
+-    refreshTokenResponse = schema.parse(response);
++    refreshTokenResponse = schema.safeParse(response);
++    console.log(
++      "🚀 ~ file: parseRefreshTokenResponse.ts:19 ~ parseRefreshTokenResponse ~ refreshTokenResponse:",
++      refreshTokenResponse
++    );
+   }
+ 
+   if (!refreshTokenResponse.success) {
+
+From e1b864e8a7c3ba64cf30e6e0f22e847299e2a5b3 Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Tue, 19 Sep 2023 16:24:24 -0400
+Subject: [PATCH 14/15] Remove console.log
+
+---
+ packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts b/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts
+index 4b6a411841a2fc..6578ea793e4509 100644
+--- a/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts
++++ b/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts
+@@ -16,10 +16,6 @@ const parseRefreshTokenResponse = (response: any, schema: z.ZodTypeAny) => {
+     refreshTokenResponse = minimumTokenReponseSchema.safeParse(response);
+   } else {
+     refreshTokenResponse = schema.safeParse(response);
+-    console.log(
+-      "🚀 ~ file: parseRefreshTokenResponse.ts:19 ~ parseRefreshTokenResponse ~ refreshTokenResponse:",
+-      refreshTokenResponse
+-    );
+   }
+ 
+   if (!refreshTokenResponse.success) {
+
+From 9fde0e906897cc0f4f71793f647dd629faba3317 Mon Sep 17 00:00:00 2001
+From: Joe Au-Yeung <j.auyeung419@gmail.com>
+Date: Tue, 19 Sep 2023 16:37:20 -0400
+Subject: [PATCH 15/15] Type fix
+
+---
+ .../app-store/_utils/oauth/parseRefreshTokenResponse.ts   | 4 ++--
+ .../app-store/office365calendar/lib/CalendarService.ts    | 8 --------
+ 2 files changed, 2 insertions(+), 10 deletions(-)
+
+diff --git a/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts b/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts
+index 6578ea793e4509..f852b71144fdd4 100644
+--- a/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts
++++ b/packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts
+@@ -2,7 +2,7 @@ import { z } from "zod";
+ 
+ import { APP_CREDENTIAL_SHARING_ENABLED } from "@calcom/lib/constants";
+ 
+-const minimumTokenReponseSchema = z.object({
++const minimumTokenResponseSchema = z.object({
+   access_token: z.string(),
+   //   Assume that any property with a number is the expiry
+   [z.string().toString()]: z.number(),
+@@ -13,7 +13,7 @@ const minimumTokenReponseSchema = z.object({
+ const parseRefreshTokenResponse = (response: any, schema: z.ZodTypeAny) => {
+   let refreshTokenResponse;
+   if (APP_CREDENTIAL_SHARING_ENABLED && process.env.CALCOM_CREDENTIAL_SYNC_ENDPOINT) {
+-    refreshTokenResponse = minimumTokenReponseSchema.safeParse(response);
++    refreshTokenResponse = minimumTokenResponseSchema.safeParse(response);
+   } else {
+     refreshTokenResponse = schema.safeParse(response);
+   }
+diff --git a/packages/app-store/office365calendar/lib/CalendarService.ts b/packages/app-store/office365calendar/lib/CalendarService.ts
+index 46548c15e06f3c..5742fde8f49d00 100644
+--- a/packages/app-store/office365calendar/lib/CalendarService.ts
++++ b/packages/app-store/office365calendar/lib/CalendarService.ts
+@@ -262,14 +262,6 @@ export default class Office365CalendarService implements Calendar {
+       const responseJson = await handleErrorsJson(response);
+       const tokenResponse = parseRefreshTokenResponse(responseJson, refreshTokenResponseSchema);
+       o365AuthCredentials = { ...o365AuthCredentials, ...(tokenResponse.success && tokenResponse.data) };
+-      if (!tokenResponse.success) {
+-        console.error(
+-          "Outlook error grabbing new tokens ~ zodError:",
+-          tokenResponse.error,
+-          "MS response:",
+-          responseJson
+-        );
+-      }
+       await prisma.credential.update({
+         where: {
+           id: credential.id,

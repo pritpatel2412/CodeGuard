@@ -1,0 +1,735 @@
+From b31aefd22337f25b3d8c1378f4e78c142bda7b73 Mon Sep 17 00:00:00 2001
+From: Alexander Tarasov <alex.tarasov@sentry.io>
+Date: Thu, 28 Mar 2024 16:32:46 +0100
+Subject: [PATCH 1/5] refactor
+
+---
+ src/sentry/integrations/github/integration.py | 24 +++++++------------
+ src/sentry/web/frontend/pipeline_advancer.py  | 11 ++++-----
+ 2 files changed, 12 insertions(+), 23 deletions(-)
+
+diff --git a/src/sentry/integrations/github/integration.py b/src/sentry/integrations/github/integration.py
+index 2e157a08961b9b..b2d40ff6aec8a8 100644
+--- a/src/sentry/integrations/github/integration.py
++++ b/src/sentry/integrations/github/integration.py
+@@ -118,6 +118,12 @@ def build_repository_query(metadata: Mapping[str, Any], name: str, query: str) -
+     return f"{account_type}:{name} {query}".encode()
+ 
+ 
++def get_document_origin(org) -> str:
++    if org and features.has("organizations:customer-domains", org.organization):
++        return f'"{generate_organization_url(org.organization.slug)}"'
++    return "document.origin"
++
++
+ # Github App docs and list of available endpoints
+ # https://docs.github.com/en/rest/apps/installations
+ # https://docs.github.com/en/rest/overview/endpoints-available-for-github-apps
+@@ -374,13 +380,6 @@ def dispatch(self, request: Request, pipeline: Pipeline) -> HttpResponse:
+             ).exists()
+ 
+         if integration_pending_deletion_exists:
+-            document_origin = "document.origin"
+-            if self.active_organization and features.has(
+-                "organizations:customer-domains", self.active_organization.organization
+-            ):
+-                document_origin = (
+-                    f'"{generate_organization_url(self.active_organization.organization.slug)}"'
+-                )
+             return render_to_response(
+                 "sentry/integrations/github-integration-failed.html",
+                 context={
+@@ -389,7 +388,7 @@ def dispatch(self, request: Request, pipeline: Pipeline) -> HttpResponse:
+                         "success": False,
+                         "data": {"error": _("GitHub installation pending deletion.")},
+                     },
+-                    "document_origin": document_origin,
++                    "document_origin": get_document_origin(self.active_organization),
+                 },
+                 request=request,
+             )
+@@ -405,13 +404,6 @@ def dispatch(self, request: Request, pipeline: Pipeline) -> HttpResponse:
+             return pipeline.next_step()
+ 
+         if installations_exist:
+-            document_origin = "document.origin"
+-            if self.active_organization and features.has(
+-                "organizations:customer-domains", self.active_organization.organization
+-            ):
+-                document_origin = (
+-                    f'"{generate_organization_url(self.active_organization.organization.slug)}"'
+-                )
+             return render_to_response(
+                 "sentry/integrations/github-integration-failed.html",
+                 context={
+@@ -420,7 +412,7 @@ def dispatch(self, request: Request, pipeline: Pipeline) -> HttpResponse:
+                         "success": False,
+                         "data": {"error": _("Github installed on another Sentry organization.")},
+                     },
+-                    "document_origin": document_origin,
++                    "document_origin": get_document_origin(self.active_organization),
+                 },
+                 request=request,
+             )
+diff --git a/src/sentry/web/frontend/pipeline_advancer.py b/src/sentry/web/frontend/pipeline_advancer.py
+index 63183a4d271f7e..cfe97929605fff 100644
+--- a/src/sentry/web/frontend/pipeline_advancer.py
++++ b/src/sentry/web/frontend/pipeline_advancer.py
+@@ -16,12 +16,6 @@
+ PIPELINE_CLASSES = [IntegrationPipeline, IdentityProviderPipeline]
+ 
+ 
+-# GitHub apps may be installed directly from GitHub, in which case
+-# they will redirect here *without* being in the pipeline. If that happens
+-# redirect to the integration install org picker.
+-FORWARD_INSTALL_FOR = ["github"]
+-
+-
+ from rest_framework.request import Request
+ 
+ 
+@@ -40,8 +34,11 @@ def handle(self, request: Request, provider_id: str) -> HttpResponseBase:
+             if pipeline:
+                 break
+ 
++        # GitHub apps may be installed directly from GitHub, in which case
++        # they will redirect here *without* being in the pipeline. If that happens
++        # redirect to the integration install org picker.
+         if (
+-            provider_id in FORWARD_INSTALL_FOR
++            provider_id == "github"
+             and request.GET.get("setup_action") == "install"
+             and pipeline is None
+         ):
+
+From 0b8cf7c15017a663f1e1689c1a520a5953c8a106 Mon Sep 17 00:00:00 2001
+From: Alexander Tarasov <alex.tarasov@sentry.io>
+Date: Thu, 28 Mar 2024 17:04:12 +0100
+Subject: [PATCH 2/5] add oauth2 login step in pipeline; check for the user
+ match at the end of pipeline
+
+---
+ src/sentry/integrations/github/integration.py | 110 +++++++++++++++++-
+ .../integrations/github/test_integration.py   |  64 +++++++++-
+ 2 files changed, 167 insertions(+), 7 deletions(-)
+
+diff --git a/src/sentry/integrations/github/integration.py b/src/sentry/integrations/github/integration.py
+index b2d40ff6aec8a8..edb484aa513360 100644
+--- a/src/sentry/integrations/github/integration.py
++++ b/src/sentry/integrations/github/integration.py
+@@ -4,6 +4,7 @@
+ import re
+ from collections.abc import Collection, Mapping, Sequence
+ from typing import Any
++from urllib.parse import parse_qsl
+ 
+ from django.http import HttpResponse
+ from django.utils.text import slugify
+@@ -13,6 +14,8 @@
+ from sentry import features, options
+ from sentry.api.utils import generate_organization_url
+ from sentry.constants import ObjectStatus
++from sentry.http import safe_urlopen, safe_urlread
++from sentry.identity.github import GitHubIdentityProvider, get_user_info
+ from sentry.integrations import (
+     FeatureDescription,
+     IntegrationFeatures,
+@@ -108,6 +111,9 @@
+ ERR_INTEGRATION_EXISTS_ON_ANOTHER_ORG = _(
+     "It seems that your GitHub account has been installed on another Sentry organization. Please uninstall and try again."
+ )
++ERR_INTEGRATION_INVALID_INSTALLATION_REQUEST = _(
++    "We could not verify the authenticity of the installation request. We recommend restarting the installation process."
++)
+ ERR_INTEGRATION_PENDING_DELETION = _(
+     "It seems that your Sentry organization has an installation pending deletion. Please wait ~15min for the uninstall to complete and try again."
+ )
+@@ -313,7 +319,7 @@ def post_install(
+         )
+ 
+     def get_pipeline_views(self) -> Sequence[PipelineView]:
+-        return [GitHubInstallation()]
++        return [OAuthLoginView(), GitHubInstallation()]
+ 
+     def get_installation_info(self, installation_id: str) -> Mapping[str, Any]:
+         client = self.get_client()
+@@ -358,15 +364,97 @@ def setup(self) -> None:
+         )
+ 
+ 
++class OAuthLoginView(PipelineView):
++    def error(self, request):
++        return render_to_response(
++            "sentry/integrations/github-integration-failed.html",
++            context={
++                "error": ERR_INTEGRATION_INVALID_INSTALLATION_REQUEST,
++                "payload": {
++                    "success": False,
++                    "data": {"error": _("Invalid installation request.")},
++                },
++                "document_origin": get_document_origin(self.active_organization),
++            },
++            request=request,
++        )
++
++    def dispatch(self, request: Request, pipeline) -> HttpResponse:
++        self.determine_active_organization(request)
++
++        ghip = GitHubIdentityProvider()
++        github_client_id = ghip.get_oauth_client_id()
++        github_client_secret = ghip.get_oauth_client_secret()
++
++        installation_id = request.GET.get("installation_id")
++        if installation_id:
++            pipeline.bind_state("installation_id", installation_id)
++
++        if not request.GET.get("state"):
++            state = pipeline.signature
++
++            return self.redirect(
++                f"{ghip.get_oauth_authorize_url()}?client_id={github_client_id}&state={state}"
++            )
++
++        # At this point, we are past the GitHub "authorize" step
++        if request.GET.get("state") != pipeline.signature:
++            return self.error(request)
++
++        # similar to OAuth2CallbackView.get_token_params
++        data = {
++            "code": request.GET.get("code"),
++            "client_id": github_client_id,
++            "client_secret": github_client_secret,
++        }
++
++        # similar to OAuth2CallbackView.exchange_token
++        req = safe_urlopen(url=ghip.get_oauth_access_token_url(), data=data)
++
++        try:
++            body = safe_urlread(req).decode("utf-8")
++            payload = dict(parse_qsl(body))
++        except Exception:
++            payload = {}
++
++        if "access_token" not in payload:
++            return self.error(request)
++
++        authenticated_user_info = get_user_info(payload["access_token"])
++        if "login" not in authenticated_user_info:
++            return self.error(request)
++
++        pipeline.bind_state("github_authenticated_user", authenticated_user_info["login"])
++        return pipeline.next_step()
++
++
+ class GitHubInstallation(PipelineView):
++    def error(self, request):
++        return render_to_response(
++            "sentry/integrations/github-integration-failed.html",
++            context={
++                "error": ERR_INTEGRATION_INVALID_INSTALLATION_REQUEST,
++                "payload": {
++                    "success": False,
++                    "data": {"error": _("Invalid installation request.")},
++                },
++                "document_origin": get_document_origin(self.active_organization),
++            },
++            request=request,
++        )
++
+     def get_app_url(self) -> str:
+         name = options.get("github-app.name")
+         return f"https://github.com/apps/{slugify(name)}"
+ 
+     def dispatch(self, request: Request, pipeline: Pipeline) -> HttpResponse:
+-        if "installation_id" not in request.GET:
++        installation_id = request.GET.get(
++            "installation_id", pipeline.fetch_state("installation_id")
++        )
++        if installation_id is None:
+             return self.redirect(self.get_app_url())
+ 
++        pipeline.bind_state("installation_id", installation_id)
+         self.determine_active_organization(request)
+ 
+         integration_pending_deletion_exists = False
+@@ -396,11 +484,10 @@ def dispatch(self, request: Request, pipeline: Pipeline) -> HttpResponse:
+         try:
+             # We want to limit GitHub integrations to 1 organization
+             installations_exist = OrganizationIntegration.objects.filter(
+-                integration=Integration.objects.get(external_id=request.GET["installation_id"])
++                integration=Integration.objects.get(external_id=installation_id)
+             ).exists()
+ 
+         except Integration.DoesNotExist:
+-            pipeline.bind_state("installation_id", request.GET["installation_id"])
+             return pipeline.next_step()
+ 
+         if installations_exist:
+@@ -418,5 +505,18 @@ def dispatch(self, request: Request, pipeline: Pipeline) -> HttpResponse:
+             )
+ 
+         # OrganizationIntegration does not exist, but Integration does exist.
+-        pipeline.bind_state("installation_id", request.GET["installation_id"])
++        try:
++            integration = Integration.objects.get(
++                external_id=installation_id, status=ObjectStatus.ACTIVE
++            )
++        except Integration.DoesNotExist:
++            return self.error(request)
++
++        # Check that the authenticated GitHub user is the same as who installed the app.
++        if (
++            pipeline.fetch_state("github_authenticated_user")
++            != integration.metadata["sender"]["login"]
++        ):
++            return self.error(request)
++
+         return pipeline.next_step()
+diff --git a/tests/sentry/integrations/github/test_integration.py b/tests/sentry/integrations/github/test_integration.py
+index c6417da8ab953b..3cc7b5c9d9258d 100644
+--- a/tests/sentry/integrations/github/test_integration.py
++++ b/tests/sentry/integrations/github/test_integration.py
+@@ -111,6 +111,15 @@ def _stub_github(self):
+         self.gh_org = "Test-Organization"
+         pp = 1
+ 
++        access_token = "xxxxx-xxxxxxxxx-xxxxxxxxxx-xxxxxxxxxxxx"
++        responses.add(
++            responses.POST,
++            "https://github.com/login/oauth/access_token",
++            body=f"access_token={access_token}",
++        )
++
++        responses.add(responses.GET, self.base_url + "/user", json={"login": "octocat"})
++
+         responses.add(
+             responses.POST,
+             self.base_url + f"/app/installations/{self.installation_id}/access_tokens",
+@@ -218,6 +227,21 @@ def assert_setup_flow(self):
+         redirect = urlparse(resp["Location"])
+         assert redirect.scheme == "https"
+         assert redirect.netloc == "github.com"
++        assert redirect.path == "/login/oauth/authorize"
++        assert redirect.query == "client_id=github-client-id&state=9cae5e88803f35ed7970fc131e6e65d3"
++
++        resp = self.client.get(
++            "{}?{}".format(
++                self.setup_path,
++                urlencode(
++                    {"code": "12345678901234567890", "state": "9cae5e88803f35ed7970fc131e6e65d3"}
++                ),
++            )
++        )
++        assert resp.status_code == 302
++        redirect = urlparse(resp["Location"])
++        assert redirect.scheme == "https"
++        assert redirect.netloc == "github.com"
+         assert redirect.path == "/apps/sentry-test-app"
+ 
+         # App installation ID is provided
+@@ -225,7 +249,7 @@ def assert_setup_flow(self):
+             "{}?{}".format(self.setup_path, urlencode({"installation_id": self.installation_id}))
+         )
+ 
+-        auth_header = responses.calls[0].request.headers["Authorization"]
++        auth_header = responses.calls[2].request.headers["Authorization"]
+         assert auth_header == "Bearer jwt_token_1"
+ 
+         self.assertDialogSuccess(resp)
+@@ -303,8 +327,15 @@ def test_github_installed_on_another_org(self):
+             ),
+             urlencode({"installation_id": self.installation_id}),
+         )
++        self.setup_path_2 = "{}?{}".format(
++            self.setup_path,
++            urlencode(
++                {"code": "12345678901234567890", "state": "9cae5e88803f35ed7970fc131e6e65d3"}
++            ),
++        )
+         with self.feature({"organizations:customer-domains": [self.organization_2.slug]}):
+             resp = self.client.get(self.init_path_2)
++            resp = self.client.get(self.setup_path_2)
+             self.assertTemplateUsed(resp, "sentry/integrations/github-integration-failed.html")
+             assert (
+                 b'{"success":false,"data":{"error":"Github installed on another Sentry organization."}}'
+@@ -330,6 +361,8 @@ def test_github_installed_on_another_org(self):
+ 
+         # Try again and should be successful
+         resp = self.client.get(self.init_path_2)
++        resp = self.client.get(self.setup_path_2)
++
+         self.assertDialogSuccess(resp)
+         integration = Integration.objects.get(external_id=self.installation_id)
+         assert integration.provider == "github"
+@@ -347,7 +380,15 @@ def test_installation_not_found(self):
+         resp = self.client.get(
+             "{}?{}".format(self.setup_path, urlencode({"installation_id": self.installation_id}))
+         )
+-        assert b"The GitHub installation could not be found." in resp.content
++        resp = self.client.get(
++            "{}?{}".format(
++                self.setup_path,
++                urlencode(
++                    {"code": "12345678901234567890", "state": "ddd023d87a913d5226e2a882c4c4cc05"}
++                ),
++            )
++        )
++        assert b"Invalid installation request." in resp.content
+ 
+     @responses.activate
+     def test_disable_plugin_when_fully_migrated(self):
+@@ -594,6 +635,17 @@ def test_github_prevent_install_until_pending_deletion_is_complete(self):
+             resp = self.client.get(
+                 "{}?{}".format(self.init_path, urlencode({"installation_id": self.installation_id}))
+             )
++            resp = self.client.get(
++                "{}?{}".format(
++                    self.setup_path,
++                    urlencode(
++                        {
++                            "code": "12345678901234567890",
++                            "state": "9cae5e88803f35ed7970fc131e6e65d3",
++                        }
++                    ),
++                )
++            )
+ 
+         assert resp.status_code == 200
+         self.assertTemplateUsed(resp, "sentry/integrations/github-integration-failed.html")
+@@ -615,6 +667,14 @@ def test_github_prevent_install_until_pending_deletion_is_complete(self):
+         resp = self.client.get(
+             "{}?{}".format(self.init_path, urlencode({"installation_id": self.installation_id}))
+         )
++        resp = self.client.get(
++            "{}?{}".format(
++                self.setup_path,
++                urlencode(
++                    {"code": "12345678901234567890", "state": "9cae5e88803f35ed7970fc131e6e65d3"}
++                ),
++            )
++        )
+         self.assertDialogSuccess(resp)
+         integration = Integration.objects.get(external_id=self.installation_id)
+         assert integration.provider == "github"
+
+From 7aa8911023b16fc66ae0c105fc533fe9c272c29f Mon Sep 17 00:00:00 2001
+From: Alexander Tarasov <alex.tarasov@sentry.io>
+Date: Tue, 2 Apr 2024 11:21:10 +0200
+Subject: [PATCH 3/5] add a critical path test
+
+---
+ .../integrations/github/test_integration.py   | 60 +++++++++++++++++++
+ 1 file changed, 60 insertions(+)
+
+diff --git a/tests/sentry/integrations/github/test_integration.py b/tests/sentry/integrations/github/test_integration.py
+index 3cc7b5c9d9258d..d385ea4a0f3c2a 100644
+--- a/tests/sentry/integrations/github/test_integration.py
++++ b/tests/sentry/integrations/github/test_integration.py
+@@ -12,6 +12,7 @@
+ from django.urls import reverse
+ 
+ import sentry
++from fixtures.github import INSTALLATION_EVENT_EXAMPLE
+ from sentry.api.utils import generate_organization_url
+ from sentry.constants import ObjectStatus
+ from sentry.integrations.github import (
+@@ -32,6 +33,7 @@
+ from sentry.silo.base import SiloMode
+ from sentry.testutils.cases import IntegrationTestCase
+ from sentry.testutils.silo import assume_test_silo_mode, control_silo_test
++from sentry.utils import json
+ from sentry.utils.cache import cache
+ 
+ TREE_RESPONSES = {
+@@ -390,6 +392,64 @@ def test_installation_not_found(self):
+         )
+         assert b"Invalid installation request." in resp.content
+ 
++    @responses.activate
++    def test_github_user_mismatch(self):
++        self._stub_github()
++
++        # Emulate GitHub installation
++        init_path_1 = "{}?{}".format(
++            reverse(
++                "sentry-organization-integrations-setup",
++                kwargs={
++                    "organization_slug": self.organization.slug,
++                    "provider_id": self.provider.key,
++                },
++            ),
++            urlencode({"installation_id": self.installation_id}),
++        )
++        self.client.get(init_path_1)
++
++        webhook_event = json.loads(INSTALLATION_EVENT_EXAMPLE)
++        webhook_event["installation"]["id"] = self.installation_id
++        webhook_event["sender"]["login"] = "attacker"
++        resp = self.client.post(
++            path="/extensions/github/webhook/",
++            data=json.dumps(webhook_event),
++            content_type="application/json",
++            HTTP_X_GITHUB_EVENT="installation",
++            HTTP_X_HUB_SIGNATURE="sha1=d184e6717f8bfbcc291ebc8c0756ee446c6c9486",
++            HTTP_X_GITHUB_DELIVERY="00000000-0000-4000-8000-1234567890ab",
++        )
++        assert resp.status_code == 204
++
++        # Validate the installation user
++        user_2 = self.create_user("foo@example.com")
++        org_2 = self.create_organization(name="Rowdy Tiger", owner=user_2)
++        self.login_as(user_2)
++        init_path_2 = "{}?{}".format(
++            reverse(
++                "sentry-organization-integrations-setup",
++                kwargs={
++                    "organization_slug": org_2.slug,
++                    "provider_id": self.provider.key,
++                },
++            ),
++            urlencode({"installation_id": self.installation_id}),
++        )
++        setup_path_2 = "{}?{}".format(
++            self.setup_path,
++            urlencode(
++                {"code": "12345678901234567890", "state": "9cae5e88803f35ed7970fc131e6e65d3"}
++            ),
++        )
++        with self.feature({"organizations:customer-domains": [org_2.slug]}):
++            resp = self.client.get(init_path_2)
++            resp = self.client.get(setup_path_2)
++            self.assertTemplateUsed(resp, "sentry/integrations/github-integration-failed.html")
++            assert resp.status_code == 200
++            assert b'window.opener.postMessage({"success":false' in resp.content
++            assert b"Invalid installation request." in resp.content
++
+     @responses.activate
+     def test_disable_plugin_when_fully_migrated(self):
+         self._stub_github()
+
+From 8c68d5b489a2b745a7b30da6d0af633f76a98c7f Mon Sep 17 00:00:00 2001
+From: Alexander Tarasov <alex.tarasov@sentry.io>
+Date: Tue, 2 Apr 2024 11:25:31 +0200
+Subject: [PATCH 4/5] refactor errors
+
+---
+ src/sentry/integrations/github/integration.py | 90 ++++++++-----------
+ 1 file changed, 35 insertions(+), 55 deletions(-)
+
+diff --git a/src/sentry/integrations/github/integration.py b/src/sentry/integrations/github/integration.py
+index edb484aa513360..073d5e3f95e010 100644
+--- a/src/sentry/integrations/github/integration.py
++++ b/src/sentry/integrations/github/integration.py
+@@ -124,6 +124,26 @@ def build_repository_query(metadata: Mapping[str, Any], name: str, query: str) -
+     return f"{account_type}:{name} {query}".encode()
+ 
+ 
++def error(
++    request,
++    org,
++    error_short="Invalid installation request.",
++    error_long=ERR_INTEGRATION_INVALID_INSTALLATION_REQUEST,
++):
++    return render_to_response(
++        "sentry/integrations/github-integration-failed.html",
++        context={
++            "error": error_long,
++            "payload": {
++                "success": False,
++                "data": {"error": _(error_short)},
++            },
++            "document_origin": get_document_origin(org),
++        },
++        request=request,
++    )
++
++
+ def get_document_origin(org) -> str:
+     if org and features.has("organizations:customer-domains", org.organization):
+         return f'"{generate_organization_url(org.organization.slug)}"'
+@@ -365,20 +385,6 @@ def setup(self) -> None:
+ 
+ 
+ class OAuthLoginView(PipelineView):
+-    def error(self, request):
+-        return render_to_response(
+-            "sentry/integrations/github-integration-failed.html",
+-            context={
+-                "error": ERR_INTEGRATION_INVALID_INSTALLATION_REQUEST,
+-                "payload": {
+-                    "success": False,
+-                    "data": {"error": _("Invalid installation request.")},
+-                },
+-                "document_origin": get_document_origin(self.active_organization),
+-            },
+-            request=request,
+-        )
+-
+     def dispatch(self, request: Request, pipeline) -> HttpResponse:
+         self.determine_active_organization(request)
+ 
+@@ -399,7 +405,7 @@ def dispatch(self, request: Request, pipeline) -> HttpResponse:
+ 
+         # At this point, we are past the GitHub "authorize" step
+         if request.GET.get("state") != pipeline.signature:
+-            return self.error(request)
++            return error(request, self.active_organization)
+ 
+         # similar to OAuth2CallbackView.get_token_params
+         data = {
+@@ -418,31 +424,17 @@ def dispatch(self, request: Request, pipeline) -> HttpResponse:
+             payload = {}
+ 
+         if "access_token" not in payload:
+-            return self.error(request)
++            return error(request, self.active_organization)
+ 
+         authenticated_user_info = get_user_info(payload["access_token"])
+         if "login" not in authenticated_user_info:
+-            return self.error(request)
++            return error(request, self.active_organization)
+ 
+         pipeline.bind_state("github_authenticated_user", authenticated_user_info["login"])
+         return pipeline.next_step()
+ 
+ 
+ class GitHubInstallation(PipelineView):
+-    def error(self, request):
+-        return render_to_response(
+-            "sentry/integrations/github-integration-failed.html",
+-            context={
+-                "error": ERR_INTEGRATION_INVALID_INSTALLATION_REQUEST,
+-                "payload": {
+-                    "success": False,
+-                    "data": {"error": _("Invalid installation request.")},
+-                },
+-                "document_origin": get_document_origin(self.active_organization),
+-            },
+-            request=request,
+-        )
+-
+     def get_app_url(self) -> str:
+         name = options.get("github-app.name")
+         return f"https://github.com/apps/{slugify(name)}"
+@@ -468,17 +460,11 @@ def dispatch(self, request: Request, pipeline: Pipeline) -> HttpResponse:
+             ).exists()
+ 
+         if integration_pending_deletion_exists:
+-            return render_to_response(
+-                "sentry/integrations/github-integration-failed.html",
+-                context={
+-                    "error": ERR_INTEGRATION_PENDING_DELETION,
+-                    "payload": {
+-                        "success": False,
+-                        "data": {"error": _("GitHub installation pending deletion.")},
+-                    },
+-                    "document_origin": get_document_origin(self.active_organization),
+-                },
+-                request=request,
++            return error(
++                request,
++                self.active_organization,
++                error_short="GitHub installation pending deletion.",
++                error_long=ERR_INTEGRATION_PENDING_DELETION,
+             )
+ 
+         try:
+@@ -491,17 +477,11 @@ def dispatch(self, request: Request, pipeline: Pipeline) -> HttpResponse:
+             return pipeline.next_step()
+ 
+         if installations_exist:
+-            return render_to_response(
+-                "sentry/integrations/github-integration-failed.html",
+-                context={
+-                    "error": ERR_INTEGRATION_EXISTS_ON_ANOTHER_ORG,
+-                    "payload": {
+-                        "success": False,
+-                        "data": {"error": _("Github installed on another Sentry organization.")},
+-                    },
+-                    "document_origin": get_document_origin(self.active_organization),
+-                },
+-                request=request,
++            return error(
++                request,
++                self.active_organization,
++                error_short="Github installed on another Sentry organization.",
++                error_long=ERR_INTEGRATION_EXISTS_ON_ANOTHER_ORG,
+             )
+ 
+         # OrganizationIntegration does not exist, but Integration does exist.
+@@ -510,13 +490,13 @@ def dispatch(self, request: Request, pipeline: Pipeline) -> HttpResponse:
+                 external_id=installation_id, status=ObjectStatus.ACTIVE
+             )
+         except Integration.DoesNotExist:
+-            return self.error(request)
++            return error(request, self.active_organization)
+ 
+         # Check that the authenticated GitHub user is the same as who installed the app.
+         if (
+             pipeline.fetch_state("github_authenticated_user")
+             != integration.metadata["sender"]["login"]
+         ):
+-            return self.error(request)
++            return error(request, self.active_organization)
+ 
+         return pipeline.next_step()
+
+From bb75657fc8f13923c1d7983f422290908a1e7310 Mon Sep 17 00:00:00 2001
+From: Alexander Tarasov <alex.tarasov@sentry.io>
+Date: Wed, 3 Apr 2024 15:04:26 +0200
+Subject: [PATCH 5/5] add explicit redirect_uri parameter
+
+---
+ src/sentry/integrations/github/integration.py        | 7 ++++++-
+ tests/sentry/integrations/github/test_integration.py | 5 ++++-
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/src/sentry/integrations/github/integration.py b/src/sentry/integrations/github/integration.py
+index 073d5e3f95e010..fa535e4bd4a6ba 100644
+--- a/src/sentry/integrations/github/integration.py
++++ b/src/sentry/integrations/github/integration.py
+@@ -7,6 +7,7 @@
+ from urllib.parse import parse_qsl
+ 
+ from django.http import HttpResponse
++from django.urls import reverse
+ from django.utils.text import slugify
+ from django.utils.translation import gettext_lazy as _
+ from rest_framework.request import Request
+@@ -38,6 +39,7 @@
+ from sentry.tasks.integrations.github.constants import RATE_LIMITED_MESSAGE
+ from sentry.tasks.integrations.link_all_repos import link_all_repos
+ from sentry.utils import metrics
++from sentry.utils.http import absolute_uri
+ from sentry.web.helpers import render_to_response
+ 
+ from .client import GitHubAppsClient, GitHubClientMixin
+@@ -399,8 +401,11 @@ def dispatch(self, request: Request, pipeline) -> HttpResponse:
+         if not request.GET.get("state"):
+             state = pipeline.signature
+ 
++            redirect_uri = absolute_uri(
++                reverse("sentry-extension-setup", kwargs={"provider_id": "github"})
++            )
+             return self.redirect(
+-                f"{ghip.get_oauth_authorize_url()}?client_id={github_client_id}&state={state}"
++                f"{ghip.get_oauth_authorize_url()}?client_id={github_client_id}&state={state}&redirect_uri={redirect_uri}"
+             )
+ 
+         # At this point, we are past the GitHub "authorize" step
+diff --git a/tests/sentry/integrations/github/test_integration.py b/tests/sentry/integrations/github/test_integration.py
+index d385ea4a0f3c2a..895219d1706b65 100644
+--- a/tests/sentry/integrations/github/test_integration.py
++++ b/tests/sentry/integrations/github/test_integration.py
+@@ -230,7 +230,10 @@ def assert_setup_flow(self):
+         assert redirect.scheme == "https"
+         assert redirect.netloc == "github.com"
+         assert redirect.path == "/login/oauth/authorize"
+-        assert redirect.query == "client_id=github-client-id&state=9cae5e88803f35ed7970fc131e6e65d3"
++        assert (
++            redirect.query
++            == "client_id=github-client-id&state=9cae5e88803f35ed7970fc131e6e65d3&redirect_uri=http://testserver/extensions/github/setup/"
++        )
+ 
+         resp = self.client.get(
+             "{}?{}".format(

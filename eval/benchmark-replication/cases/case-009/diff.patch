@@ -1,0 +1,1627 @@
+From cf9ffd03c9a9c51c2696773fd960850528d0dd0a Mon Sep 17 00:00:00 2001
+From: Anik Dhabal Babu <adhabal2002@gmail.com>
+Date: Thu, 25 Apr 2024 00:02:24 +0000
+Subject: [PATCH 01/13] feat: ability to add guests via app.cal.com/bookings
+
+---
+ .../components/booking/BookingListItem.tsx    | 15 +++
+ .../web/components/dialog/AddGuestsDialog.tsx | 82 ++++++++++++++++
+ apps/web/public/static/locales/en/common.json |  1 +
+ .../routers/viewer/bookings/_router.tsx       | 19 ++++
+ .../viewer/bookings/addGuests.handler.ts      |  0
+ .../viewer/bookings/addGuests.schema.ts       |  8 ++
+ packages/ui/form/MultiEmail.tsx               | 94 +++++++++++++++++++
+ packages/ui/form/MultiEmailLazy.tsx           |  4 +
+ packages/ui/index.tsx                         |  1 +
+ 9 files changed, 224 insertions(+)
+ create mode 100644 apps/web/components/dialog/AddGuestsDialog.tsx
+ create mode 100644 packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+ create mode 100644 packages/trpc/server/routers/viewer/bookings/addGuests.schema.ts
+ create mode 100644 packages/ui/form/MultiEmail.tsx
+ create mode 100644 packages/ui/form/MultiEmailLazy.tsx
+
+diff --git a/apps/web/components/booking/BookingListItem.tsx b/apps/web/components/booking/BookingListItem.tsx
+index 248d4e2be1ded2..90d776cb8b4306 100644
+--- a/apps/web/components/booking/BookingListItem.tsx
++++ b/apps/web/components/booking/BookingListItem.tsx
+@@ -37,6 +37,7 @@ import {
+   Tooltip,
+ } from "@calcom/ui";
+ 
++import { AddGuestsDialog } from "@components/dialog/AddGuestsDialog";
+ import { ChargeCardDialog } from "@components/dialog/ChargeCardDialog";
+ import { EditLocationDialog } from "@components/dialog/EditLocationDialog";
+ import { RescheduleDialog } from "@components/dialog/RescheduleDialog";
+@@ -200,6 +201,14 @@ function BookingListItem(booking: BookingItemProps) {
+           },
+           icon: "map-pin" as const,
+         },
++        {
++          id: "add_members",
++          label: t("additional_guests"),
++          onClick: () => {
++            setIsOpenAddGuestsDialog(true);
++          },
++          icon: "users" as const,
++        },
+       ],
+     },
+   ];
+@@ -238,6 +247,7 @@ function BookingListItem(booking: BookingItemProps) {
+     .format(isUpcoming ? "ddd, D MMM" : "D MMMM YYYY");
+   const [isOpenRescheduleDialog, setIsOpenRescheduleDialog] = useState(false);
+   const [isOpenSetLocationDialog, setIsOpenLocationDialog] = useState(false);
++  const [isOpenAddGuestsDialog, setIsOpenAddGuestsDialog] = useState(false);
+   const setLocationMutation = trpc.viewer.bookings.editLocation.useMutation({
+     onSuccess: () => {
+       showToast(t("location_updated"), "success");
+@@ -313,6 +323,11 @@ function BookingListItem(booking: BookingItemProps) {
+         setShowLocationModal={setIsOpenLocationDialog}
+         teamId={booking.eventType?.team?.id}
+       />
++      <AddGuestsDialog
++        isOpenDialog={isOpenAddGuestsDialog}
++        setIsOpenDialog={setIsOpenAddGuestsDialog}
++        bookingUId={booking.uid}
++      />
+       {booking.paid && booking.payment[0] && (
+         <ChargeCardDialog
+           isOpenDialog={chargeCardDialogIsOpen}
+diff --git a/apps/web/components/dialog/AddGuestsDialog.tsx b/apps/web/components/dialog/AddGuestsDialog.tsx
+new file mode 100644
+index 00000000000000..76a5077f54d98a
+--- /dev/null
++++ b/apps/web/components/dialog/AddGuestsDialog.tsx
+@@ -0,0 +1,82 @@
++import type { Dispatch, SetStateAction } from "react";
++import { useState } from "react";
++import { z } from "zod";
++
++import { useLocale } from "@calcom/lib/hooks/useLocale";
++import { trpc } from "@calcom/trpc/react";
++import { Button, Dialog, DialogContent, DialogFooter, DialogHeader, MultiEmail, Icon } from "@calcom/ui";
++
++interface IAddGuestsDialog {
++  isOpenDialog: boolean;
++  setIsOpenDialog: Dispatch<SetStateAction<boolean>>;
++  bookingUId: string;
++}
++
++export const AddGuestsDialog = (props: IAddGuestsDialog) => {
++  const { t } = useLocale();
++  const ZAddGuestsInputSchema = z.array(z.string().email());
++  const utils = trpc.useUtils();
++  const { isOpenDialog, setIsOpenDialog, bookingUId: bookingId } = props;
++  const [multiEmailValue, setMultiEmailValue] = useState<string[]>([""]);
++  const [isInvalidEmail, setIsInvalidEmail] = useState(false);
++
++  const handleAdd = () => {
++    if (multiEmailValue.length === 0) {
++      return;
++    }
++    const validationResult = ZAddGuestsInputSchema.safeParse(multiEmailValue);
++    if (validationResult.success) {
++      setIsOpenDialog(false);
++    } else {
++      setIsInvalidEmail(true);
++    }
++  };
++
++  return (
++    <Dialog open={isOpenDialog} onOpenChange={setIsOpenDialog}>
++      <DialogContent enableOverflow>
++        <div className="flex flex-row space-x-3">
++          <div className="bg-subtle flex h-10 w-10 flex-shrink-0 justify-center rounded-full ">
++            <Icon name="users" className="m-auto h-6 w-6" />
++          </div>
++          <div className="w-full pt-1">
++            <DialogHeader title={t("additional_guests")} />
++            <MultiEmail
++              label={t("add_emails")}
++              value={multiEmailValue}
++              readOnly={false}
++              setValue={setMultiEmailValue}
++            />
++
++            {isInvalidEmail && (
++              <div className="my-4 flex text-sm text-red-700">
++                <div className="flex-shrink-0">
++                  <Icon name="triangle-alert" className="h-5 w-5" />
++                </div>
++                <div className="ml-3">
++                  <p className="font-medium">{t("email_validation_error")}</p>
++                </div>
++              </div>
++            )}
++
++            <DialogFooter>
++              <Button
++                onClick={() => {
++                  setMultiEmailValue([""]);
++                  setIsInvalidEmail(false);
++                  setIsOpenDialog(false);
++                }}
++                type="button"
++                color="secondary">
++                {t("cancel")}
++              </Button>
++              <Button data-testid="add_members" onClick={handleAdd}>
++                {t("add")}
++              </Button>
++            </DialogFooter>
++          </div>
++        </div>
++      </DialogContent>
++    </Dialog>
++  );
++};
+diff --git a/apps/web/public/static/locales/en/common.json b/apps/web/public/static/locales/en/common.json
+index 91779164e3bb04..84b3a19383a5c6 100644
+--- a/apps/web/public/static/locales/en/common.json
++++ b/apps/web/public/static/locales/en/common.json
+@@ -2364,6 +2364,7 @@
+   "primary": "Primary",
+   "make_primary": "Make primary",
+   "add_email": "Add Email",
++  "add_emails": "Add Emails",
+   "add_email_description": "Add an email address to replace your primary or to use as an alternative email on your event types.",
+   "confirm_email": "Confirm your email",
+   "confirm_email_description": "We sent an email to <strong>{{email}}</strong>. Click the link in the email to verify this address.",
+diff --git a/packages/trpc/server/routers/viewer/bookings/_router.tsx b/packages/trpc/server/routers/viewer/bookings/_router.tsx
+index bece7c9c2b6232..8858cb71d8b2cd 100644
+--- a/packages/trpc/server/routers/viewer/bookings/_router.tsx
++++ b/packages/trpc/server/routers/viewer/bookings/_router.tsx
+@@ -1,6 +1,7 @@
+ import authedProcedure from "../../../procedures/authedProcedure";
+ import publicProcedure from "../../../procedures/publicProcedure";
+ import { router } from "../../../trpc";
++import { ZAddGuestsInputSchema } from "./addGuests.schema";
+ import { ZConfirmInputSchema } from "./confirm.schema";
+ import { ZEditLocationInputSchema } from "./editLocation.schema";
+ import { ZFindInputSchema } from "./find.schema";
+@@ -14,6 +15,7 @@ type BookingsRouterHandlerCache = {
+   get?: typeof import("./get.handler").getHandler;
+   requestReschedule?: typeof import("./requestReschedule.handler").requestRescheduleHandler;
+   editLocation?: typeof import("./editLocation.handler").editLocationHandler;
++  addGuests?: typeof import("./addGuests.handler").addGuestsHandler;
+   confirm?: typeof import("./confirm.handler").confirmHandler;
+   getBookingAttendees?: typeof import("./getBookingAttendees.handler").getBookingAttendeesHandler;
+   find?: typeof import("./find.handler").getHandler;
+@@ -74,6 +76,23 @@ export const bookingsRouter = router({
+       input,
+     });
+   }),
++  addGuests: bookingsProcedure.input(ZAddGuestsInputSchema).mutation(async ({ input, ctx }) => {
++    if (!UNSTABLE_HANDLER_CACHE.addGuests) {
++      UNSTABLE_HANDLER_CACHE.addGuests = await import("./addGuests.handler").then(
++        (mod) => mod.addGuestsHandler
++      );
++    }
++
++    // Unreachable code but required for type safety
++    if (!UNSTABLE_HANDLER_CACHE.addGuests) {
++      throw new Error("Failed to load handler");
++    }
++
++    return UNSTABLE_HANDLER_CACHE.addGuests({
++      ctx,
++      input,
++    });
++  }),
+ 
+   confirm: bookingsProcedure.input(ZConfirmInputSchema).mutation(async ({ input, ctx }) => {
+     if (!UNSTABLE_HANDLER_CACHE.confirm) {
+diff --git a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+new file mode 100644
+index 00000000000000..e69de29bb2d1d6
+diff --git a/packages/trpc/server/routers/viewer/bookings/addGuests.schema.ts b/packages/trpc/server/routers/viewer/bookings/addGuests.schema.ts
+new file mode 100644
+index 00000000000000..33d105175067fe
+--- /dev/null
++++ b/packages/trpc/server/routers/viewer/bookings/addGuests.schema.ts
+@@ -0,0 +1,8 @@
++import { z } from "zod";
++
++export const ZAddGuestsInputSchema = z.object({
++  bookingId: z.string(),
++  guests: z.array(z.string().email()),
++});
++
++export type TAddGuestsInputSchema = z.infer<typeof ZAddGuestsInputSchema>;
+diff --git a/packages/ui/form/MultiEmail.tsx b/packages/ui/form/MultiEmail.tsx
+new file mode 100644
+index 00000000000000..e1834ec70b243b
+--- /dev/null
++++ b/packages/ui/form/MultiEmail.tsx
+@@ -0,0 +1,94 @@
++import { useLocale } from "@calcom/lib/hooks/useLocale";
++import { Button, EmailField, Icon, Tooltip } from "@calcom/ui";
++
++interface MultiEmailProps {
++  value: string[];
++  readOnly: boolean;
++  label: string;
++  setValue: (value: string[]) => void;
++  placeholder?: string;
++}
++
++export function MultiEmail({ value, readOnly, label, setValue, placeholder }: MultiEmailProps) {
++  const { t } = useLocale();
++  value = value || [];
++  const inputClassName =
++    "dark:placeholder:text-muted focus:border-emphasis border-subtle block w-full rounded-md border-default text-sm focus:ring-black disabled:bg-emphasis disabled:hover:cursor-not-allowed dark:selection:bg-green-500 disabled:dark:text-subtle bg-default";
++  return (
++    <>
++      {value.length ? (
++        <div>
++          <label htmlFor="emails" className="text-default my-2 block text-sm font-medium">
++            {label}
++          </label>
++          <ul>
++            {value.map((field, index) => (
++              <li key={index}>
++                <EmailField
++                  disabled={readOnly}
++                  value={value[index]}
++                  className={inputClassName}
++                  onChange={(e) => {
++                    const updatedValue = [...value];
++                    updatedValue[index] = e.target.value;
++                    setValue(updatedValue);
++                  }}
++                  placeholder={placeholder}
++                  label={<></>}
++                  required
++                  onClickAddon={() => {
++                    const updatedValue = [...value];
++                    updatedValue.splice(index, 1);
++                    setValue(updatedValue);
++                  }}
++                  addOnSuffix={
++                    !readOnly ? (
++                      <Tooltip content="Remove email">
++                        <button className="m-1" type="button">
++                          <Icon name="x" width={12} className="text-default" />
++                        </button>
++                      </Tooltip>
++                    ) : null
++                  }
++                />
++              </li>
++            ))}
++          </ul>
++          {!readOnly && (
++            <Button
++              data-testid="add-another-email"
++              type="button"
++              color="minimal"
++              StartIcon="user-plus"
++              className="my-2.5"
++              onClick={() => {
++                const updatedValue = [...value];
++                updatedValue.push("");
++                setValue(updatedValue);
++              }}>
++              {t("add_another")}
++            </Button>
++          )}
++        </div>
++      ) : (
++        <></>
++      )}
++
++      {!value.length && !readOnly && (
++        <Button
++          data-testid="add-emails"
++          color="minimal"
++          variant="button"
++          StartIcon="user-plus"
++          onClick={() => {
++            const updatedValue = [...value];
++            updatedValue.push("");
++            setValue(updatedValue);
++          }}
++          className="mr-auto">
++          {label}
++        </Button>
++      )}
++    </>
++  );
++}
+diff --git a/packages/ui/form/MultiEmailLazy.tsx b/packages/ui/form/MultiEmailLazy.tsx
+new file mode 100644
+index 00000000000000..da82b95af9810b
+--- /dev/null
++++ b/packages/ui/form/MultiEmailLazy.tsx
+@@ -0,0 +1,4 @@
++import dynamic from "next/dynamic";
++
++/** These are like 40kb that not every user needs */
++export const MultiEmail = dynamic(() => import("./MultiEmail")) as unknown as typeof import("./MultiEmail");
+diff --git a/packages/ui/index.tsx b/packages/ui/index.tsx
+index b7ba7fa86c5e2a..911c7ae620a963 100644
+--- a/packages/ui/index.tsx
++++ b/packages/ui/index.tsx
+@@ -147,6 +147,7 @@ export { ShellSubHeading } from "./components/layout";
+ /** ⬇️ TODO - Move these to components */
+ export { default as AddressInput } from "./form/AddressInputLazy";
+ export { default as PhoneInput } from "./form/PhoneInputLazy";
++export { MultiEmail } from "./form/MultiEmailLazy";
+ export { UnstyledSelect } from "./form/Select";
+ 
+ export {
+
+From c86669fd2737137904cee4f636891d6524d1c060 Mon Sep 17 00:00:00 2001
+From: Anik Dhabal Babu <adhabal2002@gmail.com>
+Date: Mon, 29 Apr 2024 09:36:25 +0000
+Subject: [PATCH 02/13] fix: some update
+
+---
+ .../components/booking/BookingListItem.tsx    |  2 +-
+ .../web/components/dialog/AddGuestsDialog.tsx | 26 +++++++-
+ apps/web/public/static/locales/en/common.json |  1 +
+ .../viewer/bookings/addGuests.handler.ts      | 61 +++++++++++++++++++
+ .../viewer/bookings/addGuests.schema.ts       |  2 +-
+ packages/ui/form/MultiEmail.tsx               |  4 +-
+ packages/ui/form/MultiEmailLazy.tsx           |  4 +-
+ packages/ui/index.tsx                         |  2 +-
+ 8 files changed, 94 insertions(+), 8 deletions(-)
+
+diff --git a/apps/web/components/booking/BookingListItem.tsx b/apps/web/components/booking/BookingListItem.tsx
+index 90d776cb8b4306..de514ed6e8a1ce 100644
+--- a/apps/web/components/booking/BookingListItem.tsx
++++ b/apps/web/components/booking/BookingListItem.tsx
+@@ -326,7 +326,7 @@ function BookingListItem(booking: BookingItemProps) {
+       <AddGuestsDialog
+         isOpenDialog={isOpenAddGuestsDialog}
+         setIsOpenDialog={setIsOpenAddGuestsDialog}
+-        bookingUId={booking.uid}
++        bookingId={booking.id}
+       />
+       {booking.paid && booking.payment[0] && (
+         <ChargeCardDialog
+diff --git a/apps/web/components/dialog/AddGuestsDialog.tsx b/apps/web/components/dialog/AddGuestsDialog.tsx
+index 76a5077f54d98a..6b1414967a4ba1 100644
+--- a/apps/web/components/dialog/AddGuestsDialog.tsx
++++ b/apps/web/components/dialog/AddGuestsDialog.tsx
+@@ -4,7 +4,16 @@ import { z } from "zod";
+ 
+ import { useLocale } from "@calcom/lib/hooks/useLocale";
+ import { trpc } from "@calcom/trpc/react";
+-import { Button, Dialog, DialogContent, DialogFooter, DialogHeader, MultiEmail, Icon } from "@calcom/ui";
++import {
++  Button,
++  Dialog,
++  DialogContent,
++  DialogFooter,
++  DialogHeader,
++  MultiEmail,
++  Icon,
++  showToast,
++} from "@calcom/ui";
+ 
+ interface IAddGuestsDialog {
+   isOpenDialog: boolean;
+@@ -15,18 +24,29 @@ interface IAddGuestsDialog {
+ export const AddGuestsDialog = (props: IAddGuestsDialog) => {
+   const { t } = useLocale();
+   const ZAddGuestsInputSchema = z.array(z.string().email());
++  const { isOpenDialog, setIsOpenDialog, bookingId } = props;
+   const utils = trpc.useUtils();
+-  const { isOpenDialog, setIsOpenDialog, bookingUId: bookingId } = props;
+   const [multiEmailValue, setMultiEmailValue] = useState<string[]>([""]);
+   const [isInvalidEmail, setIsInvalidEmail] = useState(false);
+ 
++  const addGuestsMutation = trpc.viewer.bookings.addGuests.useMutation({
++    onSuccess: async () => {
++      showToast(t("guests_updated"), "success");
++      setIsOpenDialog(false);
++      utils.viewer.bookings.invalidate();
++    },
++    onError: () => {
++      showToast(t("unexpected_error_try_again"), "error");
++    },
++  });
++
+   const handleAdd = () => {
+     if (multiEmailValue.length === 0) {
+       return;
+     }
+     const validationResult = ZAddGuestsInputSchema.safeParse(multiEmailValue);
+     if (validationResult.success) {
+-      setIsOpenDialog(false);
++      addGuestsMutation.mutate({ bookingId, guests: multiEmailValue });
+     } else {
+       setIsInvalidEmail(true);
+     }
+diff --git a/apps/web/public/static/locales/en/common.json b/apps/web/public/static/locales/en/common.json
+index 84b3a19383a5c6..d0a4c16384f9f1 100644
+--- a/apps/web/public/static/locales/en/common.json
++++ b/apps/web/public/static/locales/en/common.json
+@@ -1112,6 +1112,7 @@
+   "set_location": "Set Location",
+   "update_location": "Update Location",
+   "location_updated": "Location updated",
++  "guests_updated": "Guests updated",
+   "email_validation_error": "That doesn't look like an email address",
+   "place_where_cal_widget_appear": "Place this code in your HTML where you want your {{appName}} widget to appear.",
+   "create_update_react_component": "Create or update an existing React component as shown below.",
+diff --git a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+index e69de29bb2d1d6..ab402b7634642a 100644
+--- a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
++++ b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+@@ -0,0 +1,61 @@
++import { prisma } from "@calcom/prisma";
++
++import { TRPCError } from "@trpc/server";
++
++import type { TrpcSessionUser } from "../../../trpc";
++import type { TAddGuestsInputSchema } from "./addGuests.schema";
++import type { BookingsProcedureContext } from "./util";
++
++type AddGuestsOptions = {
++  ctx: {
++    user: NonNullable<TrpcSessionUser>;
++  } & BookingsProcedureContext;
++  input: TAddGuestsInputSchema;
++};
++export const addGuestsHandler = async ({ ctx, input }: AddGuestsOptions) => {
++  const { bookingId, guests } = input;
++  console.log(input);
++  const { booking } = ctx;
++
++  try {
++    const organizer = await prisma.user.findFirstOrThrow({
++      where: {
++        id: booking.userId || 0,
++      },
++      select: {
++        name: true,
++        email: true,
++        timeZone: true,
++        locale: true,
++      },
++    });
++
++    const guestsFullDetails = guests.map((guest) => {
++      return {
++        name: "",
++        email: guest,
++        timeZone: organizer.timeZone,
++      };
++    });
++
++    await prisma.booking.update({
++      where: {
++        id: bookingId,
++      },
++      include: {
++        attendees: true,
++      },
++      data: {
++        attendees: {
++          createMany: {
++            data: guestsFullDetails,
++          },
++        },
++      },
++    });
++  } catch (err) {
++    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
++    console.log(err);
++  }
++  return { message: "Guests updated" };
++};
+diff --git a/packages/trpc/server/routers/viewer/bookings/addGuests.schema.ts b/packages/trpc/server/routers/viewer/bookings/addGuests.schema.ts
+index 33d105175067fe..e54c4eed8ee063 100644
+--- a/packages/trpc/server/routers/viewer/bookings/addGuests.schema.ts
++++ b/packages/trpc/server/routers/viewer/bookings/addGuests.schema.ts
+@@ -1,7 +1,7 @@
+ import { z } from "zod";
+ 
+ export const ZAddGuestsInputSchema = z.object({
+-  bookingId: z.string(),
++  bookingId: z.number(),
+   guests: z.array(z.string().email()),
+ });
+ 
+diff --git a/packages/ui/form/MultiEmail.tsx b/packages/ui/form/MultiEmail.tsx
+index e1834ec70b243b..b87dd950e833cb 100644
+--- a/packages/ui/form/MultiEmail.tsx
++++ b/packages/ui/form/MultiEmail.tsx
+@@ -9,7 +9,7 @@ interface MultiEmailProps {
+   placeholder?: string;
+ }
+ 
+-export function MultiEmail({ value, readOnly, label, setValue, placeholder }: MultiEmailProps) {
++function MultiEmail({ value, readOnly, label, setValue, placeholder }: MultiEmailProps) {
+   const { t } = useLocale();
+   value = value || [];
+   const inputClassName =
+@@ -92,3 +92,5 @@ export function MultiEmail({ value, readOnly, label, setValue, placeholder }: Mu
+     </>
+   );
+ }
++
++export default MultiEmail;
+diff --git a/packages/ui/form/MultiEmailLazy.tsx b/packages/ui/form/MultiEmailLazy.tsx
+index da82b95af9810b..b8b73f2dab7d92 100644
+--- a/packages/ui/form/MultiEmailLazy.tsx
++++ b/packages/ui/form/MultiEmailLazy.tsx
+@@ -1,4 +1,6 @@
+ import dynamic from "next/dynamic";
+ 
+ /** These are like 40kb that not every user needs */
+-export const MultiEmail = dynamic(() => import("./MultiEmail")) as unknown as typeof import("./MultiEmail");
++const MultiEmail = dynamic(() => import("./MultiEmail")) as unknown as typeof import("./MultiEmail").default;
++
++export default MultiEmail;
+diff --git a/packages/ui/index.tsx b/packages/ui/index.tsx
+index 911c7ae620a963..65e02dcf1555ad 100644
+--- a/packages/ui/index.tsx
++++ b/packages/ui/index.tsx
+@@ -147,7 +147,7 @@ export { ShellSubHeading } from "./components/layout";
+ /** ⬇️ TODO - Move these to components */
+ export { default as AddressInput } from "./form/AddressInputLazy";
+ export { default as PhoneInput } from "./form/PhoneInputLazy";
+-export { MultiEmail } from "./form/MultiEmailLazy";
++export { default as MultiEmail } from "./form/MultiEmailLazy";
+ export { UnstyledSelect } from "./form/Select";
+ 
+ export {
+
+From 7041d54437f206a4f649468ff5c9cf8cd2076990 Mon Sep 17 00:00:00 2001
+From: Anik Dhabal Babu <81948346+anikdhabal@users.noreply.github.com>
+Date: Mon, 29 Apr 2024 15:55:49 +0530
+Subject: [PATCH 03/13] fix: minor issue
+
+---
+ apps/web/components/dialog/AddGuestsDialog.tsx | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/apps/web/components/dialog/AddGuestsDialog.tsx b/apps/web/components/dialog/AddGuestsDialog.tsx
+index 6b1414967a4ba1..7f15745a2f4b8c 100644
+--- a/apps/web/components/dialog/AddGuestsDialog.tsx
++++ b/apps/web/components/dialog/AddGuestsDialog.tsx
+@@ -18,7 +18,7 @@ import {
+ interface IAddGuestsDialog {
+   isOpenDialog: boolean;
+   setIsOpenDialog: Dispatch<SetStateAction<boolean>>;
+-  bookingUId: string;
++  bookingId: number;
+ }
+ 
+ export const AddGuestsDialog = (props: IAddGuestsDialog) => {
+
+From b94fa36b1a3fa5066a67365380e15ad2b9e2d483 Mon Sep 17 00:00:00 2001
+From: unknown <adhabal2002@gmail.com>
+Date: Tue, 30 Apr 2024 04:26:19 +0530
+Subject: [PATCH 04/13] fix: final update
+
+---
+ .../web/components/dialog/AddGuestsDialog.tsx | 12 ++--
+ apps/web/public/static/locales/en/common.json |  5 +-
+ packages/emails/email-manager.ts              | 24 ++++++++
+ .../src/templates/AttendeeAddGuestsEmail.tsx  | 10 ++++
+ .../src/templates/OrganizerAddGuestsEmail.tsx | 11 ++++
+ packages/emails/src/templates/index.ts        |  2 +
+ .../templates/attendee-add-guests-email.ts    | 34 +++++++++++
+ .../templates/organizer-add-guests-email.ts   | 38 +++++++++++++
+ .../viewer/bookings/addGuests.handler.ts      | 57 +++++++++++++++++--
+ 9 files changed, 184 insertions(+), 9 deletions(-)
+ create mode 100644 packages/emails/src/templates/AttendeeAddGuestsEmail.tsx
+ create mode 100644 packages/emails/src/templates/OrganizerAddGuestsEmail.tsx
+ create mode 100644 packages/emails/templates/attendee-add-guests-email.ts
+ create mode 100644 packages/emails/templates/organizer-add-guests-email.ts
+
+diff --git a/apps/web/components/dialog/AddGuestsDialog.tsx b/apps/web/components/dialog/AddGuestsDialog.tsx
+index 7f15745a2f4b8c..47f17322839bf3 100644
+--- a/apps/web/components/dialog/AddGuestsDialog.tsx
++++ b/apps/web/components/dialog/AddGuestsDialog.tsx
+@@ -23,7 +23,10 @@ interface IAddGuestsDialog {
+ 
+ export const AddGuestsDialog = (props: IAddGuestsDialog) => {
+   const { t } = useLocale();
+-  const ZAddGuestsInputSchema = z.array(z.string().email());
++  const ZAddGuestsInputSchema = z.array(z.string().email()).refine((emails) => {
++    const uniqueEmails = new Set(emails);
++    return uniqueEmails.size === emails.length;
++  });
+   const { isOpenDialog, setIsOpenDialog, bookingId } = props;
+   const utils = trpc.useUtils();
+   const [multiEmailValue, setMultiEmailValue] = useState<string[]>([""]);
+@@ -31,8 +34,9 @@ export const AddGuestsDialog = (props: IAddGuestsDialog) => {
+ 
+   const addGuestsMutation = trpc.viewer.bookings.addGuests.useMutation({
+     onSuccess: async () => {
+-      showToast(t("guests_updated"), "success");
++      showToast(t("guests_added"), "success");
+       setIsOpenDialog(false);
++      setMultiEmailValue([""]);
+       utils.viewer.bookings.invalidate();
+     },
+     onError: () => {
+@@ -74,7 +78,7 @@ export const AddGuestsDialog = (props: IAddGuestsDialog) => {
+                   <Icon name="triangle-alert" className="h-5 w-5" />
+                 </div>
+                 <div className="ml-3">
+-                  <p className="font-medium">{t("email_validation_error")}</p>
++                  <p className="font-medium">{t("emails_must_be_unique_valid")}</p>
+                 </div>
+               </div>
+             )}
+@@ -90,7 +94,7 @@ export const AddGuestsDialog = (props: IAddGuestsDialog) => {
+                 color="secondary">
+                 {t("cancel")}
+               </Button>
+-              <Button data-testid="add_members" onClick={handleAdd}>
++              <Button data-testid="add_members" loading={addGuestsMutation.isPending} onClick={handleAdd}>
+                 {t("add")}
+               </Button>
+             </DialogFooter>
+diff --git a/apps/web/public/static/locales/en/common.json b/apps/web/public/static/locales/en/common.json
+index d0a4c16384f9f1..a515b2722a9b14 100644
+--- a/apps/web/public/static/locales/en/common.json
++++ b/apps/web/public/static/locales/en/common.json
+@@ -1100,7 +1100,9 @@
+   "impersonating_user_warning": "Impersonating username \"{{user}}\".",
+   "impersonating_stop_instructions": "Click here to stop",
+   "event_location_changed": "Updated - Your event changed the location",
++  "new_guests_added": "Added - New guests added to your event",
+   "location_changed_event_type_subject": "Location Changed: {{eventType}} with {{name}} at {{date}}",
++  "guests_added_event_type_subject": "Guests Added: {{eventType}} with {{name}} at {{date}}",
+   "current_location": "Current Location",
+   "new_location": "New Location",
+   "session": "Session",
+@@ -1112,8 +1114,9 @@
+   "set_location": "Set Location",
+   "update_location": "Update Location",
+   "location_updated": "Location updated",
+-  "guests_updated": "Guests updated",
++  "guests_added": "Guests added",
+   "email_validation_error": "That doesn't look like an email address",
++  "emails_must_be_unique_valid": "Emails must be unique and valid",
+   "place_where_cal_widget_appear": "Place this code in your HTML where you want your {{appName}} widget to appear.",
+   "create_update_react_component": "Create or update an existing React component as shown below.",
+   "copy_code": "Copy Code",
+diff --git a/packages/emails/email-manager.ts b/packages/emails/email-manager.ts
+index 6c75139bdf673a..b928802107fdc3 100644
+--- a/packages/emails/email-manager.ts
++++ b/packages/emails/email-manager.ts
+@@ -13,6 +13,7 @@ import type { EmailVerifyLink } from "./templates/account-verify-email";
+ import AccountVerifyEmail from "./templates/account-verify-email";
+ import type { OrganizationNotification } from "./templates/admin-organization-notification";
+ import AdminOrganizationNotification from "./templates/admin-organization-notification";
++import AttendeeAddGuestsEmail from "./templates/attendee-add-guests-email";
+ import AttendeeAwaitingPaymentEmail from "./templates/attendee-awaiting-payment-email";
+ import AttendeeCancelledEmail from "./templates/attendee-cancelled-email";
+ import AttendeeCancelledSeatEmail from "./templates/attendee-cancelled-seat-email";
+@@ -44,6 +45,7 @@ import type { OrganizationCreation } from "./templates/organization-creation-ema
+ import OrganizationCreationEmail from "./templates/organization-creation-email";
+ import type { OrganizationEmailVerify } from "./templates/organization-email-verification";
+ import OrganizationEmailVerification from "./templates/organization-email-verification";
++import OrganizerAddGuestsEmail from "./templates/organizer-add-guests-email";
+ import OrganizerAttendeeCancelledSeatEmail from "./templates/organizer-attendee-cancelled-seat-email";
+ import OrganizerCancelledEmail from "./templates/organizer-cancelled-email";
+ import OrganizerDailyVideoDownloadRecordingEmail from "./templates/organizer-daily-video-download-recording-email";
+@@ -420,6 +422,28 @@ export const sendLocationChangeEmails = async (calEvent: CalendarEvent) => {
+ 
+   await Promise.all(emailsToSend);
+ };
++export const sendAddGuestsEmails = async (calEvent: CalendarEvent) => {
++  const calendarEvent = formatCalEvent(calEvent);
++
++  const emailsToSend: Promise<unknown>[] = [];
++  emailsToSend.push(sendEmail(() => new OrganizerAddGuestsEmail({ calEvent: calendarEvent })));
++
++  if (calendarEvent.team?.members) {
++    for (const teamMember of calendarEvent.team.members) {
++      emailsToSend.push(
++        sendEmail(() => new OrganizerAddGuestsEmail({ calEvent: calendarEvent, teamMember }))
++      );
++    }
++  }
++
++  emailsToSend.push(
++    ...calendarEvent.attendees.map((attendee) => {
++      return sendEmail(() => new AttendeeAddGuestsEmail(calendarEvent, attendee));
++    })
++  );
++
++  await Promise.all(emailsToSend);
++};
+ export const sendFeedbackEmail = async (feedback: Feedback) => {
+   await sendEmail(() => new FeedbackEmail(feedback));
+ };
+diff --git a/packages/emails/src/templates/AttendeeAddGuestsEmail.tsx b/packages/emails/src/templates/AttendeeAddGuestsEmail.tsx
+new file mode 100644
+index 00000000000000..cbc736869b9034
+--- /dev/null
++++ b/packages/emails/src/templates/AttendeeAddGuestsEmail.tsx
+@@ -0,0 +1,10 @@
++import { AttendeeScheduledEmail } from "./AttendeeScheduledEmail";
++
++export const AttendeeAddGuestsEmail = (props: React.ComponentProps<typeof AttendeeScheduledEmail>) => (
++  <AttendeeScheduledEmail
++    title="new_guests_added"
++    headerType="calendarCircle"
++    subject="guests_added_event_type_subject"
++    {...props}
++  />
++);
+diff --git a/packages/emails/src/templates/OrganizerAddGuestsEmail.tsx b/packages/emails/src/templates/OrganizerAddGuestsEmail.tsx
+new file mode 100644
+index 00000000000000..74171b2270d87e
+--- /dev/null
++++ b/packages/emails/src/templates/OrganizerAddGuestsEmail.tsx
+@@ -0,0 +1,11 @@
++import { OrganizerScheduledEmail } from "./OrganizerScheduledEmail";
++
++export const OrganizerAddGuestsEmail = (props: React.ComponentProps<typeof OrganizerScheduledEmail>) => (
++  <OrganizerScheduledEmail
++    title="new_guests_added"
++    headerType="calendarCircle"
++    subject="guests_added_event_type_subject"
++    callToAction={null}
++    {...props}
++  />
++);
+diff --git a/packages/emails/src/templates/index.ts b/packages/emails/src/templates/index.ts
+index 86e56ab57509e1..89a3faf1b4b85b 100644
+--- a/packages/emails/src/templates/index.ts
++++ b/packages/emails/src/templates/index.ts
+@@ -35,3 +35,5 @@ export { AdminOrganizationNotificationEmail } from "./AdminOrganizationNotificat
+ export { BookingRedirectEmailNotification } from "./BookingRedirectEmailNotification";
+ export { VerifyEmailChangeEmail } from "./VerifyEmailChangeEmail";
+ export { OrganizationCreationEmail } from "./OrganizationCreationEmail";
++export { OrganizerAddGuestsEmail } from "./OrganizerAddGuestsEmail";
++export { AttendeeAddGuestsEmail } from "./AttendeeAddGuestsEmail";
+diff --git a/packages/emails/templates/attendee-add-guests-email.ts b/packages/emails/templates/attendee-add-guests-email.ts
+new file mode 100644
+index 00000000000000..155989acbd8a59
+--- /dev/null
++++ b/packages/emails/templates/attendee-add-guests-email.ts
+@@ -0,0 +1,34 @@
++import { renderEmail } from "../";
++import generateIcsString from "../lib/generateIcsString";
++import AttendeeScheduledEmail from "./attendee-scheduled-email";
++
++export default class AttendeeAddGuestsEmail extends AttendeeScheduledEmail {
++  protected async getNodeMailerPayload(): Promise<Record<string, unknown>> {
++    return {
++      icalEvent: {
++        filename: "event.ics",
++        content: generateIcsString({
++          event: this.calEvent,
++          title: this.t("new_guests_added"),
++          subtitle: this.t("emailed_you_and_any_other_attendees"),
++          role: "attendee",
++          status: "CONFIRMED",
++        }),
++        method: "REQUEST",
++      },
++      to: `${this.attendee.name} <${this.attendee.email}>`,
++      from: `${this.calEvent.organizer.name} <${this.getMailerOptions().from}>`,
++      replyTo: this.calEvent.organizer.email,
++      subject: `${this.t("guests_added_event_type_subject", {
++        eventType: this.calEvent.type,
++        name: this.calEvent.team?.name || this.calEvent.organizer.name,
++        date: this.getFormattedDate(),
++      })}`,
++      html: await renderEmail("AttendeeAddGuestsEmail", {
++        calEvent: this.calEvent,
++        attendee: this.attendee,
++      }),
++      text: this.getTextBody("new_guests_added"),
++    };
++  }
++}
+diff --git a/packages/emails/templates/organizer-add-guests-email.ts b/packages/emails/templates/organizer-add-guests-email.ts
+new file mode 100644
+index 00000000000000..0a2a9d39b5549e
+--- /dev/null
++++ b/packages/emails/templates/organizer-add-guests-email.ts
+@@ -0,0 +1,38 @@
++import { APP_NAME } from "@calcom/lib/constants";
++
++import { renderEmail } from "../";
++import generateIcsString from "../lib/generateIcsString";
++import OrganizerScheduledEmail from "./organizer-scheduled-email";
++
++export default class OrganizerAddGuestsEmail extends OrganizerScheduledEmail {
++  protected async getNodeMailerPayload(): Promise<Record<string, unknown>> {
++    const toAddresses = [this.teamMember?.email || this.calEvent.organizer.email];
++
++    return {
++      icalEvent: {
++        filename: "event.ics",
++        content: generateIcsString({
++          event: this.calEvent,
++          title: this.t("new_guests_added"),
++          subtitle: this.t("emailed_you_and_any_other_attendees"),
++          role: "organizer",
++          status: "CONFIRMED",
++        }),
++        method: "REQUEST",
++      },
++      from: `${APP_NAME} <${this.getMailerOptions().from}>`,
++      to: toAddresses.join(","),
++      replyTo: [this.calEvent.organizer.email, ...this.calEvent.attendees.map(({ email }) => email)],
++      subject: `${this.t("guests_added_event_type_subject", {
++        eventType: this.calEvent.type,
++        name: this.calEvent.attendees[0].name,
++        date: this.getFormattedDate(),
++      })}`,
++      html: await renderEmail("OrganizerAddGuestsEmail", {
++        attendee: this.calEvent.organizer,
++        calEvent: this.calEvent,
++      }),
++      text: this.getTextBody("new_guests_added"),
++    };
++  }
++}
+diff --git a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+index ab402b7634642a..870a2826ad0e58 100644
+--- a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
++++ b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+@@ -1,4 +1,9 @@
++import dayjs from "@calcom/dayjs";
++import { sendAddGuestsEmails } from "@calcom/emails";
++import { parseRecurringEvent } from "@calcom/lib";
++import { getTranslation } from "@calcom/lib/server";
+ import { prisma } from "@calcom/prisma";
++import type { CalendarEvent } from "@calcom/types/Calendar";
+ 
+ import { TRPCError } from "@trpc/server";
+ 
+@@ -14,7 +19,6 @@ type AddGuestsOptions = {
+ };
+ export const addGuestsHandler = async ({ ctx, input }: AddGuestsOptions) => {
+   const { bookingId, guests } = input;
+-  console.log(input);
+   const { booking } = ctx;
+ 
+   try {
+@@ -35,10 +39,11 @@ export const addGuestsHandler = async ({ ctx, input }: AddGuestsOptions) => {
+         name: "",
+         email: guest,
+         timeZone: organizer.timeZone,
++        locale: organizer.locale,
+       };
+     });
+ 
+-    await prisma.booking.update({
++    const bookingAttendees = await prisma.booking.update({
+       where: {
+         id: bookingId,
+       },
+@@ -53,9 +58,53 @@ export const addGuestsHandler = async ({ ctx, input }: AddGuestsOptions) => {
+         },
+       },
+     });
++
++    const attendeesListPromises = bookingAttendees.attendees.map(async (attendee) => {
++      return {
++        name: attendee.name,
++        email: attendee.email,
++        timeZone: attendee.timeZone,
++        language: {
++          translate: await getTranslation(attendee.locale ?? "en", "common"),
++          locale: attendee.locale ?? "en",
++        },
++      };
++    });
++
++    const attendeesList = await Promise.all(attendeesListPromises);
++    const tOrganizer = await getTranslation(organizer.locale ?? "en", "common");
++
++    const evt: CalendarEvent = {
++      title: booking.title || "",
++      type: (booking.eventType?.title as string) || booking?.title || "",
++      description: booking.description || "",
++      startTime: booking.startTime ? dayjs(booking.startTime).format() : "",
++      endTime: booking.endTime ? dayjs(booking.endTime).format() : "",
++      organizer: {
++        email: booking?.userPrimaryEmail ?? organizer.email,
++        name: organizer.name ?? "Nameless",
++        timeZone: organizer.timeZone,
++        language: { translate: tOrganizer, locale: organizer.locale ?? "en" },
++      },
++      attendees: attendeesList,
++      uid: booking.uid,
++      recurringEvent: parseRecurringEvent(booking.eventType?.recurringEvent),
++      location: booking.location,
++      destinationCalendar: booking?.destinationCalendar
++        ? [booking?.destinationCalendar]
++        : booking?.user?.destinationCalendar
++        ? [booking?.user?.destinationCalendar]
++        : [],
++      seatsPerTimeSlot: booking.eventType?.seatsPerTimeSlot,
++      seatsShowAttendees: booking.eventType?.seatsShowAttendees,
++    };
++    try {
++      await sendAddGuestsEmails(evt);
++    } catch (err) {
++      console.log("Error sending AddGuestsEmails");
++    }
+   } catch (err) {
+     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+-    console.log(err);
+   }
+-  return { message: "Guests updated" };
++  return { message: "Guests added" };
+ };
+
+From 66a99d3aa672bff71b14b936746d170e444ef580 Mon Sep 17 00:00:00 2001
+From: Anik Dhabal Babu <adhabal2002@gmail.com>
+Date: Sat, 25 May 2024 05:17:10 +0000
+Subject: [PATCH 05/13] update
+
+---
+ .../routers/viewer/bookings/addGuests.handler.ts  | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+index 870a2826ad0e58..bf313407160da2 100644
+--- a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
++++ b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+@@ -34,7 +34,20 @@ export const addGuestsHandler = async ({ ctx, input }: AddGuestsOptions) => {
+       },
+     });
+ 
+-    const guestsFullDetails = guests.map((guest) => {
++    const currentGuests = await prisma.booking.findFirstOrThrow({
++      where: {
++        id: bookingId,
++      },
++      select: {
++        attendees: true,
++      },
++    });
++
++    const uniqueGuests = guests.filter(
++      (guest) => !currentGuests.attendees.some((attendee) => guest === attendee.email)
++    );
++
++    const guestsFullDetails = uniqueGuests.map((guest) => {
+       return {
+         name: "",
+         email: guest,
+
+From 2e2e90efdf3f76f33777c6f199795e410f4ba74e Mon Sep 17 00:00:00 2001
+From: Anik Dhabal Babu <adhabal2002@gmail.com>
+Date: Wed, 29 May 2024 18:05:49 +0000
+Subject: [PATCH 06/13] update
+
+---
+ packages/emails/email-manager.ts                          | 8 ++++++--
+ .../server/routers/viewer/bookings/addGuests.handler.ts   | 2 +-
+ 2 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/packages/emails/email-manager.ts b/packages/emails/email-manager.ts
+index 95eb364f750df2..169d464550484d 100644
+--- a/packages/emails/email-manager.ts
++++ b/packages/emails/email-manager.ts
+@@ -424,7 +424,7 @@ export const sendLocationChangeEmails = async (calEvent: CalendarEvent) => {
+ 
+   await Promise.all(emailsToSend);
+ };
+-export const sendAddGuestsEmails = async (calEvent: CalendarEvent) => {
++export const sendAddGuestsEmails = async (calEvent: CalendarEvent, newGuests: string[]) => {
+   const calendarEvent = formatCalEvent(calEvent);
+ 
+   const emailsToSend: Promise<unknown>[] = [];
+@@ -440,7 +440,11 @@ export const sendAddGuestsEmails = async (calEvent: CalendarEvent) => {
+ 
+   emailsToSend.push(
+     ...calendarEvent.attendees.map((attendee) => {
+-      return sendEmail(() => new AttendeeAddGuestsEmail(calendarEvent, attendee));
++      if (newGuests.includes(attendee.email)) {
++        return sendEmail(() => new AttendeeScheduledEmail(calendarEvent, attendee));
++      } else {
++        return sendEmail(() => new AttendeeAddGuestsEmail(calendarEvent, attendee));
++      }
+     })
+   );
+ 
+diff --git a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+index bf313407160da2..ea695446ebeba5 100644
+--- a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
++++ b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+@@ -112,7 +112,7 @@ export const addGuestsHandler = async ({ ctx, input }: AddGuestsOptions) => {
+       seatsShowAttendees: booking.eventType?.seatsShowAttendees,
+     };
+     try {
+-      await sendAddGuestsEmails(evt);
++      await sendAddGuestsEmails(evt, guests);
+     } catch (err) {
+       console.log("Error sending AddGuestsEmails");
+     }
+
+From 1254b9a68913ce7590662442f27aed020bdf32d9 Mon Sep 17 00:00:00 2001
+From: Anik Dhabal Babu <adhabal2002@gmail.com>
+Date: Tue, 23 Jul 2024 19:07:15 +0000
+Subject: [PATCH 07/13] add requested changes
+
+---
+ .../web/components/dialog/AddGuestsDialog.tsx |  2 +-
+ .../routers/viewer/bookings/_router.tsx       |  2 +-
+ .../viewer/bookings/addGuests.handler.ts      | 38 ++++++++++++++-----
+ 3 files changed, 30 insertions(+), 12 deletions(-)
+
+diff --git a/apps/web/components/dialog/AddGuestsDialog.tsx b/apps/web/components/dialog/AddGuestsDialog.tsx
+index 47f17322839bf3..dee00264eb6786 100644
+--- a/apps/web/components/dialog/AddGuestsDialog.tsx
++++ b/apps/web/components/dialog/AddGuestsDialog.tsx
+@@ -40,7 +40,7 @@ export const AddGuestsDialog = (props: IAddGuestsDialog) => {
+       utils.viewer.bookings.invalidate();
+     },
+     onError: () => {
+-      showToast(t("unexpected_error_try_again"), "error");
++      showToast(t("something_went_wrong"), "error");
+     },
+   });
+ 
+diff --git a/packages/trpc/server/routers/viewer/bookings/_router.tsx b/packages/trpc/server/routers/viewer/bookings/_router.tsx
+index 8858cb71d8b2cd..c61de25deb2bf4 100644
+--- a/packages/trpc/server/routers/viewer/bookings/_router.tsx
++++ b/packages/trpc/server/routers/viewer/bookings/_router.tsx
+@@ -76,7 +76,7 @@ export const bookingsRouter = router({
+       input,
+     });
+   }),
+-  addGuests: bookingsProcedure.input(ZAddGuestsInputSchema).mutation(async ({ input, ctx }) => {
++  addGuests: authedProcedure.input(ZAddGuestsInputSchema).mutation(async ({ input, ctx }) => {
+     if (!UNSTABLE_HANDLER_CACHE.addGuests) {
+       UNSTABLE_HANDLER_CACHE.addGuests = await import("./addGuests.handler").then(
+         (mod) => mod.addGuestsHandler
+diff --git a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+index ea695446ebeba5..6bb52e59d70a6a 100644
+--- a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
++++ b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+@@ -19,9 +19,28 @@ type AddGuestsOptions = {
+ };
+ export const addGuestsHandler = async ({ ctx, input }: AddGuestsOptions) => {
+   const { bookingId, guests } = input;
+-  const { booking } = ctx;
+ 
+   try {
++    const booking = await prisma.booking.findFirst({
++      where: {
++        id: bookingId,
++      },
++      include: {
++        attendees: true,
++        eventType: true,
++        destinationCalendar: true,
++        references: true,
++        user: {
++          include: {
++            destinationCalendar: true,
++            credentials: true,
++          },
++        },
++      },
++    });
++
++    if (!booking) throw new TRPCError({ code: "UNAUTHORIZED" });
++
+     const organizer = await prisma.user.findFirstOrThrow({
+       where: {
+         id: booking.userId || 0,
+@@ -34,19 +53,18 @@ export const addGuestsHandler = async ({ ctx, input }: AddGuestsOptions) => {
+       },
+     });
+ 
+-    const currentGuests = await prisma.booking.findFirstOrThrow({
+-      where: {
+-        id: bookingId,
+-      },
+-      select: {
+-        attendees: true,
+-      },
+-    });
++    const blacklistedGuestEmails = process.env.BLACKLISTED_GUEST_EMAILS
++      ? process.env.BLACKLISTED_GUEST_EMAILS.split(",").map((email) => email.toLowerCase())
++      : [];
+ 
+     const uniqueGuests = guests.filter(
+-      (guest) => !currentGuests.attendees.some((attendee) => guest === attendee.email)
++      (guest) =>
++        !booking.attendees.some((attendee) => guest === attendee.email) &&
++        !blacklistedGuestEmails.includes(guest)
+     );
+ 
++    if (uniqueGuests.length === 0) throw new TRPCError({ code: "BAD_REQUEST" });
++
+     const guestsFullDetails = uniqueGuests.map((guest) => {
+       return {
+         name: "",
+
+From f746bff51c3daeffc6e9e53047cc9830d98b96be Mon Sep 17 00:00:00 2001
+From: Anik Dhabal Babu <81948346+anikdhabal@users.noreply.github.com>
+Date: Wed, 24 Jul 2024 08:04:17 +0530
+Subject: [PATCH 08/13] fix type error
+
+---
+ .../trpc/server/routers/viewer/bookings/addGuests.handler.ts    | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+index 6bb52e59d70a6a..e7de13364c9b52 100644
+--- a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
++++ b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+@@ -14,7 +14,7 @@ import type { BookingsProcedureContext } from "./util";
+ type AddGuestsOptions = {
+   ctx: {
+     user: NonNullable<TrpcSessionUser>;
+-  } & BookingsProcedureContext;
++  };
+   input: TAddGuestsInputSchema;
+ };
+ export const addGuestsHandler = async ({ ctx, input }: AddGuestsOptions) => {
+
+From 4e3874880b5d45432c2bef1d29e5bd3aea250507 Mon Sep 17 00:00:00 2001
+From: unknown <adhabal2002@gmail.com>
+Date: Wed, 24 Jul 2024 13:13:09 +0530
+Subject: [PATCH 09/13] small update
+
+---
+ apps/web/components/dialog/AddGuestsDialog.tsx | 2 +-
+ apps/web/public/static/locales/en/common.json  | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/apps/web/components/dialog/AddGuestsDialog.tsx b/apps/web/components/dialog/AddGuestsDialog.tsx
+index dee00264eb6786..7a7a6eedc1f615 100644
+--- a/apps/web/components/dialog/AddGuestsDialog.tsx
++++ b/apps/web/components/dialog/AddGuestsDialog.tsx
+@@ -40,7 +40,7 @@ export const AddGuestsDialog = (props: IAddGuestsDialog) => {
+       utils.viewer.bookings.invalidate();
+     },
+     onError: () => {
+-      showToast(t("something_went_wrong"), "error");
++      showToast(t("unable_to_add_guests"), "error");
+     },
+   });
+ 
+diff --git a/apps/web/public/static/locales/en/common.json b/apps/web/public/static/locales/en/common.json
+index 0105ca2166804e..e2cede4452323a 100644
+--- a/apps/web/public/static/locales/en/common.json
++++ b/apps/web/public/static/locales/en/common.json
+@@ -1124,6 +1124,7 @@
+   "update_location": "Update Location",
+   "location_updated": "Location updated",
+   "guests_added": "Guests added",
++  "unable_to_add_guests": "Unable to add guests",
+   "email_validation_error": "That doesn't look like an email address",
+   "emails_must_be_unique_valid": "Emails must be unique and valid",
+   "place_where_cal_widget_appear": "Place this code in your HTML where you want your {{appName}} widget to appear.",
+
+From 73df8016f3234f6409bf1d35ec6872c382fefa63 Mon Sep 17 00:00:00 2001
+From: Anik Dhabal Babu <adhabal2002@gmail.com>
+Date: Mon, 12 Aug 2024 18:51:58 +0000
+Subject: [PATCH 10/13] final update
+
+---
+ .../components/booking/BookingListItem.tsx    |   2 +-
+ .../web/components/dialog/AddGuestsDialog.tsx |   7 +-
+ .../viewer/bookings/addGuests.handler.ts      | 227 +++++++++---------
+ 3 files changed, 124 insertions(+), 112 deletions(-)
+
+diff --git a/apps/web/components/booking/BookingListItem.tsx b/apps/web/components/booking/BookingListItem.tsx
+index 7a24e6987379e9..9829ff352e8087 100644
+--- a/apps/web/components/booking/BookingListItem.tsx
++++ b/apps/web/components/booking/BookingListItem.tsx
+@@ -189,7 +189,7 @@ function BookingListItem(booking: BookingItemProps) {
+       onClick: () => {
+         setIsOpenAddGuestsDialog(true);
+       },
+-      icon: "users" as const,
++      icon: "user-plus" as const,
+     },
+   ];
+ 
+diff --git a/apps/web/components/dialog/AddGuestsDialog.tsx b/apps/web/components/dialog/AddGuestsDialog.tsx
+index 7a7a6eedc1f615..3ab22035cdf16f 100644
+--- a/apps/web/components/dialog/AddGuestsDialog.tsx
++++ b/apps/web/components/dialog/AddGuestsDialog.tsx
+@@ -39,8 +39,9 @@ export const AddGuestsDialog = (props: IAddGuestsDialog) => {
+       setMultiEmailValue([""]);
+       utils.viewer.bookings.invalidate();
+     },
+-    onError: () => {
+-      showToast(t("unable_to_add_guests"), "error");
++    onError: (err) => {
++      const message = `${err.data.code}: ${t(err.message)}`;
++      showToast(message || t("unable_to_add_guests"), "error");
+     },
+   });
+ 
+@@ -61,7 +62,7 @@ export const AddGuestsDialog = (props: IAddGuestsDialog) => {
+       <DialogContent enableOverflow>
+         <div className="flex flex-row space-x-3">
+           <div className="bg-subtle flex h-10 w-10 flex-shrink-0 justify-center rounded-full ">
+-            <Icon name="users" className="m-auto h-6 w-6" />
++            <Icon name="user-plus" className="m-auto h-6 w-6" />
+           </div>
+           <div className="w-full pt-1">
+             <DialogHeader title={t("additional_guests")} />
+diff --git a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+index e7de13364c9b52..df64ec02dfea15 100644
+--- a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
++++ b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+@@ -2,6 +2,7 @@ import dayjs from "@calcom/dayjs";
+ import { sendAddGuestsEmails } from "@calcom/emails";
+ import { parseRecurringEvent } from "@calcom/lib";
+ import { getTranslation } from "@calcom/lib/server";
++import { isTeamAdmin, isTeamOwner } from "@calcom/lib/server/queries/teams";
+ import { prisma } from "@calcom/prisma";
+ import type { CalendarEvent } from "@calcom/types/Calendar";
+ 
+@@ -9,7 +10,6 @@ import { TRPCError } from "@trpc/server";
+ 
+ import type { TrpcSessionUser } from "../../../trpc";
+ import type { TAddGuestsInputSchema } from "./addGuests.schema";
+-import type { BookingsProcedureContext } from "./util";
+ 
+ type AddGuestsOptions = {
+   ctx: {
+@@ -18,124 +18,135 @@ type AddGuestsOptions = {
+   input: TAddGuestsInputSchema;
+ };
+ export const addGuestsHandler = async ({ ctx, input }: AddGuestsOptions) => {
++  const { user } = ctx;
+   const { bookingId, guests } = input;
+ 
+-  try {
+-    const booking = await prisma.booking.findFirst({
+-      where: {
+-        id: bookingId,
+-      },
+-      include: {
+-        attendees: true,
+-        eventType: true,
+-        destinationCalendar: true,
+-        references: true,
+-        user: {
+-          include: {
+-            destinationCalendar: true,
+-            credentials: true,
+-          },
++  const booking = await prisma.booking.findFirst({
++    where: {
++      id: bookingId,
++    },
++    include: {
++      attendees: true,
++      eventType: true,
++      destinationCalendar: true,
++      references: true,
++      user: {
++        include: {
++          destinationCalendar: true,
++          credentials: true,
+         },
+       },
+-    });
++    },
++  });
+ 
+-    if (!booking) throw new TRPCError({ code: "UNAUTHORIZED" });
++  if (!booking) throw new TRPCError({ code: "NOT_FOUND", message: "booking_not_found" });
+ 
+-    const organizer = await prisma.user.findFirstOrThrow({
+-      where: {
+-        id: booking.userId || 0,
+-      },
+-      select: {
+-        name: true,
+-        email: true,
+-        timeZone: true,
+-        locale: true,
+-      },
+-    });
+-
+-    const blacklistedGuestEmails = process.env.BLACKLISTED_GUEST_EMAILS
+-      ? process.env.BLACKLISTED_GUEST_EMAILS.split(",").map((email) => email.toLowerCase())
+-      : [];
+-
+-    const uniqueGuests = guests.filter(
+-      (guest) =>
+-        !booking.attendees.some((attendee) => guest === attendee.email) &&
+-        !blacklistedGuestEmails.includes(guest)
+-    );
+-
+-    if (uniqueGuests.length === 0) throw new TRPCError({ code: "BAD_REQUEST" });
+-
+-    const guestsFullDetails = uniqueGuests.map((guest) => {
+-      return {
+-        name: "",
+-        email: guest,
+-        timeZone: organizer.timeZone,
+-        locale: organizer.locale,
+-      };
+-    });
+-
+-    const bookingAttendees = await prisma.booking.update({
+-      where: {
+-        id: bookingId,
+-      },
+-      include: {
+-        attendees: true,
+-      },
+-      data: {
+-        attendees: {
+-          createMany: {
+-            data: guestsFullDetails,
+-          },
++  const isTeamAdminOrOwner =
++    (await isTeamAdmin(user.id, booking.eventType?.teamId ?? 0)) &&
++    (await isTeamOwner(user.id, booking.eventType?.teamId ?? 0));
++
++  const isOrganizer = booking.userId === user.id;
++
++  const isAttendee = !!booking.attendees.find((attendee) => attendee.email === user.email);
++
++  if (!isTeamAdminOrOwner && !isOrganizer && !isAttendee) {
++    throw new TRPCError({ code: "FORBIDDEN", message: "you_do_not_have_permission" });
++  }
++
++  const organizer = await prisma.user.findFirstOrThrow({
++    where: {
++      id: booking.userId || 0,
++    },
++    select: {
++      name: true,
++      email: true,
++      timeZone: true,
++      locale: true,
++    },
++  });
++
++  const blacklistedGuestEmails = process.env.BLACKLISTED_GUEST_EMAILS
++    ? process.env.BLACKLISTED_GUEST_EMAILS.split(",").map((email) => email.toLowerCase())
++    : [];
++
++  const uniqueGuests = guests.filter(
++    (guest) =>
++      !booking.attendees.some((attendee) => guest === attendee.email) &&
++      !blacklistedGuestEmails.includes(guest)
++  );
++
++  if (uniqueGuests.length === 0)
++    throw new TRPCError({ code: "BAD_REQUEST", message: "emails_must_be_unique_valid" });
++
++  const guestsFullDetails = uniqueGuests.map((guest) => {
++    return {
++      name: "",
++      email: guest,
++      timeZone: organizer.timeZone,
++      locale: organizer.locale,
++    };
++  });
++
++  const bookingAttendees = await prisma.booking.update({
++    where: {
++      id: bookingId,
++    },
++    include: {
++      attendees: true,
++    },
++    data: {
++      attendees: {
++        createMany: {
++          data: guestsFullDetails,
+         },
+       },
+-    });
+-
+-    const attendeesListPromises = bookingAttendees.attendees.map(async (attendee) => {
+-      return {
+-        name: attendee.name,
+-        email: attendee.email,
+-        timeZone: attendee.timeZone,
+-        language: {
+-          translate: await getTranslation(attendee.locale ?? "en", "common"),
+-          locale: attendee.locale ?? "en",
+-        },
+-      };
+-    });
+-
+-    const attendeesList = await Promise.all(attendeesListPromises);
+-    const tOrganizer = await getTranslation(organizer.locale ?? "en", "common");
+-
+-    const evt: CalendarEvent = {
+-      title: booking.title || "",
+-      type: (booking.eventType?.title as string) || booking?.title || "",
+-      description: booking.description || "",
+-      startTime: booking.startTime ? dayjs(booking.startTime).format() : "",
+-      endTime: booking.endTime ? dayjs(booking.endTime).format() : "",
+-      organizer: {
+-        email: booking?.userPrimaryEmail ?? organizer.email,
+-        name: organizer.name ?? "Nameless",
+-        timeZone: organizer.timeZone,
+-        language: { translate: tOrganizer, locale: organizer.locale ?? "en" },
++    },
++  });
++
++  const attendeesListPromises = bookingAttendees.attendees.map(async (attendee) => {
++    return {
++      name: attendee.name,
++      email: attendee.email,
++      timeZone: attendee.timeZone,
++      language: {
++        translate: await getTranslation(attendee.locale ?? "en", "common"),
++        locale: attendee.locale ?? "en",
+       },
+-      attendees: attendeesList,
+-      uid: booking.uid,
+-      recurringEvent: parseRecurringEvent(booking.eventType?.recurringEvent),
+-      location: booking.location,
+-      destinationCalendar: booking?.destinationCalendar
+-        ? [booking?.destinationCalendar]
+-        : booking?.user?.destinationCalendar
+-        ? [booking?.user?.destinationCalendar]
+-        : [],
+-      seatsPerTimeSlot: booking.eventType?.seatsPerTimeSlot,
+-      seatsShowAttendees: booking.eventType?.seatsShowAttendees,
+     };
+-    try {
+-      await sendAddGuestsEmails(evt, guests);
+-    } catch (err) {
+-      console.log("Error sending AddGuestsEmails");
+-    }
++  });
++
++  const attendeesList = await Promise.all(attendeesListPromises);
++  const tOrganizer = await getTranslation(organizer.locale ?? "en", "common");
++
++  const evt: CalendarEvent = {
++    title: booking.title || "",
++    type: (booking.eventType?.title as string) || booking?.title || "",
++    description: booking.description || "",
++    startTime: booking.startTime ? dayjs(booking.startTime).format() : "",
++    endTime: booking.endTime ? dayjs(booking.endTime).format() : "",
++    organizer: {
++      email: booking?.userPrimaryEmail ?? organizer.email,
++      name: organizer.name ?? "Nameless",
++      timeZone: organizer.timeZone,
++      language: { translate: tOrganizer, locale: organizer.locale ?? "en" },
++    },
++    attendees: attendeesList,
++    uid: booking.uid,
++    recurringEvent: parseRecurringEvent(booking.eventType?.recurringEvent),
++    location: booking.location,
++    destinationCalendar: booking?.destinationCalendar
++      ? [booking?.destinationCalendar]
++      : booking?.user?.destinationCalendar
++      ? [booking?.user?.destinationCalendar]
++      : [],
++    seatsPerTimeSlot: booking.eventType?.seatsPerTimeSlot,
++    seatsShowAttendees: booking.eventType?.seatsShowAttendees,
++  };
++  try {
++    await sendAddGuestsEmails(evt, guests);
+   } catch (err) {
+-    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
++    console.log("Error sending AddGuestsEmails");
+   }
++
+   return { message: "Guests added" };
+ };
+
+From b9a0c2bdd6c28743306f8fba20a8368042d58e2a Mon Sep 17 00:00:00 2001
+From: Anik Dhabal Babu <81948346+anikdhabal@users.noreply.github.com>
+Date: Tue, 13 Aug 2024 00:45:36 +0530
+Subject: [PATCH 11/13] fix type error
+
+---
+ apps/web/components/dialog/AddGuestsDialog.tsx | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/apps/web/components/dialog/AddGuestsDialog.tsx b/apps/web/components/dialog/AddGuestsDialog.tsx
+index 3ab22035cdf16f..592b32c8869723 100644
+--- a/apps/web/components/dialog/AddGuestsDialog.tsx
++++ b/apps/web/components/dialog/AddGuestsDialog.tsx
+@@ -40,7 +40,7 @@ export const AddGuestsDialog = (props: IAddGuestsDialog) => {
+       utils.viewer.bookings.invalidate();
+     },
+     onError: (err) => {
+-      const message = `${err.data.code}: ${t(err.message)}`;
++      const message = `${err.data?.code}: ${t(err.message)}`;
+       showToast(message || t("unable_to_add_guests"), "error");
+     },
+   });
+
+From 5f4c76199a2abc5253713375e8216af63b797444 Mon Sep 17 00:00:00 2001
+From: Anik Dhabal Babu <adhabal2002@gmail.com>
+Date: Wed, 14 Aug 2024 15:14:17 +0000
+Subject: [PATCH 12/13] fix location
+
+---
+ .../routers/viewer/bookings/addGuests.handler.ts       | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+index df64ec02dfea15..2b5cc4ba4fd6b6 100644
+--- a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
++++ b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+@@ -117,6 +117,7 @@ export const addGuestsHandler = async ({ ctx, input }: AddGuestsOptions) => {
+ 
+   const attendeesList = await Promise.all(attendeesListPromises);
+   const tOrganizer = await getTranslation(organizer.locale ?? "en", "common");
++  const videoCallReference = booking.references.find((reference) => reference.type.includes("_video"));
+ 
+   const evt: CalendarEvent = {
+     title: booking.title || "",
+@@ -142,6 +143,15 @@ export const addGuestsHandler = async ({ ctx, input }: AddGuestsOptions) => {
+     seatsPerTimeSlot: booking.eventType?.seatsPerTimeSlot,
+     seatsShowAttendees: booking.eventType?.seatsShowAttendees,
+   };
++
++  if (videoCallReference) {
++    evt.videoCallData = {
++      type: videoCallReference.type,
++      id: videoCallReference.meetingId,
++      password: videoCallReference?.meetingPassword,
++      url: videoCallReference.meetingUrl,
++    };
++  }
+   try {
+     await sendAddGuestsEmails(evt, guests);
+   } catch (err) {
+
+From e01180dd871010e131594f338389d25562f7d248 Mon Sep 17 00:00:00 2001
+From: unknown <adhabal2002@gmail.com>
+Date: Tue, 20 Aug 2024 10:23:45 +0530
+Subject: [PATCH 13/13] update calender event
+
+---
+ .../routers/viewer/bookings/addGuests.handler.ts     | 12 ++++++++++++
+ packages/ui/form/MultiEmail.tsx                      |  2 +-
+ 2 files changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+index 2b5cc4ba4fd6b6..99fec2cadf8ba4 100644
+--- a/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
++++ b/packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts
+@@ -1,7 +1,9 @@
++import EventManager from "@calcom/core/EventManager";
+ import dayjs from "@calcom/dayjs";
+ import { sendAddGuestsEmails } from "@calcom/emails";
+ import { parseRecurringEvent } from "@calcom/lib";
+ import { getTranslation } from "@calcom/lib/server";
++import { getUsersCredentials } from "@calcom/lib/server/getUsersCredentials";
+ import { isTeamAdmin, isTeamOwner } from "@calcom/lib/server/queries/teams";
+ import { prisma } from "@calcom/prisma";
+ import type { CalendarEvent } from "@calcom/types/Calendar";
+@@ -152,6 +154,16 @@ export const addGuestsHandler = async ({ ctx, input }: AddGuestsOptions) => {
+       url: videoCallReference.meetingUrl,
+     };
+   }
++
++  const credentials = await getUsersCredentials(ctx.user);
++
++  const eventManager = new EventManager({
++    ...user,
++    credentials: [...credentials],
++  });
++
++  await eventManager.updateCalendarAttendees(evt, booking);
++
+   try {
+     await sendAddGuestsEmails(evt, guests);
+   } catch (err) {
+diff --git a/packages/ui/form/MultiEmail.tsx b/packages/ui/form/MultiEmail.tsx
+index b87dd950e833cb..d06b7c5782845f 100644
+--- a/packages/ui/form/MultiEmail.tsx
++++ b/packages/ui/form/MultiEmail.tsx
+@@ -26,7 +26,7 @@ function MultiEmail({ value, readOnly, label, setValue, placeholder }: MultiEmai
+               <li key={index}>
+                 <EmailField
+                   disabled={readOnly}
+-                  value={value[index]}
++                  value={field}
+                   className={inputClassName}
+                   onChange={(e) => {
+                     const updatedValue = [...value];

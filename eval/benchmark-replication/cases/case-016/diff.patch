@@ -1,0 +1,138 @@
+From 267d8be1f556ed59639ced396c885bb44586da19 Mon Sep 17 00:00:00 2001
+From: Arpit Jalan <arpit@techapj.com>
+Date: Mon, 10 Aug 2015 13:37:53 +0530
+Subject: [PATCH] UX: show complete URL path if website domain is same as
+ instance domain
+
+---
+ .../discourse/controllers/user.js.es6         |  6 ------
+ .../javascripts/discourse/models/user.js.es6  |  2 +-
+ .../discourse/templates/user/user.hbs         |  6 +++---
+ app/serializers/user_serializer.rb            | 21 +++++++++++++++++++
+ spec/serializers/user_serializer_spec.rb      | 21 +++++++++++++++++--
+ 5 files changed, 44 insertions(+), 12 deletions(-)
+
+diff --git a/app/assets/javascripts/discourse/controllers/user.js.es6 b/app/assets/javascripts/discourse/controllers/user.js.es6
+index 60fd3fc060540..419e6f8a2fa41 100644
+--- a/app/assets/javascripts/discourse/controllers/user.js.es6
++++ b/app/assets/javascripts/discourse/controllers/user.js.es6
+@@ -14,12 +14,6 @@ export default ObjectController.extend(CanCheckEmails, {
+ 
+   collapsedInfo: Em.computed.not('indexStream'),
+ 
+-  websiteName: function() {
+-    var website = this.get('model.website');
+-    if (Em.isEmpty(website)) { return; }
+-    return website.split("/")[2];
+-  }.property('model.website'),
+-
+   linkWebsite: Em.computed.not('model.isBasic'),
+ 
+   removeNoFollow: function() {
+diff --git a/app/assets/javascripts/discourse/models/user.js.es6 b/app/assets/javascripts/discourse/models/user.js.es6
+index bcc84e85e86b8..279073957ca41 100644
+--- a/app/assets/javascripts/discourse/models/user.js.es6
++++ b/app/assets/javascripts/discourse/models/user.js.es6
+@@ -56,7 +56,7 @@ const User = RestModel.extend({
+   /**
+     This user's profile background(in CSS).
+ 
+-    @property websiteName
++    @property profileBackground
+     @type {String}
+   **/
+   profileBackground: function() {
+diff --git a/app/assets/javascripts/discourse/templates/user/user.hbs b/app/assets/javascripts/discourse/templates/user/user.hbs
+index a21b59dd92c92..7ba76ca75ff90 100644
+--- a/app/assets/javascripts/discourse/templates/user/user.hbs
++++ b/app/assets/javascripts/discourse/templates/user/user.hbs
+@@ -63,12 +63,12 @@
+             {{/if}}
+             <h3>
+             {{#if model.location}}{{fa-icon "map-marker"}} {{model.location}}{{/if}}
+-            {{#if websiteName}}
++            {{#if model.website_name}}
+               {{fa-icon "globe"}}
+               {{#if linkWebsite}}
+-                <a href={{model.website}} rel={{unless removeNoFollow 'nofollow'}} target="_blank">{{websiteName}}</a>
++                <a href={{model.website}} rel={{unless removeNoFollow 'nofollow'}} target="_blank">{{model.website_name}}</a>
+               {{else}}
+-                <span title={{model.website}}>{{websiteName}}</span>
++                <span title={{model.website}}>{{model.website_name}}</span>
+               {{/if}}
+             {{/if}}
+             </h3>
+diff --git a/app/serializers/user_serializer.rb b/app/serializers/user_serializer.rb
+index fc35edd2cd045..dd5132504a9da 100644
+--- a/app/serializers/user_serializer.rb
++++ b/app/serializers/user_serializer.rb
+@@ -40,6 +40,7 @@ def self.untrusted_attributes(*attrs)
+              :bio_cooked,
+              :created_at,
+              :website,
++             :website_name,
+              :profile_background,
+              :card_background,
+              :location,
+@@ -133,6 +134,26 @@ def website
+     object.user_profile.website
+   end
+ 
++  def website_name
++    website_host = URI(website.to_s).host rescue nil
++    discourse_host = Discourse.current_hostname
++    return if website_host.nil?
++    if website_host == discourse_host
++      # example.com == example.com
++      website_host + URI(website.to_s).path
++    elsif (website_host.split('.').length == discourse_host.split('.').length) && discourse_host.split('.').length > 2
++      # www.example.com == forum.example.com
++      website_host.split('.')[1..-1].join('.') == discourse_host.split('.')[1..-1].join('.') ? website_host + URI(website.to_s).path : website_host
++    else
++      # example.com == forum.example.com
++      discourse_host.ends_with?("." << website_host) ? website_host + URI(website.to_s).path : website_host
++    end
++  end
++
++  def include_website_name
++    website.present?
++  end
++
+   def card_image_badge_id
+     object.user_profile.card_image_badge.try(:id)
+   end
+diff --git a/spec/serializers/user_serializer_spec.rb b/spec/serializers/user_serializer_spec.rb
+index 0f9acf7dcf659..43e5689a3e8c7 100644
+--- a/spec/serializers/user_serializer_spec.rb
++++ b/spec/serializers/user_serializer_spec.rb
+@@ -66,11 +66,28 @@
+ 
+     context "with filled out website" do
+       before do
+-        user.user_profile.website = 'http://example.com'
++        user.user_profile.website = 'http://example.com/user'
+       end
+ 
+       it "has a website" do
+-        expect(json[:website]).to eq 'http://example.com'
++        expect(json[:website]).to eq 'http://example.com/user'
++      end
++
++      context "has a website name" do
++        it "returns website host name when instance domain is not same as website domain" do
++          Discourse.stubs(:current_hostname).returns('discourse.org')
++          expect(json[:website_name]).to eq 'example.com'
++        end
++
++        it "returns complete website path when instance domain is same as website domain" do
++          Discourse.stubs(:current_hostname).returns('example.com')
++          expect(json[:website_name]).to eq 'example.com/user'
++        end
++
++        it "returns complete website path when website domain is parent of instance domain" do
++          Discourse.stubs(:current_hostname).returns('forums.example.com')
++          expect(json[:website_name]).to eq 'example.com/user'
++        end
+       end
+     end
+ 

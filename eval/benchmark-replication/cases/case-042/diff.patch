@@ -1,0 +1,949 @@
+From fdd2d786584eb4539d478fa23b2508a7b6252100 Mon Sep 17 00:00:00 2001
+From: Yuval Mandelboum <yuval.mandelboum@sentry.io>
+Date: Wed, 25 Jun 2025 14:54:18 -0700
+Subject: [PATCH 1/5] feat(upsampling) - Support upsampled error count in
+ events-stats API
+
+Events-stats API will now check if all projects in the query are allowlisted for upsampling, and convert the
+count query to a sum over `sample_weight` in Snuba, this is done by defining a new SnQL function `upsampled_count()`.
+
+I noticed there are also eps() and epm() functions in use in this endpoint. I considered (and even worked on) also supporting
+ swapping eps() and epm() which for correctness should probably also not count naively and use `sample_weight`, but this
+ caused some complications and since they are only in use by specific dashboard widgets and not available in discover
+I decided to defer changing them until we realize it is needed.
+---
+ .../endpoints/organization_events_stats.py    |  32 +++-
+ src/sentry/api/helpers/error_upsampling.py    | 101 +++++++++++
+ src/sentry/search/events/datasets/discover.py |  10 +
+ src/sentry/testutils/factories.py             |  18 ++
+ .../api/helpers/test_error_upsampling.py      | 106 +++++++++++
+ .../test_organization_events_stats.py         | 171 ++++++++++++++++++
+ 6 files changed, 433 insertions(+), 5 deletions(-)
+ create mode 100644 src/sentry/api/helpers/error_upsampling.py
+ create mode 100644 tests/sentry/api/helpers/test_error_upsampling.py
+
+diff --git a/src/sentry/api/endpoints/organization_events_stats.py b/src/sentry/api/endpoints/organization_events_stats.py
+index 6d4b9276bbf703..9141a9c23f060a 100644
+--- a/src/sentry/api/endpoints/organization_events_stats.py
++++ b/src/sentry/api/endpoints/organization_events_stats.py
+@@ -11,6 +11,10 @@
+ from sentry.api.api_publish_status import ApiPublishStatus
+ from sentry.api.base import region_silo_endpoint
+ from sentry.api.bases import OrganizationEventsV2EndpointBase
++from sentry.api.helpers.error_upsampling import (
++    is_errors_query_for_error_upsampled_projects,
++    transform_query_columns_for_error_upsampling,
++)
+ from sentry.constants import MAX_TOP_EVENTS
+ from sentry.models.dashboard_widget import DashboardWidget, DashboardWidgetTypes
+ from sentry.models.organization import Organization
+@@ -117,7 +121,7 @@ def get(self, request: Request, organization: Organization) -> Response:
+                         status=400,
+                     )
+                 elif top_events <= 0:
+-                    return Response({"detail": "If topEvents needs to be at least 1"}, status=400)
++                    return Response({"detail": "topEvents needs to be at least 1"}, status=400)
+ 
+             comparison_delta = None
+             if "comparisonDelta" in request.GET:
+@@ -211,12 +215,30 @@ def _get_event_stats(
+             zerofill_results: bool,
+             comparison_delta: timedelta | None,
+         ) -> SnubaTSResult | dict[str, SnubaTSResult]:
++            # Add debug logging for error upsampling decision
++            import logging
++
++            logger = logging.getLogger("sentry.api.endpoints.organization_events_stats")
++            should_upsample = is_errors_query_for_error_upsampled_projects(
++                snuba_params, organization, dataset, request
++            )
++            logger.warning(
++                "[error_upsampling] should_upsample=%s | project_ids=%s | dataset=%s | query=%s",
++                should_upsample,
++                getattr(snuba_params, "project_ids", None),
++                getattr(dataset, "__name__", str(dataset)),
++                request.GET.get("query", None),
++            )
++            transformed_columns = query_columns
++            if should_upsample:
++                transformed_columns = transform_query_columns_for_error_upsampling(query_columns)
++
+             if top_events > 0:
+                 if use_rpc:
+                     return scoped_dataset.run_top_events_timeseries_query(
+                         params=snuba_params,
+                         query_string=query,
+-                        y_axes=query_columns,
++                        y_axes=transformed_columns,
+                         raw_groupby=self.get_field_list(organization, request),
+                         orderby=self.get_orderby(request),
+                         limit=top_events,
+@@ -229,7 +251,7 @@ def _get_event_stats(
+                         equations=self.get_equation_list(organization, request),
+                     )
+                 return scoped_dataset.top_events_timeseries(
+-                    timeseries_columns=query_columns,
++                    timeseries_columns=transformed_columns,
+                     selected_columns=self.get_field_list(organization, request),
+                     equations=self.get_equation_list(organization, request),
+                     user_query=query,
+@@ -253,7 +275,7 @@ def _get_event_stats(
+                 return scoped_dataset.run_timeseries_query(
+                     params=snuba_params,
+                     query_string=query,
+-                    y_axes=query_columns,
++                    y_axes=transformed_columns,
+                     referrer=referrer,
+                     config=SearchResolverConfig(
+                         auto_fields=False,
+@@ -264,7 +286,7 @@ def _get_event_stats(
+                 )
+ 
+             return scoped_dataset.timeseries_query(
+-                selected_columns=query_columns,
++                selected_columns=transformed_columns,
+                 query=query,
+                 snuba_params=snuba_params,
+                 rollup=rollup,
+diff --git a/src/sentry/api/helpers/error_upsampling.py b/src/sentry/api/helpers/error_upsampling.py
+new file mode 100644
+index 00000000000000..1738fcd1eedd57
+--- /dev/null
++++ b/src/sentry/api/helpers/error_upsampling.py
+@@ -0,0 +1,101 @@
++from typing import Any
++
++from rest_framework.request import Request
++
++from sentry import options
++from sentry.models.organization import Organization
++from sentry.search.events.types import SnubaParams
++
++
++def is_errors_query_for_error_upsampled_projects(
++    snuba_params: SnubaParams,
++    organization: Organization,
++    dataset: Any,
++    request: Request,
++) -> bool:
++    """
++    Determine if this query should use error upsampling transformations.
++    Only applies when ALL projects are allowlisted and we're querying error events.
++    """
++    if not _are_all_projects_error_upsampled(snuba_params.project_ids, organization):
++        return False
++
++    return _should_apply_sample_weight_transform(dataset, request)
++
++
++def _are_all_projects_error_upsampled(project_ids: list[int], organization: Organization) -> bool:
++    """
++    Check if ALL projects in the query are allowlisted for error upsampling.
++    Only returns True if all projects pass the allowlist condition.
++    """
++    if not project_ids:
++        return False
++
++    allowlist = options.get("issues.client_error_sampling.project_allowlist", [])
++    if not allowlist:
++        return False
++
++    # All projects must be in the allowlist
++    result = all(project_id in allowlist for project_id in project_ids)
++    return result
++
++
++def transform_query_columns_for_error_upsampling(
++    query_columns: list[str],
++) -> list[str]:
++    """
++    Transform aggregation functions to use sum(sample_weight) instead of count()
++    for error upsampling. Only called when all projects are allowlisted.
++    """
++    transformed_columns = []
++    for column in query_columns:
++        column_lower = column.lower().strip()
++
++        if column_lower == "count()":
++            # Simple count becomes sum of sample weights
++            transformed_columns.append("upsampled_count() as count")
++
++        else:
++            {transformed_columns.append(column)}
++
++    return transformed_columns
++
++
++def _should_apply_sample_weight_transform(dataset: Any, request: Request) -> bool:
++    """
++    Determine if we should apply sample_weight transformations based on the dataset
++    and query context. Only apply for error events since sample_weight doesn't exist
++    for transactions.
++    """
++    from sentry.snuba import discover, errors
++
++    # Always apply for the errors dataset
++    if dataset == errors:
++        return True
++
++    from sentry.snuba import transactions
++
++    # Never apply for the transactions dataset
++    if dataset == transactions:
++        return False
++
++    # For the discover dataset, check if we're querying errors specifically
++    if dataset == discover:
++        result = _is_error_focused_query(request)
++        return result
++
++    # For other datasets (spans, metrics, etc.), don't apply
++    return False
++
++
++def _is_error_focused_query(request: Request) -> bool:
++    """
++    Check if a query is focused on error events.
++    Reduced to only check for event.type:error to err on the side of caution.
++    """
++    query = request.GET.get("query", "").lower()
++
++    if "event.type:error" in query:
++        return True
++
++    return False
+diff --git a/src/sentry/search/events/datasets/discover.py b/src/sentry/search/events/datasets/discover.py
+index 18d742d5825ab6..7ca9f5a4a4400d 100644
+--- a/src/sentry/search/events/datasets/discover.py
++++ b/src/sentry/search/events/datasets/discover.py
+@@ -1038,6 +1038,16 @@ def function_converter(self) -> Mapping[str, SnQLFunction]:
+                     default_result_type="integer",
+                     private=True,
+                 ),
++                SnQLFunction(
++                    "upsampled_count",
++                    required_args=[],
++                    snql_aggregate=lambda args, alias: Function(
++                        "toInt64",
++                        [Function("sum", [Function("ifNull", [Column("sample_weight"), 1])])],
++                        alias,
++                    ),
++                    default_result_type="number",
++                ),
+             ]
+         }
+ 
+diff --git a/src/sentry/testutils/factories.py b/src/sentry/testutils/factories.py
+index b232e8c80987ed..5a54ba513a4059 100644
+--- a/src/sentry/testutils/factories.py
++++ b/src/sentry/testutils/factories.py
+@@ -1029,6 +1029,24 @@ def store_event(
+             assert not errors, errors
+ 
+         normalized_data = manager.get_data()
++
++        # Patch: inject sample_weight if client_sample_rate is present
++        client_sample_rate = None
++        try:
++            client_sample_rate = (
++                normalized_data.get("contexts", {})
++                .get("error_sampling", {})
++                .get("client_sample_rate")
++            )
++        except Exception:
++            pass
++        if client_sample_rate:
++            try:
++
++                normalized_data["sample_rate"] = float(client_sample_rate)
++            except Exception:
++                pass
++
+         event = None
+ 
+         # When fingerprint is present on transaction, inject performance problems
+diff --git a/tests/sentry/api/helpers/test_error_upsampling.py b/tests/sentry/api/helpers/test_error_upsampling.py
+new file mode 100644
+index 00000000000000..775440dcfac80f
+--- /dev/null
++++ b/tests/sentry/api/helpers/test_error_upsampling.py
+@@ -0,0 +1,106 @@
++from unittest.mock import patch
++
++from django.test import RequestFactory
++from rest_framework.request import Request
++
++from sentry.api.helpers.error_upsampling import (
++    _are_all_projects_error_upsampled,
++    _is_error_focused_query,
++    _should_apply_sample_weight_transform,
++    transform_query_columns_for_error_upsampling,
++)
++from sentry.models.organization import Organization
++from sentry.search.events.types import SnubaParams
++from sentry.snuba import discover, errors, transactions
++from sentry.testutils.cases import TestCase
++
++
++class ErrorUpsamplingTest(TestCase):
++    def setUp(self):
++        self.organization = Organization.objects.create(name="test-org")
++        self.projects = [
++            self.create_project(organization=self.organization, name="Project 1"),
++            self.create_project(organization=self.organization, name="Project 2"),
++            self.create_project(organization=self.organization, name="Project 3"),
++        ]
++        self.project_ids = [p.id for p in self.projects]
++        self.snuba_params = SnubaParams(
++            start=None,
++            end=None,
++            projects=self.projects,
++        )
++        factory = RequestFactory()
++        self.request = Request(factory.get("/"))
++        self.request.GET = {}
++
++    @patch("sentry.api.helpers.error_upsampling.options")
++    def test_are_all_projects_error_upsampled(self, mock_options):
++        # Test when all projects are allowlisted
++        mock_options.get.return_value = self.project_ids
++        assert _are_all_projects_error_upsampled(self.project_ids, self.organization) is True
++
++        # Test when some projects are not allowlisted
++        mock_options.get.return_value = self.project_ids[:-1]
++        assert _are_all_projects_error_upsampled(self.project_ids, self.organization) is False
++
++        # Test when no projects are allowlisted
++        mock_options.get.return_value = []
++        assert _are_all_projects_error_upsampled(self.project_ids, self.organization) is False
++
++        # Test when no project IDs provided
++        assert _are_all_projects_error_upsampled([], self.organization) is False
++
++    def test_transform_query_columns_for_error_upsampling(self):
++        # Test count() transformation
++        columns = ["count()", "epm()", "eps()", "other_column"]
++        expected = [
++            "sum(sample_weight)",
++            "divide(sum(sample_weight), divide(interval, 60))",
++            "divide(sum(sample_weight), interval)",
++            "other_column",
++        ]
++        assert transform_query_columns_for_error_upsampling(columns) == expected
++
++        # Test case insensitivity
++        columns = ["COUNT()", "EPM()", "EPS()"]
++        expected = [
++            "sum(sample_weight)",
++            "divide(sum(sample_weight), divide(interval, 60))",
++            "divide(sum(sample_weight), interval)",
++        ]
++        assert transform_query_columns_for_error_upsampling(columns) == expected
++
++        # Test whitespace handling
++        columns = [" count() ", " epm() ", " eps() "]
++        expected = [
++            "sum(sample_weight)",
++            "divide(sum(sample_weight), divide(interval, 60))",
++            "divide(sum(sample_weight), interval)",
++        ]
++        assert transform_query_columns_for_error_upsampling(columns) == expected
++
++    def test_is_error_focused_query(self):
++        # Test explicit error type
++        self.request.GET = {"query": "event.type:error"}
++        assert _is_error_focused_query(self.request) is True
++
++        # Test explicit transaction type
++        self.request.GET = {"query": "event.type:transaction"}
++        assert _is_error_focused_query(self.request) is False
++
++        # Test empty query
++        self.request.GET = {}
++        assert _is_error_focused_query(self.request) is False
++
++    def test_should_apply_sample_weight_transform(self):
++        # Test errors dataset
++        assert _should_apply_sample_weight_transform(errors, self.request) is True
++
++        # Test transactions dataset
++        assert _should_apply_sample_weight_transform(transactions, self.request) is False
++
++        self.request.GET = {"query": "event.type:error"}
++        assert _should_apply_sample_weight_transform(discover, self.request) is True
++
++        self.request.GET = {"query": "event.type:transaction"}
++        assert _should_apply_sample_weight_transform(discover, self.request) is False
+diff --git a/tests/snuba/api/endpoints/test_organization_events_stats.py b/tests/snuba/api/endpoints/test_organization_events_stats.py
+index 71c12586339c3b..2007e93b008da7 100644
+--- a/tests/snuba/api/endpoints/test_organization_events_stats.py
++++ b/tests/snuba/api/endpoints/test_organization_events_stats.py
+@@ -3549,3 +3549,174 @@ def test_top_events_with_error_unhandled(self):
+         data = response.data
+         assert response.status_code == 200, response.content
+         assert len(data) == 2
++
++
++class OrganizationEventsStatsErrorUpsamplingTest(APITestCase, SnubaTestCase):
++    endpoint = "sentry-api-0-organization-events-stats"
++
++    def setUp(self):
++        super().setUp()
++        self.login_as(user=self.user)
++        self.authed_user = self.user
++
++        self.day_ago = before_now(days=1).replace(hour=10, minute=0, second=0, microsecond=0)
++
++        self.project = self.create_project()
++        self.project2 = self.create_project()
++        self.user = self.create_user()
++        self.user2 = self.create_user()
++
++        # Store some error events with error_sampling context
++        self.store_event(
++            data={
++                "event_id": "a" * 32,
++                "message": "very bad",
++                "type": "error",
++                "exception": [{"type": "ValueError", "value": "Something went wrong 1"}],
++                "timestamp": (self.day_ago + timedelta(minutes=1)).isoformat(),
++                "fingerprint": ["group1"],
++                "tags": {"sentry:user": self.user.email},
++                "contexts": {"error_sampling": {"client_sample_rate": 0.1}},
++            },
++            project_id=self.project.id,
++        )
++        self.store_event(
++            data={
++                "event_id": "b" * 32,
++                "message": "oh my",
++                "type": "error",
++                "exception": [{"type": "ValueError", "value": "Something went wrong 2"}],
++                "timestamp": (self.day_ago + timedelta(hours=1, minutes=1)).isoformat(),
++                "fingerprint": ["group2"],
++                "tags": {"sentry:user": self.user2.email},
++                "contexts": {"error_sampling": {"client_sample_rate": 0.1}},
++            },
++            project_id=self.project2.id,
++        )
++        self.wait_for_event_count(self.project.id, 1)
++        self.wait_for_event_count(self.project2.id, 1)
++
++        self.url = reverse(
++            "sentry-api-0-organization-events-stats",
++            kwargs={"organization_id_or_slug": self.project.organization.slug},
++        )
++
++    @mock.patch("sentry.api.helpers.error_upsampling.options")
++    def test_error_upsampling_with_allowlisted_projects(self, mock_options):
++        # Set up allowlisted projects
++        mock_options.get.return_value = [self.project.id, self.project2.id]
++
++        # Test with count() aggregation
++        response = self.client.get(
++            self.url,
++            data={
++                "start": self.day_ago.isoformat(),
++                "end": (self.day_ago + timedelta(hours=2)).isoformat(),
++                "interval": "1h",
++                "yAxis": "count()",
++                "query": "event.type:error",
++                "project": [self.project.id, self.project2.id],
++            },
++            format="json",
++        )
++
++        assert response.status_code == 200, response.content
++        data = response.data["data"]
++        assert len(data) == 2  # Two time buckets
++        assert data[0][1][0]["count"] == 10  # First bucket has 1 event
++        assert data[1][1][0]["count"] == 10  # Second bucket has 1 event
++
++    @mock.patch("sentry.api.helpers.error_upsampling.options")
++    def test_error_upsampling_with_partial_allowlist(self, mock_options):
++        # Set up partial allowlist - only one project is allowlisted
++        mock_options.get.return_value = [self.project.id]
++
++        response = self.client.get(
++            self.url,
++            data={
++                "start": self.day_ago.isoformat(),
++                "end": (self.day_ago + timedelta(hours=2)).isoformat(),
++                "interval": "1h",
++                "yAxis": "count()",
++                "query": "event.type:error",
++                "project": [self.project.id, self.project2.id],
++            },
++            format="json",
++        )
++
++        assert response.status_code == 200, response.content
++        data = response.data["data"]
++        assert len(data) == 2  # Two time buckets
++        # Should use regular count() since not all projects are allowlisted
++        assert data[0][1][0]["count"] == 1
++        assert data[1][1][0]["count"] == 1
++
++    @mock.patch("sentry.api.helpers.error_upsampling.options")
++    def test_error_upsampling_with_transaction_events(self, mock_options):
++        # Set up allowlisted projects
++        mock_options.get.return_value = [self.project.id, self.project2.id]
++
++        # Store a transaction event
++        self.store_event(
++            data={
++                "event_id": "c" * 32,
++                "transaction": "/test",
++                "timestamp": (self.day_ago + timedelta(minutes=1)).isoformat(),
++                "type": "transaction",
++                "start_timestamp": (self.day_ago + timedelta(minutes=1)).isoformat(),
++                "contexts": {
++                    "trace": {
++                        "trace_id": "a" * 32,  # must be 32 hex chars
++                        "span_id": "a" * 16,  # must be 16 hex chars
++                        "op": "test",  # operation name, can be any string
++                    },
++                },
++            },
++            project_id=self.project.id,
++        )
++
++        response = self.client.get(
++            self.url,
++            data={
++                "start": self.day_ago.isoformat(),
++                "end": (self.day_ago + timedelta(hours=2)).isoformat(),
++                "interval": "1h",
++                "yAxis": "count()",
++                "query": "event.type:transaction",
++                "project": [self.project.id, self.project2.id],
++                "dataset": "discover",
++            },
++            format="json",
++        )
++
++        assert response.status_code == 200, response.content
++        data = response.data["data"]
++        assert len(data) == 2  # Two time buckets
++        # Should use regular count() for transactions
++        assert data[0][1][0]["count"] == 1
++        assert data[1][1][0]["count"] == 0
++
++    @mock.patch("sentry.api.helpers.error_upsampling.options")
++    def test_error_upsampling_with_no_allowlisted_projects(self, mock_options):
++        # Set up no allowlisted projects
++        mock_options.get.return_value = []
++
++        response = self.client.get(
++            self.url,
++            data={
++                "start": self.day_ago.isoformat(),
++                "end": (self.day_ago + timedelta(hours=2)).isoformat(),
++                "interval": "1h",
++                "yAxis": "count()",
++                "query": "event.type:error",
++                "project": [self.project.id, self.project2.id],
++            },
++            format="json",
++        )
++
++        assert response.status_code == 200, response.content
++        data = response.data["data"]
++        assert len(data) == 2  # Two time buckets
++        # Should use regular count() since no projects are allowlisted
++        assert data[0][1][0]["count"] == 1
++        assert data[1][1][0]["count"] == 1
+
+From 4a8ff8f360ff31a07855d60cfe0069c7c36c1edc Mon Sep 17 00:00:00 2001
+From: Yuval Mandelboum <yuval.mandelboum@sentry.io>
+Date: Wed, 25 Jun 2025 15:28:17 -0700
+Subject: [PATCH 2/5] removed logs, and small refactor
+
+---
+ .../endpoints/organization_events_stats.py    | 23 +++++--------------
+ 1 file changed, 6 insertions(+), 17 deletions(-)
+
+diff --git a/src/sentry/api/endpoints/organization_events_stats.py b/src/sentry/api/endpoints/organization_events_stats.py
+index 9141a9c23f060a..a29edca46bda17 100644
+--- a/src/sentry/api/endpoints/organization_events_stats.py
++++ b/src/sentry/api/endpoints/organization_events_stats.py
+@@ -215,30 +215,19 @@ def _get_event_stats(
+             zerofill_results: bool,
+             comparison_delta: timedelta | None,
+         ) -> SnubaTSResult | dict[str, SnubaTSResult]:
+-            # Add debug logging for error upsampling decision
+-            import logging
+-
+-            logger = logging.getLogger("sentry.api.endpoints.organization_events_stats")
+             should_upsample = is_errors_query_for_error_upsampled_projects(
+                 snuba_params, organization, dataset, request
+             )
+-            logger.warning(
+-                "[error_upsampling] should_upsample=%s | project_ids=%s | dataset=%s | query=%s",
+-                should_upsample,
+-                getattr(snuba_params, "project_ids", None),
+-                getattr(dataset, "__name__", str(dataset)),
+-                request.GET.get("query", None),
+-            )
+-            transformed_columns = query_columns
++            final_columns = query_columns
+             if should_upsample:
+-                transformed_columns = transform_query_columns_for_error_upsampling(query_columns)
++                final_columns = transform_query_columns_for_error_upsampling(query_columns)
+ 
+             if top_events > 0:
+                 if use_rpc:
+                     return scoped_dataset.run_top_events_timeseries_query(
+                         params=snuba_params,
+                         query_string=query,
+-                        y_axes=transformed_columns,
++                        y_axes=final_columns,
+                         raw_groupby=self.get_field_list(organization, request),
+                         orderby=self.get_orderby(request),
+                         limit=top_events,
+@@ -251,7 +240,7 @@ def _get_event_stats(
+                         equations=self.get_equation_list(organization, request),
+                     )
+                 return scoped_dataset.top_events_timeseries(
+-                    timeseries_columns=transformed_columns,
++                    timeseries_columns=final_columns,
+                     selected_columns=self.get_field_list(organization, request),
+                     equations=self.get_equation_list(organization, request),
+                     user_query=query,
+@@ -275,7 +264,7 @@ def _get_event_stats(
+                 return scoped_dataset.run_timeseries_query(
+                     params=snuba_params,
+                     query_string=query,
+-                    y_axes=transformed_columns,
++                    y_axes=final_columns,
+                     referrer=referrer,
+                     config=SearchResolverConfig(
+                         auto_fields=False,
+@@ -286,7 +275,7 @@ def _get_event_stats(
+                 )
+ 
+             return scoped_dataset.timeseries_query(
+-                selected_columns=transformed_columns,
++                selected_columns=final_columns,
+                 query=query,
+                 snuba_params=snuba_params,
+                 rollup=rollup,
+
+From e7a216e984fb9573a8ac3e2b99872e78c825f04c Mon Sep 17 00:00:00 2001
+From: Yuval Mandelboum <yuval.mandelboum@sentry.io>
+Date: Wed, 25 Jun 2025 17:30:12 -0700
+Subject: [PATCH 3/5] test and typing fixes
+
+---
+ src/sentry/api/helpers/error_upsampling.py    |  2 +-
+ .../api/helpers/test_error_upsampling.py      | 31 ++++++++-----------
+ 2 files changed, 14 insertions(+), 19 deletions(-)
+
+diff --git a/src/sentry/api/helpers/error_upsampling.py b/src/sentry/api/helpers/error_upsampling.py
+index 1738fcd1eedd57..0798cfe5ec4bdd 100644
+--- a/src/sentry/api/helpers/error_upsampling.py
++++ b/src/sentry/api/helpers/error_upsampling.py
+@@ -56,7 +56,7 @@ def transform_query_columns_for_error_upsampling(
+             transformed_columns.append("upsampled_count() as count")
+ 
+         else:
+-            {transformed_columns.append(column)}
++            transformed_columns.append(column)
+ 
+     return transformed_columns
+ 
+diff --git a/tests/sentry/api/helpers/test_error_upsampling.py b/tests/sentry/api/helpers/test_error_upsampling.py
+index 775440dcfac80f..00557e33edc073 100644
+--- a/tests/sentry/api/helpers/test_error_upsampling.py
++++ b/tests/sentry/api/helpers/test_error_upsampling.py
+@@ -1,5 +1,6 @@
+ from unittest.mock import patch
+ 
++from django.http import QueryDict
+ from django.test import RequestFactory
+ from rest_framework.request import Request
+ 
+@@ -31,7 +32,7 @@ def setUp(self):
+         )
+         factory = RequestFactory()
+         self.request = Request(factory.get("/"))
+-        self.request.GET = {}
++        self.request.GET = QueryDict("")
+ 
+     @patch("sentry.api.helpers.error_upsampling.options")
+     def test_are_all_projects_error_upsampled(self, mock_options):
+@@ -52,44 +53,38 @@ def test_are_all_projects_error_upsampled(self, mock_options):
+ 
+     def test_transform_query_columns_for_error_upsampling(self):
+         # Test count() transformation
+-        columns = ["count()", "epm()", "eps()", "other_column"]
++        columns = ["count()", "other_column"]
+         expected = [
+-            "sum(sample_weight)",
+-            "divide(sum(sample_weight), divide(interval, 60))",
+-            "divide(sum(sample_weight), interval)",
++            "upsampled_count() as count",
+             "other_column",
+         ]
+         assert transform_query_columns_for_error_upsampling(columns) == expected
+ 
+         # Test case insensitivity
+-        columns = ["COUNT()", "EPM()", "EPS()"]
++        columns = ["COUNT()"]
+         expected = [
+-            "sum(sample_weight)",
+-            "divide(sum(sample_weight), divide(interval, 60))",
+-            "divide(sum(sample_weight), interval)",
++            "upsampled_count() as count",
+         ]
+         assert transform_query_columns_for_error_upsampling(columns) == expected
+ 
+         # Test whitespace handling
+-        columns = [" count() ", " epm() ", " eps() "]
++        columns = [" count() "]
+         expected = [
+-            "sum(sample_weight)",
+-            "divide(sum(sample_weight), divide(interval, 60))",
+-            "divide(sum(sample_weight), interval)",
++            "upsampled_count() as count",
+         ]
+         assert transform_query_columns_for_error_upsampling(columns) == expected
+ 
+     def test_is_error_focused_query(self):
+         # Test explicit error type
+-        self.request.GET = {"query": "event.type:error"}
++        self.request.GET = QueryDict("query=event.type:error")
+         assert _is_error_focused_query(self.request) is True
+ 
+         # Test explicit transaction type
+-        self.request.GET = {"query": "event.type:transaction"}
++        self.request.GET = QueryDict("query=event.type:transaction")
+         assert _is_error_focused_query(self.request) is False
+ 
+         # Test empty query
+-        self.request.GET = {}
++        self.request.GET = QueryDict("")
+         assert _is_error_focused_query(self.request) is False
+ 
+     def test_should_apply_sample_weight_transform(self):
+@@ -99,8 +94,8 @@ def test_should_apply_sample_weight_transform(self):
+         # Test transactions dataset
+         assert _should_apply_sample_weight_transform(transactions, self.request) is False
+ 
+-        self.request.GET = {"query": "event.type:error"}
++        self.request.GET = QueryDict("query=event.type:error")
+         assert _should_apply_sample_weight_transform(discover, self.request) is True
+ 
+-        self.request.GET = {"query": "event.type:transaction"}
++        self.request.GET = QueryDict("query=event.type:transaction")
+         assert _should_apply_sample_weight_transform(discover, self.request) is False
+
+From 769a17cedaf085ecd4cedcf1db0266a6ca2096e9 Mon Sep 17 00:00:00 2001
+From: Yuval Mandelboum <yuval.mandelboum@sentry.io>
+Date: Thu, 26 Jun 2025 13:18:01 -0700
+Subject: [PATCH 4/5] Review fixes
+
+---
+ pyproject.toml                                |  2 ++
+ src/sentry/api/helpers/error_upsampling.py    | 10 ++++--
+ src/sentry/testutils/factories.py             | 33 ++++++++++---------
+ .../api/helpers/test_error_upsampling.py      | 12 +++----
+ 4 files changed, 32 insertions(+), 25 deletions(-)
+
+diff --git a/pyproject.toml b/pyproject.toml
+index 9d85c195b076c9..e16b4ba9520360 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -177,6 +177,7 @@ module = [
+     "sentry.api.event_search",
+     "sentry.api.helpers.deprecation",
+     "sentry.api.helpers.environments",
++    "sentry.api.helpers.error_upsampling",
+     "sentry.api.helpers.group_index.delete",
+     "sentry.api.helpers.group_index.update",
+     "sentry.api.helpers.source_map_helper",
+@@ -463,6 +464,7 @@ module = [
+     "tests.sentry.api.endpoints.issues.test_organization_derive_code_mappings",
+     "tests.sentry.api.endpoints.test_browser_reporting_collector",
+     "tests.sentry.api.endpoints.test_project_repo_path_parsing",
++    "tests.sentry.api.helpers.test_error_upsampling",
+     "tests.sentry.audit_log.services.*",
+     "tests.sentry.deletions.test_group",
+     "tests.sentry.event_manager.test_event_manager",
+diff --git a/src/sentry/api/helpers/error_upsampling.py b/src/sentry/api/helpers/error_upsampling.py
+index 0798cfe5ec4bdd..d60043af546f41 100644
+--- a/src/sentry/api/helpers/error_upsampling.py
++++ b/src/sentry/api/helpers/error_upsampling.py
+@@ -1,3 +1,5 @@
++from collections.abc import Sequence
++from types import ModuleType
+ from typing import Any
+ 
+ from rest_framework.request import Request
+@@ -10,7 +12,7 @@
+ def is_errors_query_for_error_upsampled_projects(
+     snuba_params: SnubaParams,
+     organization: Organization,
+-    dataset: Any,
++    dataset: ModuleType,
+     request: Request,
+ ) -> bool:
+     """
+@@ -23,7 +25,9 @@ def is_errors_query_for_error_upsampled_projects(
+     return _should_apply_sample_weight_transform(dataset, request)
+ 
+ 
+-def _are_all_projects_error_upsampled(project_ids: list[int], organization: Organization) -> bool:
++def _are_all_projects_error_upsampled(
++    project_ids: Sequence[int], organization: Organization
++) -> bool:
+     """
+     Check if ALL projects in the query are allowlisted for error upsampling.
+     Only returns True if all projects pass the allowlist condition.
+@@ -41,7 +45,7 @@ def _are_all_projects_error_upsampled(project_ids: list[int], organization: Orga
+ 
+ 
+ def transform_query_columns_for_error_upsampling(
+-    query_columns: list[str],
++    query_columns: Sequence[str],
+ ) -> list[str]:
+     """
+     Transform aggregation functions to use sum(sample_weight) instead of count()
+diff --git a/src/sentry/testutils/factories.py b/src/sentry/testutils/factories.py
+index 5a54ba513a4059..5225d91f8ee5b1 100644
+--- a/src/sentry/testutils/factories.py
++++ b/src/sentry/testutils/factories.py
+@@ -341,6 +341,22 @@ def _patch_artifact_manifest(path, org=None, release=None, project=None, extra_f
+     return orjson.dumps(manifest).decode()
+ 
+ 
++def _set_sample_rate_from_error_sampling(normalized_data: dict) -> None:
++    """Set 'sample_rate' on normalized_data if contexts.error_sampling.client_sample_rate is present and valid."""
++    client_sample_rate = None
++    try:
++        client_sample_rate = (
++            normalized_data.get("contexts", {}).get("error_sampling", {}).get("client_sample_rate")
++        )
++    except Exception:
++        pass
++    if client_sample_rate:
++        try:
++            normalized_data["sample_rate"] = float(client_sample_rate)
++        except Exception:
++            pass
++
++
+ # TODO(dcramer): consider moving to something more scalable like factoryboy
+ class Factories:
+     @staticmethod
+@@ -1030,22 +1046,7 @@ def store_event(
+ 
+         normalized_data = manager.get_data()
+ 
+-        # Patch: inject sample_weight if client_sample_rate is present
+-        client_sample_rate = None
+-        try:
+-            client_sample_rate = (
+-                normalized_data.get("contexts", {})
+-                .get("error_sampling", {})
+-                .get("client_sample_rate")
+-            )
+-        except Exception:
+-            pass
+-        if client_sample_rate:
+-            try:
+-
+-                normalized_data["sample_rate"] = float(client_sample_rate)
+-            except Exception:
+-                pass
++        _set_sample_rate_from_error_sampling(normalized_data)
+ 
+         event = None
+ 
+diff --git a/tests/sentry/api/helpers/test_error_upsampling.py b/tests/sentry/api/helpers/test_error_upsampling.py
+index 00557e33edc073..426f7f6014ed09 100644
+--- a/tests/sentry/api/helpers/test_error_upsampling.py
++++ b/tests/sentry/api/helpers/test_error_upsampling.py
+@@ -1,4 +1,4 @@
+-from unittest.mock import patch
++from unittest.mock import Mock, patch
+ 
+ from django.http import QueryDict
+ from django.test import RequestFactory
+@@ -17,7 +17,7 @@
+ 
+ 
+ class ErrorUpsamplingTest(TestCase):
+-    def setUp(self):
++    def setUp(self) -> None:
+         self.organization = Organization.objects.create(name="test-org")
+         self.projects = [
+             self.create_project(organization=self.organization, name="Project 1"),
+@@ -35,7 +35,7 @@ def setUp(self):
+         self.request.GET = QueryDict("")
+ 
+     @patch("sentry.api.helpers.error_upsampling.options")
+-    def test_are_all_projects_error_upsampled(self, mock_options):
++    def test_are_all_projects_error_upsampled(self, mock_options: Mock) -> None:
+         # Test when all projects are allowlisted
+         mock_options.get.return_value = self.project_ids
+         assert _are_all_projects_error_upsampled(self.project_ids, self.organization) is True
+@@ -51,7 +51,7 @@ def test_are_all_projects_error_upsampled(self, mock_options):
+         # Test when no project IDs provided
+         assert _are_all_projects_error_upsampled([], self.organization) is False
+ 
+-    def test_transform_query_columns_for_error_upsampling(self):
++    def test_transform_query_columns_for_error_upsampling(self) -> None:
+         # Test count() transformation
+         columns = ["count()", "other_column"]
+         expected = [
+@@ -74,7 +74,7 @@ def test_transform_query_columns_for_error_upsampling(self):
+         ]
+         assert transform_query_columns_for_error_upsampling(columns) == expected
+ 
+-    def test_is_error_focused_query(self):
++    def test_is_error_focused_query(self) -> None:
+         # Test explicit error type
+         self.request.GET = QueryDict("query=event.type:error")
+         assert _is_error_focused_query(self.request) is True
+@@ -87,7 +87,7 @@ def test_is_error_focused_query(self):
+         self.request.GET = QueryDict("")
+         assert _is_error_focused_query(self.request) is False
+ 
+-    def test_should_apply_sample_weight_transform(self):
++    def test_should_apply_sample_weight_transform(self) -> None:
+         # Test errors dataset
+         assert _should_apply_sample_weight_transform(errors, self.request) is True
+ 
+
+From 71826eb08fc7ea35a5925ad223296feadd5c5e29 Mon Sep 17 00:00:00 2001
+From: Yuval Mandelboum <yuval.mandelboum@sentry.io>
+Date: Thu, 26 Jun 2025 14:03:25 -0700
+Subject: [PATCH 5/5] another small mypy fix
+
+---
+ src/sentry/testutils/factories.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/sentry/testutils/factories.py b/src/sentry/testutils/factories.py
+index 5225d91f8ee5b1..99632a066247ad 100644
+--- a/src/sentry/testutils/factories.py
++++ b/src/sentry/testutils/factories.py
+@@ -8,7 +8,7 @@
+ import zipfile
+ from base64 import b64encode
+ from binascii import hexlify
+-from collections.abc import Mapping, Sequence
++from collections.abc import Mapping, MutableMapping, Sequence
+ from datetime import UTC, datetime
+ from enum import Enum
+ from hashlib import sha1
+@@ -341,7 +341,7 @@ def _patch_artifact_manifest(path, org=None, release=None, project=None, extra_f
+     return orjson.dumps(manifest).decode()
+ 
+ 
+-def _set_sample_rate_from_error_sampling(normalized_data: dict) -> None:
++def _set_sample_rate_from_error_sampling(normalized_data: MutableMapping[str, Any]) -> None:
+     """Set 'sample_rate' on normalized_data if contexts.error_sampling.client_sample_rate is present and valid."""
+     client_sample_rate = None
+     try:

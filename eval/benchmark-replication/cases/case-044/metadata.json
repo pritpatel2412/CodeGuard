@@ -1,0 +1,27 @@
+{
+  "pr_title": "Span Buffer Multiprocess Enhancement with Health Monitoring",
+  "url": "https://github.com/getsentry/sentry/pull/93824",
+  "file": "sentry.json",
+  "comments": [
+    {
+      "comment": "Inconsistent metric tagging with 'shard' and 'shards'",
+      "severity": "Medium"
+    },
+    {
+      "comment": "Fixed sleep in tests can be flaky; wait on condition instead",
+      "severity": "Low"
+    },
+    {
+      "comment": "Because flusher processes are created via multiprocessing.get_context('spawn').Process, they are instances of multiprocessing.context.SpawnProcess, which on POSIX is not a subclass of multiprocessing.Process, so this isinstance check will always be false and hung processes won't be killed here.",
+      "severity": "High"
+    },
+    {
+      "comment": "Sleep in test_consumer.py won’t actually wait because time.sleep was monkeypatched above; consider restoring sleep or using a different sync to ensure the flusher has time to process.",
+      "severity": "Medium"
+    },
+    {
+      "comment": "Breaking out of the loop when the deadline has elapsed can skip terminating remaining flusher processes, potentially leaving them running after shutdown; consider ensuring termination is attempted even if the deadline is exceeded.",
+      "severity": "Medium"
+    }
+  ]
+}

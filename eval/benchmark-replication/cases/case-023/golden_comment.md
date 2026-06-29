@@ -1,0 +1,7 @@
+# Golden Comments for Plugins: Chore: Renamed instrumentation middleware to metrics middleware
+
+## [High]
+The ContextualLoggerMiddleware methods (QueryData, CallResource, CheckHealth, CollectMetrics) panic when a nil request is received. This occurs because they directly access req.PluginContext (via the instrumentContext function) without first checking if req is nil. This is a regression, as previous middleware layers gracefully handled nil requests.
+
+## [Low]
+The traceID is no longer logged for plugin requests. During a refactoring, the tracing import and the logic to extract and add traceID from the context to log parameters were removed from the LoggerMiddleware. The newly introduced ContextualLoggerMiddleware does not add this information, resulting in missing traceID in plugin request logs and impacting debugging and request tracing capabilities.

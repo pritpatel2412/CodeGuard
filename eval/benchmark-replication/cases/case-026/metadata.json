@@ -1,0 +1,19 @@
+{
+  "pr_title": "Dual Storage Architecture",
+  "url": "https://github.com/grafana/grafana/pull/90045",
+  "file": "grafana.json",
+  "comments": [
+    {
+      "comment": "The context is being created with d.Log instead of the log variable that was initialized with additional context values (name, kind, method). This means those values won't be propagated to the logging context.",
+      "severity": "Medium"
+    },
+    {
+      "comment": "Bug: calling recordLegacyDuration when storage operation fails should be recordStorageDuration.",
+      "severity": "High"
+    },
+    {
+      "comment": "Inconsistency: using name instead of options.Kind for metrics recording differs from other methods.",
+      "severity": "Medium"
+    }
+  ]
+}

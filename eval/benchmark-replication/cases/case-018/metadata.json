@@ -1,0 +1,19 @@
+{
+  "pr_title": "FIX: proper handling of group memberships",
+  "url": "https://github.com/discourse/discourse/commit/060cda77729cb1c4a827560e09e89a7b22078ba9",
+  "file": "discourse.json",
+  "comments": [
+    {
+      "comment": " The findMembers() call is now asynchronous and unhandled. The controller may not have member data immediately available, creating a race condition.",
+      "severity": "High"
+    },
+    {
+      "comment": "In the next action, capping the next offset at user_count can produce an empty page (e.g., total equal to limit results in offset == total, showing 2/2 with no members). This can cause confusing UX on the last page.",
+      "severity": "Medium"
+    },
+    {
+      "comment": "HTTP method mismatch in .remove_member - test uses PUT but remove_member action expects DELETE",
+      "severity": "Medium"
+    }
+  ]
+}

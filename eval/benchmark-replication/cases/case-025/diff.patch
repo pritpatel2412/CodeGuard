@@ -1,0 +1,2277 @@
+From 75b80b9a0d873c022376b799aeece7d6ac71a1a9 Mon Sep 17 00:00:00 2001
+From: Sonia Aguilar <soniaaguilarpeiron@gmail.com>
+Date: Fri, 13 Jun 2025 15:12:15 +0200
+Subject: [PATCH 01/11] wip
+
+---
+ .../unified/rule-list/GrafanaGroupLoader.tsx  | 96 ++++---------------
+ .../unified/rule-list/GrafanaRuleLoader.tsx   | 79 ++++++++-------
+ .../hooks/prometheusGroupsGenerator.ts        | 15 ++-
+ .../features/alerting/unified/utils/rules.ts  |  5 +
+ public/app/types/unified-alerting-dto.ts      |  1 +
+ 5 files changed, 73 insertions(+), 123 deletions(-)
+
+diff --git a/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx b/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx
+index c092a748388b0..d1e2cbbf0b428 100644
+--- a/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx
++++ b/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx
+@@ -1,22 +1,14 @@
+-import { useMemo } from 'react';
+-
+ import { t } from '@grafana/i18n';
+ import { Alert } from '@grafana/ui';
+ import { GrafanaRuleGroupIdentifier } from 'app/types/unified-alerting';
+-import { GrafanaPromRuleDTO, RulerGrafanaRuleDTO } from 'app/types/unified-alerting-dto';
+ 
+-import { logWarning } from '../Analytics';
+-import { alertRuleApi } from '../api/alertRuleApi';
+ import { prometheusApi } from '../api/prometheusApi';
+ import { RULE_LIST_POLL_INTERVAL_MS } from '../utils/constants';
+-import { GrafanaRulesSource } from '../utils/datasource';
+ 
+ import { GrafanaRuleListItem } from './GrafanaRuleLoader';
+-import { RuleOperationListItem } from './components/AlertRuleListItem';
+ import { AlertRuleListItemSkeleton } from './components/AlertRuleListItemLoader';
+-import { RuleOperation } from './components/RuleListIcon';
+ 
+-const { useGetGrafanaRulerGroupQuery } = alertRuleApi;
++// const { useGetGrafanaRulerGroupQuery } = alertRuleApi;
+ const { useGetGrafanaGroupsQuery } = prometheusApi;
+ 
+ export interface GrafanaGroupLoaderProps {
+@@ -48,19 +40,19 @@ export function GrafanaGroupLoader({
+     },
+     { pollingInterval: RULE_LIST_POLL_INTERVAL_MS }
+   );
+-  const { data: rulerResponse, isLoading: isRulerGroupLoading } = useGetGrafanaRulerGroupQuery({
+-    folderUid: groupIdentifier.namespace.uid,
+-    groupName: groupIdentifier.groupName,
+-  });
++  // const { data: rulerResponse, isLoading: isRulerGroupLoading } = useGetGrafanaRulerGroupQuery({
++  //   folderUid: groupIdentifier.namespace.uid,
++  //   groupName: groupIdentifier.groupName,
++  // });
+ 
+-  const { matches, promOnlyRules } = useMemo(() => {
+-    const promRules = promResponse?.data.groups.at(0)?.rules ?? [];
+-    const rulerRules = rulerResponse?.rules ?? [];
++  // const { matches, promOnlyRules } = useMemo(() => {
++  //   const promRules = promResponse?.data.groups.at(0)?.rules ?? [];
++  //   const rulerRules = rulerResponse?.rules ?? [];
+ 
+-    return matchRules(promRules, rulerRules);
+-  }, [promResponse, rulerResponse]);
++  //   return matchRules(promRules, rulerRules);
++  // }, [promResponse, rulerResponse]);
+ 
+-  const isLoading = isPromResponseLoading || isRulerGroupLoading;
++  const isLoading = isPromResponseLoading;
+   if (isLoading) {
+     return (
+       <>
+@@ -71,7 +63,7 @@ export function GrafanaGroupLoader({
+     );
+   }
+ 
+-  if (!rulerResponse && !promResponse) {
++  if (!promResponse) {
+     return (
+       <Alert
+         title={t(
+@@ -86,28 +78,12 @@ export function GrafanaGroupLoader({
+ 
+   return (
+     <>
+-      {rulerResponse?.rules.map((rulerRule) => {
+-        const promRule = matches.get(rulerRule);
+-
+-        if (!promRule) {
+-          return (
+-            <GrafanaRuleListItem
+-              key={rulerRule.grafana_alert.uid}
+-              rule={promRule}
+-              rulerRule={rulerRule}
+-              groupIdentifier={groupIdentifier}
+-              namespaceName={namespaceName}
+-              operation={RuleOperation.Creating}
+-              showLocation={false}
+-            />
+-          );
+-        }
+-
++      {promResponse.data.groups.at(0)?.rules.map((promRule) => {
+         return (
+           <GrafanaRuleListItem
+             key={promRule.uid}
+             rule={promRule}
+-            rulerRule={rulerRule}
++            // rulerRule={rulerRule}
+             groupIdentifier={groupIdentifier}
+             namespaceName={namespaceName}
+             // we don't show the location again for rules, it's redundant because they are shown in a folder > group hierarchy
+@@ -115,7 +91,7 @@ export function GrafanaGroupLoader({
+           />
+         );
+       })}
+-      {promOnlyRules.map((rule) => (
++      {/* {promOnlyRules.map((rule) => (
+         <RuleOperationListItem
+           key={rule.uid}
+           name={rule.name}
+@@ -126,47 +102,7 @@ export function GrafanaGroupLoader({
+           operation={RuleOperation.Deleting}
+           showLocation={false}
+         />
+-      ))}
++      ))} */}
+     </>
+   );
+ }
+-
+-interface MatchingResult {
+-  matches: Map<RulerGrafanaRuleDTO, GrafanaPromRuleDTO>;
+-  /**
+-   * Rules that were already removed from the Ruler but the changes has not been yet propagated to Prometheus
+-   */
+-  promOnlyRules: GrafanaPromRuleDTO[];
+-}
+-
+-export function matchRules(
+-  promRules: GrafanaPromRuleDTO[],
+-  rulerRules: RulerGrafanaRuleDTO[]
+-): Readonly<MatchingResult> {
+-  const promRulesMap = new Map(promRules.map((rule) => [rule.uid, rule]));
+-
+-  const matchingResult = rulerRules.reduce<MatchingResult>(
+-    (acc, rulerRule) => {
+-      const { matches } = acc;
+-      const promRule = promRulesMap.get(rulerRule.grafana_alert.uid);
+-      if (promRule) {
+-        matches.set(rulerRule, promRule);
+-        promRulesMap.delete(rulerRule.grafana_alert.uid);
+-      }
+-      return acc;
+-    },
+-    { matches: new Map(), promOnlyRules: [] }
+-  );
+-
+-  matchingResult.promOnlyRules.push(...promRulesMap.values());
+-
+-  if (matchingResult.promOnlyRules.length > 0) {
+-    // Grafana Prometheus rules should be strongly consistent now so each Ruler rule should have a matching Prometheus rule
+-    // If not, log it as a warning
+-    logWarning('Grafana Managed Rules: No matching Prometheus rule found for Ruler rule', {
+-      promOnlyRulesCount: matchingResult.promOnlyRules.length.toString(),
+-    });
+-  }
+-
+-  return matchingResult;
+-}
+diff --git a/public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx b/public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx
+index 3ca5e6a749610..a29d138b20bbd 100644
+--- a/public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx
++++ b/public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx
+@@ -1,14 +1,13 @@
+ import { Trans, t } from '@grafana/i18n';
+ import { Alert } from '@grafana/ui';
+ import { GrafanaRuleGroupIdentifier, GrafanaRuleIdentifier } from 'app/types/unified-alerting';
+-import { GrafanaPromRuleDTO, PromRuleType, RulerGrafanaRuleDTO } from 'app/types/unified-alerting-dto';
++import { GrafanaPromRuleDTO, PromRuleType } from 'app/types/unified-alerting-dto';
+ 
+-import { alertRuleApi } from '../api/alertRuleApi';
+ import { prometheusApi } from '../api/prometheusApi';
+ import { createReturnTo } from '../hooks/useReturnTo';
+ import { GrafanaRulesSource } from '../utils/datasource';
+ import { totalFromStats } from '../utils/ruleStats';
+-import { rulerRuleType } from '../utils/rules';
++import { prometheusRuleType } from '../utils/rules';
+ import { createRelativeUrl } from '../utils/url';
+ 
+ import {
+@@ -18,10 +17,9 @@ import {
+   UnknownRuleListItem,
+ } from './components/AlertRuleListItem';
+ import { AlertRuleListItemSkeleton, RulerRuleLoadingError } from './components/AlertRuleListItemLoader';
+-import { RuleActionsButtons } from './components/RuleActionsButtons.V2';
+ import { RuleOperation } from './components/RuleListIcon';
+ 
+-const { useGetGrafanaRulerGroupQuery } = alertRuleApi;
++// const { useGetGrafanaRulerGroupQuery } = alertRuleApi;
+ const { useGetGrafanaGroupsQuery } = prometheusApi;
+ 
+ interface GrafanaRuleLoaderProps {
+@@ -31,14 +29,14 @@ interface GrafanaRuleLoaderProps {
+ }
+ 
+ export function GrafanaRuleLoader({ ruleIdentifier, groupIdentifier, namespaceName }: GrafanaRuleLoaderProps) {
+-  const {
+-    data: rulerRuleGroup,
+-    error: rulerRuleGroupError,
+-    isLoading: isRulerRuleGroupLoading,
+-  } = useGetGrafanaRulerGroupQuery({
+-    folderUid: groupIdentifier.namespace.uid,
+-    groupName: groupIdentifier.groupName,
+-  });
++  // const {
++  //   data: rulerRuleGroup,
++  //   error: rulerRuleGroupError,
++  //   isLoading: isRulerRuleGroupLoading,
++  // } = useGetGrafanaRulerGroupQuery({
++  //   folderUid: groupIdentifier.namespace.uid,
++  //   groupName: groupIdentifier.groupName,
++  // });
+   const {
+     data: promRuleGroup,
+     error: promRuleGroupError,
+@@ -48,20 +46,35 @@ export function GrafanaRuleLoader({ ruleIdentifier, groupIdentifier, namespaceNa
+     groupName: groupIdentifier.groupName,
+   });
+ 
+-  const rulerRule = rulerRuleGroup?.rules.find((rulerRule) => rulerRule.grafana_alert.uid === ruleIdentifier.uid);
++  // const rulerRule = rulerRuleGroup?.rules.find((rulerRule) => rulerRule.grafana_alert.uid === ruleIdentifier.uid);
+   const promRule = promRuleGroup?.data.groups
+     .flatMap((group) => group.rules)
+     .find((promRule) => promRule.uid === ruleIdentifier.uid);
+ 
+-  if (rulerRuleGroupError || promRuleGroupError) {
+-    return <RulerRuleLoadingError ruleIdentifier={ruleIdentifier} error={rulerRuleGroupError || promRuleGroupError} />;
++  if (promRuleGroupError) {
++    return <RulerRuleLoadingError ruleIdentifier={ruleIdentifier} error={promRuleGroupError} />;
+   }
+ 
+-  if (isRulerRuleGroupLoading || isPromRuleGroupLoading) {
++  if (isPromRuleGroupLoading) {
+     return <AlertRuleListItemSkeleton />;
+   }
+ 
+-  if (!rulerRule) {
++  // if (!rulerRule) {
++  //   return (
++  //     <Alert
++  //       title={t('alerting.rule-list.cannot-load-rule-details-for', 'Cannot load rule details for UID {{uid}}', {
++  //         uid: ruleIdentifier.uid,
++  //       })}
++  //       severity="error"
++  //     >
++  //       <Trans i18nKey="alerting.rule-list.cannot-find-rule-details-for">
++  //         Cannot find rule details for UID {{ uid: ruleIdentifier.uid ?? '<empty uid>' }}
++  //       </Trans>
++  //     </Alert>
++  //   );
++  // }
++
++  if (!promRule) {
+     return (
+       <Alert
+         title={t('alerting.rule-list.cannot-load-rule-details-for', 'Cannot load rule details for UID {{uid}}', {
+@@ -79,7 +92,7 @@ export function GrafanaRuleLoader({ ruleIdentifier, groupIdentifier, namespaceNa
+   return (
+     <GrafanaRuleListItem
+       rule={promRule}
+-      rulerRule={rulerRule}
++      // rulerRule={rulerRule}
+       groupIdentifier={groupIdentifier}
+       namespaceName={namespaceName}
+     />
+@@ -87,8 +100,8 @@ export function GrafanaRuleLoader({ ruleIdentifier, groupIdentifier, namespaceNa
+ }
+ 
+ interface GrafanaRuleListItemProps {
+-  rule?: GrafanaPromRuleDTO;
+-  rulerRule: RulerGrafanaRuleDTO;
++  rule: GrafanaPromRuleDTO;
++  // rulerRule: RulerGrafanaRuleDTO;
+   groupIdentifier: GrafanaRuleGroupIdentifier;
+   namespaceName: string;
+   operation?: RuleOperation;
+@@ -97,22 +110,17 @@ interface GrafanaRuleListItemProps {
+ 
+ export function GrafanaRuleListItem({
+   rule,
+-  rulerRule,
++  // rulerRule,
+   groupIdentifier,
+   namespaceName,
+   operation,
+   showLocation = true,
+ }: GrafanaRuleListItemProps) {
+   const returnTo = createReturnTo();
+-
+-  const {
+-    grafana_alert: { uid, title, provenance, is_paused },
+-    annotations = {},
+-    labels = {},
+-  } = rulerRule;
++  const { name, uid, labels, provenance } = rule;
+ 
+   const commonProps: RuleListItemCommonProps = {
+-    name: title,
++    name,
+     rulesSource: GrafanaRulesSource,
+     group: groupIdentifier.groupName,
+     namespace: namespaceName,
+@@ -121,20 +129,21 @@ export function GrafanaRuleListItem({
+     error: rule?.lastError,
+     labels: labels,
+     isProvisioned: Boolean(provenance),
+-    isPaused: rule?.isPaused ?? is_paused,
++    isPaused: rule?.isPaused,
+     application: 'grafana' as const,
+-    actions: <RuleActionsButtons rule={rulerRule} promRule={rule} groupIdentifier={groupIdentifier} compact />,
++    // actions: <RuleActionsButtons rule={rulerRule} promRule={rule} groupIdentifier={groupIdentifier} compact />,
++    actions: undefined, // TODO: add actions
+     showLocation,
+   };
+ 
+-  if (rulerRuleType.grafana.alertingRule(rulerRule)) {
++  if (prometheusRuleType.grafana.alertingRule(rule)) {
+     const promAlertingRule = rule && rule.type === PromRuleType.Alerting ? rule : undefined;
+     const instancesCount = totalFromStats(promAlertingRule?.totals ?? {});
+ 
+     return (
+       <AlertRuleListItem
+         {...commonProps}
+-        summary={annotations.summary}
++        summary={rule.annotations?.summary}
+         state={promAlertingRule?.state}
+         instancesCount={instancesCount}
+         operation={operation}
+@@ -142,9 +151,9 @@ export function GrafanaRuleListItem({
+     );
+   }
+ 
+-  if (rulerRuleType.grafana.recordingRule(rulerRule)) {
++  if (prometheusRuleType.grafana.recordingRule(rule)) {
+     return <RecordingRuleListItem {...commonProps} />;
+   }
+ 
+-  return <UnknownRuleListItem ruleName={title} groupIdentifier={groupIdentifier} ruleDefinition={rulerRule} />;
++  return <UnknownRuleListItem ruleName={name} groupIdentifier={groupIdentifier} ruleDefinition={rule} />;
+ }
+diff --git a/public/app/features/alerting/unified/rule-list/hooks/prometheusGroupsGenerator.ts b/public/app/features/alerting/unified/rule-list/hooks/prometheusGroupsGenerator.ts
+index 40d786f03f759..912dc69a905af 100644
+--- a/public/app/features/alerting/unified/rule-list/hooks/prometheusGroupsGenerator.ts
++++ b/public/app/features/alerting/unified/rule-list/hooks/prometheusGroupsGenerator.ts
+@@ -4,7 +4,6 @@ import { useDispatch } from 'app/types/store';
+ import { DataSourceRulesSourceIdentifier, RuleHealth } from 'app/types/unified-alerting';
+ import { PromAlertingRuleState, PromRuleGroupDTO } from 'app/types/unified-alerting-dto';
+ 
+-import { alertRuleApi } from '../../api/alertRuleApi';
+ import { PromRulesResponse, prometheusApi } from '../../api/prometheusApi';
+ 
+ const { useLazyGetGroupsQuery, useLazyGetGrafanaGroupsQuery } = prometheusApi;
+@@ -83,13 +82,13 @@ export function useGrafanaGroupsGenerator(hookOptions: UseGeneratorHookOptions =
+       // Because the user waits a bit longer for the initial load but doesn't need to wait for each group to be loaded
+       if (hookOptions.populateCache) {
+         const cacheAndRulerPreload = response.data.groups.map(async (group) => {
+-          dispatch(
+-            alertRuleApi.util.prefetch(
+-              'getGrafanaRulerGroup',
+-              { folderUid: group.folderUid, groupName: group.name },
+-              { force: true }
+-            )
+-          );
++          // dispatch(
++          //   alertRuleApi.util.prefetch(
++          //     'getGrafanaRulerGroup',
++          //     { folderUid: group.folderUid, groupName: group.name },
++          //     { force: true }
++          //   )
++          // );
+           await dispatch(
+             prometheusApi.util.upsertQueryData(
+               'getGrafanaGroups',
+diff --git a/public/app/features/alerting/unified/utils/rules.ts b/public/app/features/alerting/unified/utils/rules.ts
+index bbd7a08db9585..79430fa28192f 100644
+--- a/public/app/features/alerting/unified/utils/rules.ts
++++ b/public/app/features/alerting/unified/utils/rules.ts
+@@ -28,6 +28,7 @@ import {
+   GrafanaAlertingRuleDefinition,
+   GrafanaPromAlertingRuleDTO,
+   GrafanaPromRecordingRuleDTO,
++  GrafanaPromRuleDTO,
+   GrafanaRecordingRuleDefinition,
+   PostableRuleDTO,
+   PromAlertingRuleState,
+@@ -168,6 +169,10 @@ export function isProvisionedRule(rulerRule: RulerRuleDTO): boolean {
+   return isGrafanaRulerRule(rulerRule) && Boolean(rulerRule.grafana_alert.provenance);
+ }
+ 
++export function isProvisionedGrafanaPromRule(promRule: GrafanaPromRuleDTO): boolean {
++  return Boolean(promRule.provenance);
++}
++
+ export function isProvisionedRuleGroup(group: RulerRuleGroupDTO): boolean {
+   return group.rules.some((rule) => isProvisionedRule(rule));
+ }
+diff --git a/public/app/types/unified-alerting-dto.ts b/public/app/types/unified-alerting-dto.ts
+index 0978062b80861..c6440d0bac183 100644
+--- a/public/app/types/unified-alerting-dto.ts
++++ b/public/app/types/unified-alerting-dto.ts
+@@ -132,6 +132,7 @@ interface GrafanaPromRuleDTOBase extends PromRuleDTOBase {
+   folderUid: string;
+   isPaused: boolean;
+   queriedDatasourceUIDs?: string[];
++  provenance?: string;
+ }
+ 
+ export interface PromAlertingRuleDTO extends PromRuleDTOBase {
+
+From f9b346a74b0ae399fc2ab477450125149d5733a6 Mon Sep 17 00:00:00 2001
+From: Konrad Lalik <konradlalik@gmail.com>
+Date: Mon, 16 Jun 2025 14:16:25 +0200
+Subject: [PATCH 02/11] Add working actions for GMA rules based on Prom-only
+ API
+
+---
+ .../components/rule-viewer/AlertRuleMenu.tsx  |  33 +++-
+ .../alerting/unified/hooks/useAbilities.ts    | 158 +++++++++++++-----
+ .../unified/rule-list/GrafanaRuleLoader.tsx   |   4 +-
+ .../components/RuleActionsButtons.V2.tsx      |  70 +++++++-
+ .../features/alerting/unified/utils/rules.ts  |   5 +-
+ 5 files changed, 208 insertions(+), 62 deletions(-)
+
+diff --git a/public/app/features/alerting/unified/components/rule-viewer/AlertRuleMenu.tsx b/public/app/features/alerting/unified/components/rule-viewer/AlertRuleMenu.tsx
+index 5b6a8943da417..7d39ea9475d7f 100644
+--- a/public/app/features/alerting/unified/components/rule-viewer/AlertRuleMenu.tsx
++++ b/public/app/features/alerting/unified/components/rule-viewer/AlertRuleMenu.tsx
+@@ -10,7 +10,7 @@ import { useRulePluginLinkExtension } from 'app/features/alerting/unified/plugin
+ import { Rule, RuleGroupIdentifierV2, RuleIdentifier } from 'app/types/unified-alerting';
+ import { PromAlertingRuleState, RulerRuleDTO } from 'app/types/unified-alerting-dto';
+ 
+-import { AlertRuleAction, useRulerRuleAbility } from '../../hooks/useAbilities';
++import { AlertRuleAction, skipToken, useGrafanaPromRuleAbility, useRulerRuleAbility } from '../../hooks/useAbilities';
+ import { createShareLink, isLocalDevEnv, isOpenSourceEdition } from '../../utils/misc';
+ import * as ruleId from '../../utils/rule-id';
+ import { prometheusRuleType, rulerRuleType } from '../../utils/rules';
+@@ -48,27 +48,48 @@ const AlertRuleMenu = ({
+ }: Props) => {
+   // check all abilities and permissions
+   const [pauseSupported, pauseAllowed] = useRulerRuleAbility(rulerRule, groupIdentifier, AlertRuleAction.Pause);
+-  const canPause = pauseSupported && pauseAllowed;
++  const [grafanaPauseSupported, grafanaPauseAllowed] = useGrafanaPromRuleAbility(
++    prometheusRuleType.grafana.rule(promRule) ? promRule : skipToken,
++    AlertRuleAction.Pause
++  );
++  const canPause = (pauseSupported && pauseAllowed) || (grafanaPauseSupported && grafanaPauseAllowed);
+ 
+   const [deleteSupported, deleteAllowed] = useRulerRuleAbility(rulerRule, groupIdentifier, AlertRuleAction.Delete);
+-  const canDelete = deleteSupported && deleteAllowed;
++  const [grafanaDeleteSupported, grafanaDeleteAllowed] = useGrafanaPromRuleAbility(
++    prometheusRuleType.grafana.rule(promRule) ? promRule : skipToken,
++    AlertRuleAction.Delete
++  );
++  const canDelete = (deleteSupported && deleteAllowed) || (grafanaDeleteSupported && grafanaDeleteAllowed);
+ 
+   const [duplicateSupported, duplicateAllowed] = useRulerRuleAbility(
+     rulerRule,
+     groupIdentifier,
+     AlertRuleAction.Duplicate
+   );
+-  const canDuplicate = duplicateSupported && duplicateAllowed;
++  const [grafanaDuplicateSupported, grafanaDuplicateAllowed] = useGrafanaPromRuleAbility(
++    prometheusRuleType.grafana.rule(promRule) ? promRule : skipToken,
++    AlertRuleAction.Duplicate
++  );
++  const canDuplicate =
++    (duplicateSupported && duplicateAllowed) || (grafanaDuplicateSupported && grafanaDuplicateAllowed);
+ 
+   const [silenceSupported, silenceAllowed] = useRulerRuleAbility(rulerRule, groupIdentifier, AlertRuleAction.Silence);
+-  const canSilence = silenceSupported && silenceAllowed;
++  const [grafanaSilenceSupported, grafanaSilenceAllowed] = useGrafanaPromRuleAbility(
++    prometheusRuleType.grafana.rule(promRule) ? promRule : skipToken,
++    AlertRuleAction.Silence
++  );
++  const canSilence = (silenceSupported && silenceAllowed) || (grafanaSilenceSupported && grafanaSilenceAllowed);
+ 
+   const [exportSupported, exportAllowed] = useRulerRuleAbility(
+     rulerRule,
+     groupIdentifier,
+     AlertRuleAction.ModifyExport
+   );
+-  const canExport = exportSupported && exportAllowed;
++  const [grafanaExportSupported, grafanaExportAllowed] = useGrafanaPromRuleAbility(
++    prometheusRuleType.grafana.rule(promRule) ? promRule : skipToken,
++    AlertRuleAction.ModifyExport
++  );
++  const canExport = (exportSupported && exportAllowed) || (grafanaExportSupported && grafanaExportAllowed);
+ 
+   const ruleExtensionLinks = useRulePluginLinkExtension(promRule, groupIdentifier);
+ 
+diff --git a/public/app/features/alerting/unified/hooks/useAbilities.ts b/public/app/features/alerting/unified/hooks/useAbilities.ts
+index c2e96434d89cc..9d61eddcf46fc 100644
+--- a/public/app/features/alerting/unified/hooks/useAbilities.ts
++++ b/public/app/features/alerting/unified/hooks/useAbilities.ts
+@@ -14,15 +14,14 @@ import { useFolder } from 'app/features/alerting/unified/hooks/useFolder';
+ import { AlertmanagerChoice } from 'app/plugins/datasource/alertmanager/types';
+ import { AccessControlAction } from 'app/types';
+ import { CombinedRule, RuleGroupIdentifierV2 } from 'app/types/unified-alerting';
+-import { RulerRuleDTO } from 'app/types/unified-alerting-dto';
++import { GrafanaPromRuleDTO, RulerRuleDTO } from 'app/types/unified-alerting-dto';
+ 
+ import { alertmanagerApi } from '../api/alertmanagerApi';
+ import { useAlertmanager } from '../state/AlertmanagerContext';
+ import { getInstancesPermissions, getNotificationsPermissions, getRulesPermissions } from '../utils/access-control';
+-import { getRulesSourceName } from '../utils/datasource';
+-import { getGroupOriginName } from '../utils/groupIdentifier';
++import { getGroupOriginName, groupIdentifier } from '../utils/groupIdentifier';
+ import { isAdmin } from '../utils/misc';
+-import { isFederatedRuleGroup, isPluginProvidedRule, rulerRuleType } from '../utils/rules';
++import { isPluginProvidedRule, isProvisionedPromRule, prometheusRuleType, rulerRuleType } from '../utils/rules';
+ 
+ import { useIsRuleEditable } from './useIsRuleEditable';
+ 
+@@ -211,28 +210,35 @@ export function useRulerRuleAbilities(
+   }, [abilities, actions]);
+ }
+ 
+-// This hook is being called a lot in different places
+-// In some cases multiple times for ~80 rules (e.g. on the list page)
+-// We need to investigate further if some of these calls are redundant
+-// In the meantime, memoizing the result helps
++/**
++ * @deprecated Use {@link useAllRulerRuleAbilities} instead
++ */
+ export function useAllAlertRuleAbilities(rule: CombinedRule): Abilities<AlertRuleAction> {
+-  const rulesSourceName = getRulesSourceName(rule.namespace.rulesSource);
++  // This hook is being called a lot in different places
++  // In some cases multiple times for ~80 rules (e.g. on the list page)
++  // We need to investigate further if some of these calls are redundant
++  // In the meantime, memoizing the result helps
++  const groupIdentifierV2 = useMemo(() => groupIdentifier.fromCombinedRule(rule), [rule]);
++  return useAllRulerRuleAbilities(rule.rulerRule, groupIdentifierV2);
++}
+ 
+-  const {
+-    isEditable,
+-    isRemovable,
+-    isRulerAvailable = false,
+-    loading,
+-  } = useIsRuleEditable(rulesSourceName, rule.rulerRule);
++export function useAllRulerRuleAbilities(
++  rule: RulerRuleDTO | undefined,
++  groupIdentifier: RuleGroupIdentifierV2
++): Abilities<AlertRuleAction> {
++  const rulesSourceName = getGroupOriginName(groupIdentifier);
++
++  const { isEditable, isRemovable, isRulerAvailable = false, loading } = useIsRuleEditable(rulesSourceName, rule);
+   const [_, exportAllowed] = useAlertingAbility(AlertingAction.ExportGrafanaManagedRules);
+-  const canSilence = useCanSilence(rule.rulerRule);
++  const canSilence = useCanSilence(rule);
+ 
+   const abilities = useMemo<Abilities<AlertRuleAction>>(() => {
+-    const isProvisioned =
+-      rulerRuleType.grafana.rule(rule.rulerRule) && Boolean(rule.rulerRule.grafana_alert.provenance);
+-    const isFederated = isFederatedRuleGroup(rule.group);
+-    const isGrafanaManagedAlertRule = rulerRuleType.grafana.rule(rule.rulerRule);
+-    const isPluginProvided = isPluginProvidedRule(rule.rulerRule);
++    const isProvisioned = rulerRuleType.grafana.rule(rule) && Boolean(rule.grafana_alert.provenance);
++    // TODO: Add support for federated rules
++    // const isFederated = isFederatedRuleGroup();
++    const isFederated = false;
++    const isGrafanaManagedAlertRule = rulerRuleType.grafana.rule(rule);
++    const isPluginProvided = isPluginProvidedRule(rule);
+ 
+     // if a rule is either provisioned, federated or provided by a plugin rule, we don't allow it to be removed or edited
+     const immutableRule = isProvisioned || isFederated || isPluginProvided;
+@@ -263,39 +269,43 @@ export function useAllAlertRuleAbilities(rule: CombinedRule): Abilities<AlertRul
+     };
+ 
+     return abilities;
+-  }, [rule, loading, isRulerAvailable, isEditable, isRemovable, rulesSourceName, exportAllowed, canSilence]);
++  }, [rule, loading, isRulerAvailable, rulesSourceName, isEditable, isRemovable, canSilence, exportAllowed]);
+ 
+   return abilities;
+ }
+ 
+-export function useAllRulerRuleAbilities(
+-  rule: RulerRuleDTO | undefined,
+-  groupIdentifier: RuleGroupIdentifierV2
+-): Abilities<AlertRuleAction> {
+-  const rulesSourceName = getGroupOriginName(groupIdentifier);
+-
+-  const { isEditable, isRemovable, isRulerAvailable = false, loading } = useIsRuleEditable(rulesSourceName, rule);
++/**
++ * Hook for checking abilities on Grafana Prometheus rules (GrafanaPromRuleDTO)
++ * This is the next version of useAllRulerRuleAbilities designed to work with GrafanaPromRuleDTO
++ */
++export function useAllGrafanaPromRuleAbilities(rule: GrafanaPromRuleDTO | undefined): Abilities<AlertRuleAction> {
++  // For GrafanaPromRuleDTO, we use useIsGrafanaPromRuleEditable instead
++  const { isEditable, isRemovable, loading } = useIsGrafanaPromRuleEditable(rule); // duplicate
+   const [_, exportAllowed] = useAlertingAbility(AlertingAction.ExportGrafanaManagedRules);
+-  const canSilence = useCanSilence(rule);
++
++  const silenceSupported = useGrafanaRulesSilenceSupport();
++  const canSilenceInFolder = useCanSilenceInFolder(rule?.folderUid);
+ 
+   const abilities = useMemo<Abilities<AlertRuleAction>>(() => {
+-    const isProvisioned = rulerRuleType.grafana.rule(rule) && Boolean(rule.grafana_alert.provenance);
+-    // const isFederated = isFederatedRuleGroup();
++    // For GrafanaPromRuleDTO, check provisioned status using the provenance property
++    const isProvisioned = rule && isProvisionedPromRule(rule);
++    // TODO: Add support for federated rules when available for GrafanaPromRuleDTO
+     const isFederated = false;
+-    const isGrafanaManagedAlertRule = rulerRuleType.grafana.rule(rule);
++    // All GrafanaPromRuleDTO rules are Grafana-managed by definition
++    const isAlertingRule = prometheusRuleType.grafana.alertingRule(rule);
+     const isPluginProvided = isPluginProvidedRule(rule);
+ 
+     // if a rule is either provisioned, federated or provided by a plugin rule, we don't allow it to be removed or edited
+     const immutableRule = isProvisioned || isFederated || isPluginProvided;
+ 
+-    // while we gather info, pretend it's not supported
+-    const MaybeSupported = loading ? NotSupported : isRulerAvailable;
++    // GrafanaPromRuleDTO rules are always supported (no loading state for ruler availability)
++    const MaybeSupported = loading ? NotSupported : AlwaysSupported;
+     const MaybeSupportedUnlessImmutable = immutableRule ? NotSupported : MaybeSupported;
+ 
+     // Creating duplicates of plugin-provided rules does not seem to make a lot of sense
+     const duplicateSupported = isPluginProvided ? NotSupported : MaybeSupported;
+ 
+-    const rulesPermissions = getRulesPermissions(rulesSourceName);
++    const rulesPermissions = getRulesPermissions('grafana');
+ 
+     const abilities: Abilities<AlertRuleAction> = {
+       [AlertRuleAction.Duplicate]: toAbility(duplicateSupported, rulesPermissions.create),
+@@ -303,22 +313,86 @@ export function useAllRulerRuleAbilities(
+       [AlertRuleAction.Update]: [MaybeSupportedUnlessImmutable, isEditable ?? false],
+       [AlertRuleAction.Delete]: [MaybeSupportedUnlessImmutable, isRemovable ?? false],
+       [AlertRuleAction.Explore]: toAbility(AlwaysSupported, AccessControlAction.DataSourcesExplore),
+-      [AlertRuleAction.Silence]: canSilence,
+-      [AlertRuleAction.ModifyExport]: [isGrafanaManagedAlertRule, exportAllowed],
+-      [AlertRuleAction.Pause]: [MaybeSupportedUnlessImmutable && isGrafanaManagedAlertRule, isEditable ?? false],
+-      [AlertRuleAction.Restore]: [MaybeSupportedUnlessImmutable && isGrafanaManagedAlertRule, isEditable ?? false],
++      [AlertRuleAction.Silence]: [silenceSupported, canSilenceInFolder && isAlertingRule],
++      [AlertRuleAction.ModifyExport]: [isAlertingRule, exportAllowed],
++      [AlertRuleAction.Pause]: [MaybeSupportedUnlessImmutable && isAlertingRule, isEditable ?? false],
++      [AlertRuleAction.Restore]: [MaybeSupportedUnlessImmutable && isAlertingRule, isEditable ?? false],
+       [AlertRuleAction.DeletePermanently]: [
+-        MaybeSupportedUnlessImmutable && isGrafanaManagedAlertRule,
++        MaybeSupportedUnlessImmutable && isAlertingRule,
+         (isRemovable && isAdmin()) ?? false,
+       ],
+     };
+ 
+     return abilities;
+-  }, [rule, loading, isRulerAvailable, rulesSourceName, isEditable, isRemovable, canSilence, exportAllowed]);
++  }, [rule, loading, isEditable, isRemovable, canSilenceInFolder, exportAllowed, silenceSupported]);
+ 
+   return abilities;
+ }
+ 
++/**
++ * Hook for checking if a GrafanaPromRuleDTO is editable
++ * Adapted version of useIsRuleEditable for GrafanaPromRuleDTO
++ */
++function useIsGrafanaPromRuleEditable(rule?: GrafanaPromRuleDTO) {
++  const folderUID = rule?.folderUid;
++  const { folder, loading } = useFolder(folderUID);
++
++  return useMemo(() => {
++    if (!rule || !folderUID) {
++      return { isEditable: false, isRemovable: false, loading: false };
++    }
++
++    if (!folder) {
++      // Loading or invalid folder UID
++      return {
++        isEditable: false,
++        isRemovable: false,
++        loading,
++      };
++    }
++
++    // For Grafana-managed rules, check folder permissions
++    const rulesPermissions = getRulesPermissions('grafana');
++    const canEditGrafanaRules = ctx.hasPermissionInMetadata(rulesPermissions.update, folder);
++    const canRemoveGrafanaRules = ctx.hasPermissionInMetadata(rulesPermissions.delete, folder);
++
++    return {
++      isEditable: canEditGrafanaRules,
++      isRemovable: canRemoveGrafanaRules,
++      loading,
++    };
++  }, [rule, folderUID, folder, loading]);
++}
++
++export const skipToken = Symbol('abiltiy-skip-token');
++
++type SkipToken = typeof skipToken;
++
++/**
++ * Hook for checking a single ability on a GrafanaPromRuleDTO
++ */
++export function useGrafanaPromRuleAbility(rule: GrafanaPromRuleDTO | SkipToken, action: AlertRuleAction): Ability {
++  const abilities = useAllGrafanaPromRuleAbilities(rule === skipToken ? undefined : rule);
++
++  return useMemo(() => {
++    return abilities[action];
++  }, [abilities, action]);
++}
++
++/**
++ * Hook for checking multiple abilities on a GrafanaPromRuleDTO
++ */
++export function useGrafanaPromRuleAbilities(
++  rule: GrafanaPromRuleDTO | undefined,
++  actions: AlertRuleAction[]
++): Ability[] {
++  const abilities = useAllGrafanaPromRuleAbilities(rule);
++
++  return useMemo(() => {
++    return actions.map((action) => abilities[action]);
++  }, [abilities, actions]);
++}
++
+ export function useAllAlertmanagerAbilities(): Abilities<AlertmanagerAction> {
+   const {
+     selectedAlertmanager,
+diff --git a/public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx b/public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx
+index a29d138b20bbd..eebd1b1d85fbf 100644
+--- a/public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx
++++ b/public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx
+@@ -17,6 +17,7 @@ import {
+   UnknownRuleListItem,
+ } from './components/AlertRuleListItem';
+ import { AlertRuleListItemSkeleton, RulerRuleLoadingError } from './components/AlertRuleListItemLoader';
++import { RuleActionsButtons } from './components/RuleActionsButtons.V2';
+ import { RuleOperation } from './components/RuleListIcon';
+ 
+ // const { useGetGrafanaRulerGroupQuery } = alertRuleApi;
+@@ -131,8 +132,7 @@ export function GrafanaRuleListItem({
+     isProvisioned: Boolean(provenance),
+     isPaused: rule?.isPaused,
+     application: 'grafana' as const,
+-    // actions: <RuleActionsButtons rule={rulerRule} promRule={rule} groupIdentifier={groupIdentifier} compact />,
+-    actions: undefined, // TODO: add actions
++    actions: <RuleActionsButtons promRule={rule} groupIdentifier={groupIdentifier} compact />,
+     showLocation,
+   };
+ 
+diff --git a/public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx b/public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx
+index 2c183bc6059ac..b1094c4ba5a6d 100644
+--- a/public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx
++++ b/public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx
+@@ -1,4 +1,5 @@
+ import { useState } from 'react';
++import { RequireAtLeastOne } from 'type-fest';
+ 
+ import { Trans, t } from '@grafana/i18n';
+ import { LinkButton, Stack } from '@grafana/ui';
+@@ -6,24 +7,34 @@ import AlertRuleMenu from 'app/features/alerting/unified/components/rule-viewer/
+ import { useDeleteModal } from 'app/features/alerting/unified/components/rule-viewer/DeleteModal';
+ import { RedirectToCloneRule } from 'app/features/alerting/unified/components/rules/CloneRule';
+ import SilenceGrafanaRuleDrawer from 'app/features/alerting/unified/components/silences/SilenceGrafanaRuleDrawer';
+-import { Rule, RuleGroupIdentifierV2, RuleIdentifier } from 'app/types/unified-alerting';
++import {
++  EditableRuleIdentifier,
++  GrafanaRuleIdentifier,
++  Rule,
++  RuleGroupIdentifierV2,
++  RuleIdentifier,
++} from 'app/types/unified-alerting';
+ import { RulerRuleDTO } from 'app/types/unified-alerting-dto';
+ 
+-import { AlertRuleAction, useRulerRuleAbility } from '../../hooks/useAbilities';
++import { logWarning } from '../../Analytics';
++import { AlertRuleAction, skipToken, useGrafanaPromRuleAbility, useRulerRuleAbility } from '../../hooks/useAbilities';
+ import * as ruleId from '../../utils/rule-id';
+-import { isProvisionedRule, rulerRuleType } from '../../utils/rules';
++import { isProvisionedPromRule, isProvisionedRule, prometheusRuleType, rulerRuleType } from '../../utils/rules';
+ import { createRelativeUrl } from '../../utils/url';
+ 
+-interface Props {
+-  rule: RulerRuleDTO;
++type RuleProps = RequireAtLeastOne<{
++  rule?: RulerRuleDTO;
+   promRule?: Rule;
++}>;
++
++type Props = RuleProps & {
+   groupIdentifier: RuleGroupIdentifierV2;
+   /**
+    * Should we show the buttons in a "compact" state?
+    * i.e. without text and using smaller button sizes
+    */
+   compact?: boolean;
+-}
++};
+ 
+ // For now this is just a copy of RuleActionsButtons.tsx but with the View button removed.
+ // This is only done to keep the new list behind a feature flag and limit changes in the existing components
+@@ -37,16 +48,24 @@ export function RuleActionsButtons({ compact, rule, promRule, groupIdentifier }:
+     { identifier: RuleIdentifier; isProvisioned: boolean } | undefined
+   >(undefined);
+ 
+-  const isProvisioned = isProvisionedRule(rule);
++  const isProvisioned = getIsProvisioned(rule, promRule);
+ 
+   const [editRuleSupported, editRuleAllowed] = useRulerRuleAbility(rule, groupIdentifier, AlertRuleAction.Update);
++  const [grafanaEditRuleSupported, grafanaEditRuleAllowed] = useGrafanaPromRuleAbility(
++    prometheusRuleType.grafana.rule(promRule) ? promRule : skipToken,
++    AlertRuleAction.Update
++  );
+ 
+-  const canEditRule = editRuleSupported && editRuleAllowed;
++  const canEditRule = (editRuleSupported && editRuleAllowed) || (grafanaEditRuleSupported && grafanaEditRuleAllowed);
+ 
+   const buttons: JSX.Element[] = [];
+   const buttonSize = compact ? 'sm' : 'md';
+ 
+-  const identifier = ruleId.fromRulerRuleAndGroupIdentifierV2(groupIdentifier, rule);
++  const identifier = getEditableIdentifier(groupIdentifier, rule, promRule);
++
++  if (!identifier) {
++    return null;
++  }
+ 
+   if (canEditRule) {
+     const editURL = createRelativeUrl(`/alerting/${encodeURIComponent(ruleId.stringifyIdentifier(identifier))}/edit`);
+@@ -93,3 +112,36 @@ export function RuleActionsButtons({ compact, rule, promRule, groupIdentifier }:
+     </Stack>
+   );
+ }
++
++function getIsProvisioned(rule?: RulerRuleDTO, promRule?: Rule): boolean {
++  if (rule) {
++    return isProvisionedRule(rule);
++  }
++
++  if (promRule) {
++    return isProvisionedPromRule(promRule);
++  }
++
++  return false;
++}
++
++function getEditableIdentifier(
++  groupIdentifier: RuleGroupIdentifierV2,
++  rule?: RulerRuleDTO,
++  promRule?: Rule
++): EditableRuleIdentifier | undefined {
++  if (rule) {
++    return ruleId.fromRulerRuleAndGroupIdentifierV2(groupIdentifier, rule);
++  }
++
++  if (prometheusRuleType.grafana.rule(promRule)) {
++    return {
++      ruleSourceName: 'grafana',
++      uid: promRule.uid,
++    } satisfies GrafanaRuleIdentifier;
++  }
++
++  logWarning('Unable to construct an editable rule identifier');
++
++  return undefined;
++}
+diff --git a/public/app/features/alerting/unified/utils/rules.ts b/public/app/features/alerting/unified/utils/rules.ts
+index 79430fa28192f..91ca9915e34e5 100644
+--- a/public/app/features/alerting/unified/utils/rules.ts
++++ b/public/app/features/alerting/unified/utils/rules.ts
+@@ -28,7 +28,6 @@ import {
+   GrafanaAlertingRuleDefinition,
+   GrafanaPromAlertingRuleDTO,
+   GrafanaPromRecordingRuleDTO,
+-  GrafanaPromRuleDTO,
+   GrafanaRecordingRuleDefinition,
+   PostableRuleDTO,
+   PromAlertingRuleState,
+@@ -169,8 +168,8 @@ export function isProvisionedRule(rulerRule: RulerRuleDTO): boolean {
+   return isGrafanaRulerRule(rulerRule) && Boolean(rulerRule.grafana_alert.provenance);
+ }
+ 
+-export function isProvisionedGrafanaPromRule(promRule: GrafanaPromRuleDTO): boolean {
+-  return Boolean(promRule.provenance);
++export function isProvisionedPromRule(promRule: PromRuleDTO): boolean {
++  return prometheusRuleType.grafana.rule(promRule) && Boolean(promRule.provenance);
+ }
+ 
+ export function isProvisionedRuleGroup(group: RulerRuleGroupDTO): boolean {
+
+From 2492e45ed62bb715ce2dcf9975cc1a54bd2f90d4 Mon Sep 17 00:00:00 2001
+From: Konrad Lalik <konradlalik@gmail.com>
+Date: Mon, 16 Jun 2025 15:21:12 +0200
+Subject: [PATCH 03/11] Remove Ruler-loader related code for Grafana rules
+
+Co-authored-by: Sonia Augilar <sonia.aguilar@grafana.com>
+---
+ .../components/rule-viewer/AlertRuleMenu.tsx  |  73 ++++----
+ .../alerting/unified/hooks/useAbilities.ts    |   7 +-
+ .../alerting/unified/rule-list/FilterView.tsx |  14 +-
+ .../unified/rule-list/GrafanaGroupLoader.tsx  |  29 +---
+ .../unified/rule-list/GrafanaRuleListItem.tsx |  63 +++++++
+ .../unified/rule-list/GrafanaRuleLoader.tsx   | 159 ------------------
+ 6 files changed, 117 insertions(+), 228 deletions(-)
+ create mode 100644 public/app/features/alerting/unified/rule-list/GrafanaRuleListItem.tsx
+ delete mode 100644 public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx
+
+diff --git a/public/app/features/alerting/unified/components/rule-viewer/AlertRuleMenu.tsx b/public/app/features/alerting/unified/components/rule-viewer/AlertRuleMenu.tsx
+index 7d39ea9475d7f..95c309dc38295 100644
+--- a/public/app/features/alerting/unified/components/rule-viewer/AlertRuleMenu.tsx
++++ b/public/app/features/alerting/unified/components/rule-viewer/AlertRuleMenu.tsx
+@@ -10,7 +10,12 @@ import { useRulePluginLinkExtension } from 'app/features/alerting/unified/plugin
+ import { Rule, RuleGroupIdentifierV2, RuleIdentifier } from 'app/types/unified-alerting';
+ import { PromAlertingRuleState, RulerRuleDTO } from 'app/types/unified-alerting-dto';
+ 
+-import { AlertRuleAction, skipToken, useGrafanaPromRuleAbility, useRulerRuleAbility } from '../../hooks/useAbilities';
++import {
++  AlertRuleAction,
++  skipToken,
++  useGrafanaPromRuleAbilities,
++  useRulerRuleAbilities,
++} from '../../hooks/useAbilities';
+ import { createShareLink, isLocalDevEnv, isOpenSourceEdition } from '../../utils/misc';
+ import * as ruleId from '../../utils/rule-id';
+ import { prometheusRuleType, rulerRuleType } from '../../utils/rules';
+@@ -47,48 +52,48 @@ const AlertRuleMenu = ({
+   fill,
+ }: Props) => {
+   // check all abilities and permissions
+-  const [pauseSupported, pauseAllowed] = useRulerRuleAbility(rulerRule, groupIdentifier, AlertRuleAction.Pause);
+-  const [grafanaPauseSupported, grafanaPauseAllowed] = useGrafanaPromRuleAbility(
+-    prometheusRuleType.grafana.rule(promRule) ? promRule : skipToken,
+-    AlertRuleAction.Pause
+-  );
++  const [rulerPauseAbility, rulerDeleteAbility, rulerDuplicateAbility, rulerSilenceAbility, rulerExportAbility] =
++    useRulerRuleAbilities(rulerRule, groupIdentifier, [
++      AlertRuleAction.Pause,
++      AlertRuleAction.Delete,
++      AlertRuleAction.Duplicate,
++      AlertRuleAction.Silence,
++      AlertRuleAction.ModifyExport,
++    ]);
++
++  const [
++    grafanaPauseAbility,
++    grafanaDeleteAbility,
++    grafanaDuplicateAbility,
++    grafanaSilenceAbility,
++    grafanaExportAbility,
++  ] = useGrafanaPromRuleAbilities(prometheusRuleType.grafana.rule(promRule) ? promRule : skipToken, [
++    AlertRuleAction.Pause,
++    AlertRuleAction.Delete,
++    AlertRuleAction.Duplicate,
++    AlertRuleAction.Silence,
++    AlertRuleAction.ModifyExport,
++  ]);
++
++  const [pauseSupported, pauseAllowed] = rulerPauseAbility;
++  const [grafanaPauseSupported, grafanaPauseAllowed] = grafanaPauseAbility;
+   const canPause = (pauseSupported && pauseAllowed) || (grafanaPauseSupported && grafanaPauseAllowed);
+ 
+-  const [deleteSupported, deleteAllowed] = useRulerRuleAbility(rulerRule, groupIdentifier, AlertRuleAction.Delete);
+-  const [grafanaDeleteSupported, grafanaDeleteAllowed] = useGrafanaPromRuleAbility(
+-    prometheusRuleType.grafana.rule(promRule) ? promRule : skipToken,
+-    AlertRuleAction.Delete
+-  );
++  const [deleteSupported, deleteAllowed] = rulerDeleteAbility;
++  const [grafanaDeleteSupported, grafanaDeleteAllowed] = grafanaDeleteAbility;
+   const canDelete = (deleteSupported && deleteAllowed) || (grafanaDeleteSupported && grafanaDeleteAllowed);
+ 
+-  const [duplicateSupported, duplicateAllowed] = useRulerRuleAbility(
+-    rulerRule,
+-    groupIdentifier,
+-    AlertRuleAction.Duplicate
+-  );
+-  const [grafanaDuplicateSupported, grafanaDuplicateAllowed] = useGrafanaPromRuleAbility(
+-    prometheusRuleType.grafana.rule(promRule) ? promRule : skipToken,
+-    AlertRuleAction.Duplicate
+-  );
++  const [duplicateSupported, duplicateAllowed] = rulerDuplicateAbility;
++  const [grafanaDuplicateSupported, grafanaDuplicateAllowed] = grafanaDuplicateAbility;
+   const canDuplicate =
+     (duplicateSupported && duplicateAllowed) || (grafanaDuplicateSupported && grafanaDuplicateAllowed);
+ 
+-  const [silenceSupported, silenceAllowed] = useRulerRuleAbility(rulerRule, groupIdentifier, AlertRuleAction.Silence);
+-  const [grafanaSilenceSupported, grafanaSilenceAllowed] = useGrafanaPromRuleAbility(
+-    prometheusRuleType.grafana.rule(promRule) ? promRule : skipToken,
+-    AlertRuleAction.Silence
+-  );
++  const [silenceSupported, silenceAllowed] = rulerSilenceAbility;
++  const [grafanaSilenceSupported, grafanaSilenceAllowed] = grafanaSilenceAbility;
+   const canSilence = (silenceSupported && silenceAllowed) || (grafanaSilenceSupported && grafanaSilenceAllowed);
+ 
+-  const [exportSupported, exportAllowed] = useRulerRuleAbility(
+-    rulerRule,
+-    groupIdentifier,
+-    AlertRuleAction.ModifyExport
+-  );
+-  const [grafanaExportSupported, grafanaExportAllowed] = useGrafanaPromRuleAbility(
+-    prometheusRuleType.grafana.rule(promRule) ? promRule : skipToken,
+-    AlertRuleAction.ModifyExport
+-  );
++  const [exportSupported, exportAllowed] = rulerExportAbility;
++  const [grafanaExportSupported, grafanaExportAllowed] = grafanaExportAbility;
+   const canExport = (exportSupported && exportAllowed) || (grafanaExportSupported && grafanaExportAllowed);
+ 
+   const ruleExtensionLinks = useRulePluginLinkExtension(promRule, groupIdentifier);
+diff --git a/public/app/features/alerting/unified/hooks/useAbilities.ts b/public/app/features/alerting/unified/hooks/useAbilities.ts
+index 9d61eddcf46fc..be7953d64b512 100644
+--- a/public/app/features/alerting/unified/hooks/useAbilities.ts
++++ b/public/app/features/alerting/unified/hooks/useAbilities.ts
+@@ -199,7 +199,7 @@ export function useRulerRuleAbility(
+ }
+ 
+ export function useRulerRuleAbilities(
+-  rule: RulerRuleDTO,
++  rule: RulerRuleDTO | undefined,
+   groupIdentifier: RuleGroupIdentifierV2,
+   actions: AlertRuleAction[]
+ ): Ability[] {
+@@ -365,7 +365,6 @@ function useIsGrafanaPromRuleEditable(rule?: GrafanaPromRuleDTO) {
+ }
+ 
+ export const skipToken = Symbol('abiltiy-skip-token');
+-
+ type SkipToken = typeof skipToken;
+ 
+ /**
+@@ -383,10 +382,10 @@ export function useGrafanaPromRuleAbility(rule: GrafanaPromRuleDTO | SkipToken,
+  * Hook for checking multiple abilities on a GrafanaPromRuleDTO
+  */
+ export function useGrafanaPromRuleAbilities(
+-  rule: GrafanaPromRuleDTO | undefined,
++  rule: GrafanaPromRuleDTO | SkipToken,
+   actions: AlertRuleAction[]
+ ): Ability[] {
+-  const abilities = useAllGrafanaPromRuleAbilities(rule);
++  const abilities = useAllGrafanaPromRuleAbilities(rule === skipToken ? undefined : rule);
+ 
+   return useMemo(() => {
+     return actions.map((action) => abilities[action]);
+diff --git a/public/app/features/alerting/unified/rule-list/FilterView.tsx b/public/app/features/alerting/unified/rule-list/FilterView.tsx
+index e29367da11ae0..a1d07ef3f699f 100644
+--- a/public/app/features/alerting/unified/rule-list/FilterView.tsx
++++ b/public/app/features/alerting/unified/rule-list/FilterView.tsx
+@@ -12,7 +12,7 @@ import { hashRule } from '../utils/rule-id';
+ 
+ import { DataSourceRuleLoader } from './DataSourceRuleLoader';
+ import { FilterProgressState, FilterStatus } from './FilterViewStatus';
+-import { GrafanaRuleLoader } from './GrafanaRuleLoader';
++import { GrafanaRuleListItem } from './GrafanaRuleListItem';
+ import LoadMoreHelper from './LoadMoreHelper';
+ import { UnknownRuleListItem } from './components/AlertRuleListItem';
+ import { AlertRuleListItemSkeleton } from './components/AlertRuleListItemLoader';
+@@ -154,12 +154,18 @@ function FilterViewResults({ filterState }: FilterViewProps) {
+           switch (origin) {
+             case 'grafana':
+               return (
+-                <GrafanaRuleLoader
+-                  key={key}
+-                  ruleIdentifier={{ ruleSourceName: 'grafana', uid: rule.uid }}
++                <GrafanaRuleListItem
++                  rule={rule}
++                  // rulerRule={rulerRule}
+                   groupIdentifier={groupIdentifier}
+                   namespaceName={ruleWithOrigin.namespaceName}
+                 />
++                // <GrafanaRuleLoader
++                //   key={key}
++                //   ruleIdentifier={{ ruleSourceName: 'grafana', uid: rule.uid }}
++                //   groupIdentifier={groupIdentifier}
++                //   namespaceName={ruleWithOrigin.namespaceName}
++                // />
+               );
+             case 'datasource':
+               return <DataSourceRuleLoader key={key} rule={rule} groupIdentifier={groupIdentifier} />;
+diff --git a/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx b/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx
+index d1e2cbbf0b428..982575d2f650b 100644
+--- a/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx
++++ b/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx
+@@ -5,7 +5,7 @@ import { GrafanaRuleGroupIdentifier } from 'app/types/unified-alerting';
+ import { prometheusApi } from '../api/prometheusApi';
+ import { RULE_LIST_POLL_INTERVAL_MS } from '../utils/constants';
+ 
+-import { GrafanaRuleListItem } from './GrafanaRuleLoader';
++import { GrafanaRuleListItem } from './GrafanaRuleListItem';
+ import { AlertRuleListItemSkeleton } from './components/AlertRuleListItemLoader';
+ 
+ // const { useGetGrafanaRulerGroupQuery } = alertRuleApi;
+@@ -40,20 +40,8 @@ export function GrafanaGroupLoader({
+     },
+     { pollingInterval: RULE_LIST_POLL_INTERVAL_MS }
+   );
+-  // const { data: rulerResponse, isLoading: isRulerGroupLoading } = useGetGrafanaRulerGroupQuery({
+-  //   folderUid: groupIdentifier.namespace.uid,
+-  //   groupName: groupIdentifier.groupName,
+-  // });
+ 
+-  // const { matches, promOnlyRules } = useMemo(() => {
+-  //   const promRules = promResponse?.data.groups.at(0)?.rules ?? [];
+-  //   const rulerRules = rulerResponse?.rules ?? [];
+-
+-  //   return matchRules(promRules, rulerRules);
+-  // }, [promResponse, rulerResponse]);
+-
+-  const isLoading = isPromResponseLoading;
+-  if (isLoading) {
++  if (isPromResponseLoading) {
+     return (
+       <>
+         {Array.from({ length: expectedRulesCount }).map((_, index) => (
+@@ -83,7 +71,6 @@ export function GrafanaGroupLoader({
+           <GrafanaRuleListItem
+             key={promRule.uid}
+             rule={promRule}
+-            // rulerRule={rulerRule}
+             groupIdentifier={groupIdentifier}
+             namespaceName={namespaceName}
+             // we don't show the location again for rules, it's redundant because they are shown in a folder > group hierarchy
+@@ -91,18 +78,6 @@ export function GrafanaGroupLoader({
+           />
+         );
+       })}
+-      {/* {promOnlyRules.map((rule) => (
+-        <RuleOperationListItem
+-          key={rule.uid}
+-          name={rule.name}
+-          namespace={namespaceName}
+-          group={groupIdentifier.groupName}
+-          rulesSource={GrafanaRulesSource}
+-          application="grafana"
+-          operation={RuleOperation.Deleting}
+-          showLocation={false}
+-        />
+-      ))} */}
+     </>
+   );
+ }
+diff --git a/public/app/features/alerting/unified/rule-list/GrafanaRuleListItem.tsx b/public/app/features/alerting/unified/rule-list/GrafanaRuleListItem.tsx
+new file mode 100644
+index 0000000000000..56c081d70c533
+--- /dev/null
++++ b/public/app/features/alerting/unified/rule-list/GrafanaRuleListItem.tsx
+@@ -0,0 +1,63 @@
++import { GrafanaRuleGroupIdentifier } from 'app/types/unified-alerting';
++import { GrafanaPromRuleDTO, PromRuleType } from 'app/types/unified-alerting-dto';
++
++import { GrafanaRulesSource } from '../utils/datasource';
++import { totalFromStats } from '../utils/ruleStats';
++import { prometheusRuleType } from '../utils/rules';
++import { createRelativeUrl } from '../utils/url';
++
++import {
++  AlertRuleListItem,
++  RecordingRuleListItem,
++  RuleListItemCommonProps,
++  UnknownRuleListItem,
++} from './components/AlertRuleListItem';
++import { RuleActionsButtons } from './components/RuleActionsButtons.V2';
++import { RuleOperation } from './components/RuleListIcon';
++
++interface GrafanaRuleListItemProps {
++  rule: GrafanaPromRuleDTO;
++  groupIdentifier: GrafanaRuleGroupIdentifier;
++  namespaceName: string;
++  operation?: RuleOperation;
++}
++
++export function GrafanaRuleListItem({ rule, groupIdentifier, namespaceName, operation }: GrafanaRuleListItemProps) {
++  const { name, uid, labels, provenance } = rule;
++
++  const commonProps: RuleListItemCommonProps = {
++    name,
++    rulesSource: GrafanaRulesSource,
++    group: groupIdentifier.groupName,
++    namespace: namespaceName,
++    href: createRelativeUrl(`/alerting/grafana/${uid}/view`),
++    health: rule?.health,
++    error: rule?.lastError,
++    labels: labels,
++    isProvisioned: Boolean(provenance),
++    isPaused: rule?.isPaused,
++    application: 'grafana' as const,
++    actions: <RuleActionsButtons promRule={rule} groupIdentifier={groupIdentifier} compact />,
++  };
++
++  if (prometheusRuleType.grafana.alertingRule(rule)) {
++    const promAlertingRule = rule && rule.type === PromRuleType.Alerting ? rule : undefined;
++    const instancesCount = totalFromStats(promAlertingRule?.totals ?? {});
++
++    return (
++      <AlertRuleListItem
++        {...commonProps}
++        summary={rule.annotations?.summary}
++        state={promAlertingRule?.state}
++        instancesCount={instancesCount}
++        operation={operation}
++      />
++    );
++  }
++
++  if (prometheusRuleType.grafana.recordingRule(rule)) {
++    return <RecordingRuleListItem {...commonProps} />;
++  }
++
++  return <UnknownRuleListItem ruleName={name} groupIdentifier={groupIdentifier} ruleDefinition={rule} />;
++}
+diff --git a/public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx b/public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx
+deleted file mode 100644
+index eebd1b1d85fbf..0000000000000
+--- a/public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx
++++ /dev/null
+@@ -1,159 +0,0 @@
+-import { Trans, t } from '@grafana/i18n';
+-import { Alert } from '@grafana/ui';
+-import { GrafanaRuleGroupIdentifier, GrafanaRuleIdentifier } from 'app/types/unified-alerting';
+-import { GrafanaPromRuleDTO, PromRuleType } from 'app/types/unified-alerting-dto';
+-
+-import { prometheusApi } from '../api/prometheusApi';
+-import { createReturnTo } from '../hooks/useReturnTo';
+-import { GrafanaRulesSource } from '../utils/datasource';
+-import { totalFromStats } from '../utils/ruleStats';
+-import { prometheusRuleType } from '../utils/rules';
+-import { createRelativeUrl } from '../utils/url';
+-
+-import {
+-  AlertRuleListItem,
+-  RecordingRuleListItem,
+-  RuleListItemCommonProps,
+-  UnknownRuleListItem,
+-} from './components/AlertRuleListItem';
+-import { AlertRuleListItemSkeleton, RulerRuleLoadingError } from './components/AlertRuleListItemLoader';
+-import { RuleActionsButtons } from './components/RuleActionsButtons.V2';
+-import { RuleOperation } from './components/RuleListIcon';
+-
+-// const { useGetGrafanaRulerGroupQuery } = alertRuleApi;
+-const { useGetGrafanaGroupsQuery } = prometheusApi;
+-
+-interface GrafanaRuleLoaderProps {
+-  ruleIdentifier: GrafanaRuleIdentifier;
+-  groupIdentifier: GrafanaRuleGroupIdentifier;
+-  namespaceName: string;
+-}
+-
+-export function GrafanaRuleLoader({ ruleIdentifier, groupIdentifier, namespaceName }: GrafanaRuleLoaderProps) {
+-  // const {
+-  //   data: rulerRuleGroup,
+-  //   error: rulerRuleGroupError,
+-  //   isLoading: isRulerRuleGroupLoading,
+-  // } = useGetGrafanaRulerGroupQuery({
+-  //   folderUid: groupIdentifier.namespace.uid,
+-  //   groupName: groupIdentifier.groupName,
+-  // });
+-  const {
+-    data: promRuleGroup,
+-    error: promRuleGroupError,
+-    isLoading: isPromRuleGroupLoading,
+-  } = useGetGrafanaGroupsQuery({
+-    folderUid: groupIdentifier.namespace.uid,
+-    groupName: groupIdentifier.groupName,
+-  });
+-
+-  // const rulerRule = rulerRuleGroup?.rules.find((rulerRule) => rulerRule.grafana_alert.uid === ruleIdentifier.uid);
+-  const promRule = promRuleGroup?.data.groups
+-    .flatMap((group) => group.rules)
+-    .find((promRule) => promRule.uid === ruleIdentifier.uid);
+-
+-  if (promRuleGroupError) {
+-    return <RulerRuleLoadingError ruleIdentifier={ruleIdentifier} error={promRuleGroupError} />;
+-  }
+-
+-  if (isPromRuleGroupLoading) {
+-    return <AlertRuleListItemSkeleton />;
+-  }
+-
+-  // if (!rulerRule) {
+-  //   return (
+-  //     <Alert
+-  //       title={t('alerting.rule-list.cannot-load-rule-details-for', 'Cannot load rule details for UID {{uid}}', {
+-  //         uid: ruleIdentifier.uid,
+-  //       })}
+-  //       severity="error"
+-  //     >
+-  //       <Trans i18nKey="alerting.rule-list.cannot-find-rule-details-for">
+-  //         Cannot find rule details for UID {{ uid: ruleIdentifier.uid ?? '<empty uid>' }}
+-  //       </Trans>
+-  //     </Alert>
+-  //   );
+-  // }
+-
+-  if (!promRule) {
+-    return (
+-      <Alert
+-        title={t('alerting.rule-list.cannot-load-rule-details-for', 'Cannot load rule details for UID {{uid}}', {
+-          uid: ruleIdentifier.uid,
+-        })}
+-        severity="error"
+-      >
+-        <Trans i18nKey="alerting.rule-list.cannot-find-rule-details-for">
+-          Cannot find rule details for UID {{ uid: ruleIdentifier.uid ?? '<empty uid>' }}
+-        </Trans>
+-      </Alert>
+-    );
+-  }
+-
+-  return (
+-    <GrafanaRuleListItem
+-      rule={promRule}
+-      // rulerRule={rulerRule}
+-      groupIdentifier={groupIdentifier}
+-      namespaceName={namespaceName}
+-    />
+-  );
+-}
+-
+-interface GrafanaRuleListItemProps {
+-  rule: GrafanaPromRuleDTO;
+-  // rulerRule: RulerGrafanaRuleDTO;
+-  groupIdentifier: GrafanaRuleGroupIdentifier;
+-  namespaceName: string;
+-  operation?: RuleOperation;
+-  showLocation?: boolean;
+-}
+-
+-export function GrafanaRuleListItem({
+-  rule,
+-  // rulerRule,
+-  groupIdentifier,
+-  namespaceName,
+-  operation,
+-  showLocation = true,
+-}: GrafanaRuleListItemProps) {
+-  const returnTo = createReturnTo();
+-  const { name, uid, labels, provenance } = rule;
+-
+-  const commonProps: RuleListItemCommonProps = {
+-    name,
+-    rulesSource: GrafanaRulesSource,
+-    group: groupIdentifier.groupName,
+-    namespace: namespaceName,
+-    href: createRelativeUrl(`/alerting/grafana/${uid}/view`, { returnTo }),
+-    health: rule?.health,
+-    error: rule?.lastError,
+-    labels: labels,
+-    isProvisioned: Boolean(provenance),
+-    isPaused: rule?.isPaused,
+-    application: 'grafana' as const,
+-    actions: <RuleActionsButtons promRule={rule} groupIdentifier={groupIdentifier} compact />,
+-    showLocation,
+-  };
+-
+-  if (prometheusRuleType.grafana.alertingRule(rule)) {
+-    const promAlertingRule = rule && rule.type === PromRuleType.Alerting ? rule : undefined;
+-    const instancesCount = totalFromStats(promAlertingRule?.totals ?? {});
+-
+-    return (
+-      <AlertRuleListItem
+-        {...commonProps}
+-        summary={rule.annotations?.summary}
+-        state={promAlertingRule?.state}
+-        instancesCount={instancesCount}
+-        operation={operation}
+-      />
+-    );
+-  }
+-
+-  if (prometheusRuleType.grafana.recordingRule(rule)) {
+-    return <RecordingRuleListItem {...commonProps} />;
+-  }
+-
+-  return <UnknownRuleListItem ruleName={name} groupIdentifier={groupIdentifier} ruleDefinition={rule} />;
+-}
+
+From 91f89e47a13c1e021054f5b8ca71be6b73edbf06 Mon Sep 17 00:00:00 2001
+From: Konrad Lalik <konradlalik@gmail.com>
+Date: Tue, 17 Jun 2025 09:17:12 +0200
+Subject: [PATCH 04/11] Remove outdated tests
+
+---
+ .../rule-list/GrafanaGroupLoader.test.tsx     | 101 +-----------------
+ 1 file changed, 1 insertion(+), 100 deletions(-)
+
+diff --git a/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.test.tsx b/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.test.tsx
+index 621cd6ecd2eab..d3fbd2e7f7a0c 100644
+--- a/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.test.tsx
++++ b/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.test.tsx
+@@ -13,13 +13,12 @@ import {
+ } from 'app/types/unified-alerting-dto';
+ 
+ import { setupMswServer } from '../mockApi';
+-import { mockGrafanaPromAlertingRule, mockGrafanaRulerRule } from '../mocks';
+ import { grafanaRulerGroup, grafanaRulerNamespace } from '../mocks/grafanaRulerApi';
+ import { setGrafanaPromRules } from '../mocks/server/configure';
+ import { rulerRuleType } from '../utils/rules';
+ import { intervalToSeconds } from '../utils/time';
+ 
+-import { GrafanaGroupLoader, matchRules } from './GrafanaGroupLoader';
++import { GrafanaGroupLoader } from './GrafanaGroupLoader';
+ 
+ setPluginLinksHook(() => ({ links: [], isLoading: false }));
+ setPluginComponentsHook(() => ({ components: [], isLoading: false }));
+@@ -54,104 +53,6 @@ describe('GrafanaGroupLoader', () => {
+       expect.stringContaining(`/alerting/grafana/${rule1.grafana_alert.uid}/view`)
+     );
+   });
+-
+-  it('should render rule with url and creating state when only ruler rule exists', async () => {
+-    setGrafanaPromRules([]);
+-
+-    const groupIdentifier = getGroupIdentifier(grafanaRulerGroup);
+-
+-    render(<GrafanaGroupLoader groupIdentifier={groupIdentifier} namespaceName={grafanaRulerNamespace.name} />);
+-
+-    const [rule1] = grafanaRulerGroup.rules;
+-    const ruleListItem = await ui.ruleItem(rule1.grafana_alert.title).find();
+-
+-    const creatingIcon = ui.ruleStatus('Creating').get(ruleListItem);
+-    expect(creatingIcon).toBeInTheDocument();
+-
+-    const ruleLink = ui.ruleLink(rule1.grafana_alert.title).get(ruleListItem);
+-    expect(ruleLink).toHaveAttribute(
+-      'href',
+-      expect.stringContaining(`/alerting/grafana/${rule1.grafana_alert.uid}/view`)
+-    );
+-  });
+-
+-  it('should render delete rule operation list item when only prom rule exists', async () => {
+-    const promOnlyGroup: GrafanaPromRuleGroupDTO = {
+-      ...rulerGroupToPromGroup(grafanaRulerGroup),
+-      name: 'prom-only-group',
+-    };
+-
+-    setGrafanaPromRules([promOnlyGroup]);
+-
+-    const groupIdentifier = getGroupIdentifier(promOnlyGroup);
+-
+-    render(<GrafanaGroupLoader groupIdentifier={groupIdentifier} namespaceName={grafanaRulerNamespace.name} />);
+-
+-    const [rule1] = promOnlyGroup.rules;
+-    const promRule = await ui.ruleItem(rule1.name).find();
+-
+-    const deletingIcon = ui.ruleStatus('Deleting').get(promRule);
+-    expect(deletingIcon).toBeInTheDocument();
+-
+-    expect(ui.editButton().query(promRule)).not.toBeInTheDocument();
+-    expect(ui.moreButton().query(promRule)).not.toBeInTheDocument();
+-  });
+-});
+-
+-describe('matchRules', () => {
+-  it('should return matches for all items and have empty promOnlyRules if all rules are matched by uid', () => {
+-    const rulerRules = [
+-      mockGrafanaRulerRule({ uid: '1' }),
+-      mockGrafanaRulerRule({ uid: '2' }),
+-      mockGrafanaRulerRule({ uid: '3' }),
+-    ];
+-
+-    const promRules = rulerRules.map(rulerRuleToPromRule);
+-
+-    const { matches, promOnlyRules } = matchRules(promRules, rulerRules);
+-
+-    expect(matches.size).toBe(rulerRules.length);
+-    expect(promOnlyRules).toHaveLength(0);
+-
+-    for (const [rulerRule, promRule] of matches) {
+-      expect(rulerRule.grafana_alert.uid).toBe(promRule.uid);
+-    }
+-  });
+-
+-  it('should return unmatched prometheus rules in promOnlyRules array', () => {
+-    const rulerRules = [mockGrafanaRulerRule({ uid: '1' }), mockGrafanaRulerRule({ uid: '2' })];
+-
+-    const matchingPromRules = rulerRules.map(rulerRuleToPromRule);
+-    const unmatchedPromRules = [mockGrafanaPromAlertingRule({ uid: '3' }), mockGrafanaPromAlertingRule({ uid: '4' })];
+-
+-    const allPromRules = [...matchingPromRules, ...unmatchedPromRules];
+-    const { matches, promOnlyRules } = matchRules(allPromRules, rulerRules);
+-
+-    expect(matches.size).toBe(rulerRules.length);
+-    expect(promOnlyRules).toHaveLength(unmatchedPromRules.length);
+-    expect(promOnlyRules).toEqual(expect.arrayContaining(unmatchedPromRules));
+-  });
+-
+-  it('should not include ruler rules in matches if they have no prometheus counterpart', () => {
+-    const rulerRules = [
+-      mockGrafanaRulerRule({ uid: '1' }),
+-      mockGrafanaRulerRule({ uid: '2' }),
+-      mockGrafanaRulerRule({ uid: '3' }),
+-    ];
+-
+-    // Only create prom rule for the second ruler rule
+-    const promRules = [rulerRuleToPromRule(rulerRules[1])];
+-
+-    const { matches, promOnlyRules } = matchRules(promRules, rulerRules);
+-
+-    expect(matches.size).toBe(1);
+-    expect(promOnlyRules).toHaveLength(0);
+-
+-    // Verify that only the second ruler rule is in matches
+-    expect(matches.has(rulerRules[0])).toBe(false);
+-    expect(matches.get(rulerRules[1])).toBe(promRules[0]);
+-    expect(matches.has(rulerRules[2])).toBe(false);
+-  });
+ });
+ 
+ function rulerGroupToPromGroup(group: RulerRuleGroupDTO<RulerGrafanaRuleDTO>): GrafanaPromRuleGroupDTO {
+
+From 4710dd51953823426dc05e6e4de808bf36ff452f Mon Sep 17 00:00:00 2001
+From: Sonia Aguilar <soniaaguilarpeiron@gmail.com>
+Date: Tue, 17 Jun 2025 10:26:21 +0200
+Subject: [PATCH 05/11] add some comments
+
+---
+ .../unified/components/rule-viewer/AlertRuleMenu.tsx         | 5 ++++-
+ .../unified/rule-list/components/RuleActionsButtons.V2.tsx   | 2 ++
+ 2 files changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/public/app/features/alerting/unified/components/rule-viewer/AlertRuleMenu.tsx b/public/app/features/alerting/unified/components/rule-viewer/AlertRuleMenu.tsx
+index 95c309dc38295..77e751238cf0b 100644
+--- a/public/app/features/alerting/unified/components/rule-viewer/AlertRuleMenu.tsx
++++ b/public/app/features/alerting/unified/components/rule-viewer/AlertRuleMenu.tsx
+@@ -38,6 +38,8 @@ interface Props {
+ /**
+  * Get a list of menu items + divider elements for rendering in an alert rule's
+  * dropdown menu
++ * If the consumer of this component comes from the alert list view, we need to use promRule to check abilities and permissions,
++ * as we have removed all requests to the ruler API in the list view.
+  */
+ const AlertRuleMenu = ({
+   promRule,
+@@ -51,7 +53,7 @@ const AlertRuleMenu = ({
+   buttonSize,
+   fill,
+ }: Props) => {
+-  // check all abilities and permissions
++  // check all abilities and permissions using rulerRule
+   const [rulerPauseAbility, rulerDeleteAbility, rulerDuplicateAbility, rulerSilenceAbility, rulerExportAbility] =
+     useRulerRuleAbilities(rulerRule, groupIdentifier, [
+       AlertRuleAction.Pause,
+@@ -61,6 +63,7 @@ const AlertRuleMenu = ({
+       AlertRuleAction.ModifyExport,
+     ]);
+ 
++  // check all abilities and permissions using promRule
+   const [
+     grafanaPauseAbility,
+     grafanaDeleteAbility,
+diff --git a/public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx b/public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx
+index b1094c4ba5a6d..58161d6e92268 100644
+--- a/public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx
++++ b/public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx
+@@ -51,6 +51,8 @@ export function RuleActionsButtons({ compact, rule, promRule, groupIdentifier }:
+   const isProvisioned = getIsProvisioned(rule, promRule);
+ 
+   const [editRuleSupported, editRuleAllowed] = useRulerRuleAbility(rule, groupIdentifier, AlertRuleAction.Update);
++  // If the consumer of this component comes from the alert list view, we need to use promRule to check abilities and permissions,
++  // as we have removed all requests to the ruler API in the list view.
+   const [grafanaEditRuleSupported, grafanaEditRuleAllowed] = useGrafanaPromRuleAbility(
+     prometheusRuleType.grafana.rule(promRule) ? promRule : skipToken,
+     AlertRuleAction.Update
+
+From c360b5f6102d098bc2947f93c11e59068a4c3ce3 Mon Sep 17 00:00:00 2001
+From: Sonia Aguilar <soniaaguilarpeiron@gmail.com>
+Date: Fri, 20 Jun 2025 13:00:34 +0200
+Subject: [PATCH 06/11] remove commented code
+
+---
+ .../app/features/alerting/unified/rule-list/FilterView.tsx | 7 -------
+ .../unified/rule-list/hooks/prometheusGroupsGenerator.ts   | 7 -------
+ 2 files changed, 14 deletions(-)
+
+diff --git a/public/app/features/alerting/unified/rule-list/FilterView.tsx b/public/app/features/alerting/unified/rule-list/FilterView.tsx
+index a1d07ef3f699f..762d6a9889153 100644
+--- a/public/app/features/alerting/unified/rule-list/FilterView.tsx
++++ b/public/app/features/alerting/unified/rule-list/FilterView.tsx
+@@ -156,16 +156,9 @@ function FilterViewResults({ filterState }: FilterViewProps) {
+               return (
+                 <GrafanaRuleListItem
+                   rule={rule}
+-                  // rulerRule={rulerRule}
+                   groupIdentifier={groupIdentifier}
+                   namespaceName={ruleWithOrigin.namespaceName}
+                 />
+-                // <GrafanaRuleLoader
+-                //   key={key}
+-                //   ruleIdentifier={{ ruleSourceName: 'grafana', uid: rule.uid }}
+-                //   groupIdentifier={groupIdentifier}
+-                //   namespaceName={ruleWithOrigin.namespaceName}
+-                // />
+               );
+             case 'datasource':
+               return <DataSourceRuleLoader key={key} rule={rule} groupIdentifier={groupIdentifier} />;
+diff --git a/public/app/features/alerting/unified/rule-list/hooks/prometheusGroupsGenerator.ts b/public/app/features/alerting/unified/rule-list/hooks/prometheusGroupsGenerator.ts
+index 912dc69a905af..184489ccdc201 100644
+--- a/public/app/features/alerting/unified/rule-list/hooks/prometheusGroupsGenerator.ts
++++ b/public/app/features/alerting/unified/rule-list/hooks/prometheusGroupsGenerator.ts
+@@ -82,13 +82,6 @@ export function useGrafanaGroupsGenerator(hookOptions: UseGeneratorHookOptions =
+       // Because the user waits a bit longer for the initial load but doesn't need to wait for each group to be loaded
+       if (hookOptions.populateCache) {
+         const cacheAndRulerPreload = response.data.groups.map(async (group) => {
+-          // dispatch(
+-          //   alertRuleApi.util.prefetch(
+-          //     'getGrafanaRulerGroup',
+-          //     { folderUid: group.folderUid, groupName: group.name },
+-          //     { force: true }
+-          //   )
+-          // );
+           await dispatch(
+             prometheusApi.util.upsertQueryData(
+               'getGrafanaGroups',
+
+From b536f5ee2e6dc3455238755f31f38ac03f50ce86 Mon Sep 17 00:00:00 2001
+From: Sonia Aguilar <soniaaguilarpeiron@gmail.com>
+Date: Fri, 20 Jun 2025 15:08:01 +0200
+Subject: [PATCH 07/11] remove showLocation property
+
+---
+ .../features/alerting/unified/rule-list/GrafanaGroupLoader.tsx   | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx b/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx
+index 982575d2f650b..04ea1076ff05f 100644
+--- a/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx
++++ b/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx
+@@ -74,7 +74,6 @@ export function GrafanaGroupLoader({
+             groupIdentifier={groupIdentifier}
+             namespaceName={namespaceName}
+             // we don't show the location again for rules, it's redundant because they are shown in a folder > group hierarchy
+-            showLocation={false}
+           />
+         );
+       })}
+
+From 82704e802ec4ce98366a7aedf53651260b76c2fd Mon Sep 17 00:00:00 2001
+From: Konrad Lalik <konradlalik@gmail.com>
+Date: Wed, 2 Jul 2025 16:35:37 +0200
+Subject: [PATCH 08/11] Add missing mocks in tests
+
+---
+ .../components/rules/RuleDetails.test.tsx     |   5 +-
+ .../components/rules/RulesTable.test.tsx      | 108 +++++++++++++++---
+ 2 files changed, 93 insertions(+), 20 deletions(-)
+
+diff --git a/public/app/features/alerting/unified/components/rules/RuleDetails.test.tsx b/public/app/features/alerting/unified/components/rules/RuleDetails.test.tsx
+index 6d55821a49f7c..ac0d694f60153 100644
+--- a/public/app/features/alerting/unified/components/rules/RuleDetails.test.tsx
++++ b/public/app/features/alerting/unified/components/rules/RuleDetails.test.tsx
+@@ -7,6 +7,7 @@ import { setupMswServer } from 'app/features/alerting/unified/mockApi';
+ 
+ import { useIsRuleEditable } from '../../hooks/useIsRuleEditable';
+ import { getCloudRule, getGrafanaRule } from '../../mocks';
++import { mimirDataSource } from '../../mocks/server/configure';
+ 
+ import { RuleDetails } from './RuleDetails';
+ 
+@@ -32,6 +33,8 @@ const ui = {
+ 
+ setupMswServer();
+ 
++const { dataSource: mimirDs } = mimirDataSource();
++
+ beforeAll(() => {
+   jest.clearAllMocks();
+ });
+@@ -81,7 +84,7 @@ describe('RuleDetails RBAC', () => {
+   });
+ 
+   describe('Cloud rules action buttons', () => {
+-    const cloudRule = getCloudRule({ name: 'Cloud' });
++    const cloudRule = getCloudRule({ name: 'Cloud' }, { rulesSource: mimirDs });
+ 
+     it('Should not render Edit button for users with the update permission', async () => {
+       // Arrange
+diff --git a/public/app/features/alerting/unified/components/rules/RulesTable.test.tsx b/public/app/features/alerting/unified/components/rules/RulesTable.test.tsx
+index 22cb1bb8b7c3f..a4be47bbf81f7 100644
+--- a/public/app/features/alerting/unified/components/rules/RulesTable.test.tsx
++++ b/public/app/features/alerting/unified/components/rules/RulesTable.test.tsx
+@@ -4,7 +4,14 @@ import { byRole } from 'testing-library-selector';
+ import { setPluginLinksHook } from '@grafana/runtime';
+ import { setupMswServer } from 'app/features/alerting/unified/mockApi';
+ 
+-import { AlertRuleAction, useAlertRuleAbility, useRulerRuleAbility } from '../../hooks/useAbilities';
++import {
++  AlertRuleAction,
++  useAlertRuleAbility,
++  useGrafanaPromRuleAbilities,
++  useGrafanaPromRuleAbility,
++  useRulerRuleAbilities,
++  useRulerRuleAbility,
++} from '../../hooks/useAbilities';
+ import { getCloudRule, getGrafanaRule } from '../../mocks';
+ import { mimirDataSource } from '../../mocks/server/configure';
+ 
+@@ -13,11 +20,15 @@ import { RulesTable } from './RulesTable';
+ jest.mock('../../hooks/useAbilities');
+ 
+ const mocks = {
+-  // This is a bit unfortunate, but we need to mock both abilities
+-  // RuleActionButtons still needs to use the useAlertRuleAbility hook
+-  // whereas AlertRuleMenu has already been refactored to use useRulerRuleAbility
++  // Mock the hooks that are actually used by the components:
++  // RuleActionsButtons uses: useAlertRuleAbility (singular)
++  // AlertRuleMenu uses: useRulerRuleAbilities and useGrafanaPromRuleAbilities (plural)
++  // We can also use useGrafanaPromRuleAbility (singular) for simpler mocking
+   useRulerRuleAbility: jest.mocked(useRulerRuleAbility),
+   useAlertRuleAbility: jest.mocked(useAlertRuleAbility),
++  useGrafanaPromRuleAbility: jest.mocked(useGrafanaPromRuleAbility),
++  useRulerRuleAbilities: jest.mocked(useRulerRuleAbilities),
++  useGrafanaPromRuleAbilities: jest.mocked(useGrafanaPromRuleAbilities),
+ };
+ 
+ setPluginLinksHook(() => ({
+@@ -46,18 +57,40 @@ describe('RulesTable RBAC', () => {
+     jest.clearAllMocks();
+     jest.restoreAllMocks();
+     jest.resetAllMocks();
++
++    // Set up default neutral mocks for all hooks
++    // Singular hooks (used by RuleActionsButtons and can simplify mocking)
++    mocks.useAlertRuleAbility.mockReturnValue([false, false]);
++    mocks.useRulerRuleAbility.mockReturnValue([false, false]);
++    mocks.useGrafanaPromRuleAbility.mockReturnValue([false, false]);
++
++    // Plural hooks (used by AlertRuleMenu) - need to return arrays based on input actions
++    mocks.useRulerRuleAbilities.mockImplementation((_rule, _groupIdentifier, actions) => {
++      return actions.map(() => [false, false]);
++    });
++    mocks.useGrafanaPromRuleAbilities.mockImplementation((_rule, actions) => {
++      return actions.map(() => [false, false]);
++    });
+   });
+ 
+   describe('Grafana rules action buttons', () => {
+     const grafanaRule = getGrafanaRule({ name: 'Grafana' });
+ 
+     it('Should not render Edit button for users without the update permission', async () => {
+-      mocks.useRulerRuleAbility.mockImplementation((_rule, _groupIdentifier, action) => {
++      // Mock the specific hooks needed for Grafana rules
++      // Using singular hook for simpler mocking
++      mocks.useAlertRuleAbility.mockImplementation((rule, action) => {
+         return action === AlertRuleAction.Update ? [true, false] : [true, true];
+       });
+-      mocks.useAlertRuleAbility.mockImplementation((_rule, action) => {
++      mocks.useGrafanaPromRuleAbility.mockImplementation((rule, action) => {
+         return action === AlertRuleAction.Update ? [true, false] : [true, true];
+       });
++      // Still need plural hook for AlertRuleMenu component
++      mocks.useGrafanaPromRuleAbilities.mockImplementation((rule, actions) => {
++        return actions.map((action) => {
++          return action === AlertRuleAction.Update ? [true, false] : [true, true];
++        });
++      });
+ 
+       render(<RulesTable rules={[grafanaRule]} />);
+ 
+@@ -65,11 +98,14 @@ describe('RulesTable RBAC', () => {
+     });
+ 
+     it('Should not render Delete button for users without the delete permission', async () => {
+-      mocks.useRulerRuleAbility.mockImplementation((_rule, _groupIdentifier, action) => {
++      // Mock the specific hooks needed for Grafana rules
++      mocks.useAlertRuleAbility.mockImplementation((rule, action) => {
+         return action === AlertRuleAction.Delete ? [true, false] : [true, true];
+       });
+-      mocks.useAlertRuleAbility.mockImplementation((_rule, action) => {
+-        return action === AlertRuleAction.Delete ? [true, false] : [true, true];
++      mocks.useGrafanaPromRuleAbilities.mockImplementation((rule, actions) => {
++        return actions.map((action) => {
++          return action === AlertRuleAction.Delete ? [true, false] : [true, true];
++        });
+       });
+ 
+       render(<RulesTable rules={[grafanaRule]} />);
+@@ -80,11 +116,14 @@ describe('RulesTable RBAC', () => {
+     });
+ 
+     it('Should render Edit button for users with the update permission', async () => {
+-      mocks.useRulerRuleAbility.mockImplementation((_rule, _groupIdentifier, action) => {
++      // Mock the specific hooks needed for Grafana rules
++      mocks.useAlertRuleAbility.mockImplementation((rule, action) => {
+         return action === AlertRuleAction.Update ? [true, true] : [false, false];
+       });
+-      mocks.useAlertRuleAbility.mockImplementation((_rule, action) => {
+-        return action === AlertRuleAction.Update ? [true, true] : [false, false];
++      mocks.useGrafanaPromRuleAbilities.mockImplementation((rule, actions) => {
++        return actions.map((action) => {
++          return action === AlertRuleAction.Update ? [true, true] : [false, false];
++        });
+       });
+ 
+       render(<RulesTable rules={[grafanaRule]} />);
+@@ -93,11 +132,14 @@ describe('RulesTable RBAC', () => {
+     });
+ 
+     it('Should render Delete button for users with the delete permission', async () => {
+-      mocks.useRulerRuleAbility.mockImplementation((_rule, _groupIdentifier, action) => {
++      // Mock the specific hooks needed for Grafana rules
++      mocks.useAlertRuleAbility.mockImplementation((rule, action) => {
+         return action === AlertRuleAction.Delete ? [true, true] : [false, false];
+       });
+-      mocks.useAlertRuleAbility.mockImplementation((_rule, action) => {
+-        return action === AlertRuleAction.Delete ? [true, true] : [false, false];
++      mocks.useGrafanaPromRuleAbilities.mockImplementation((rule, actions) => {
++        return actions.map((action) => {
++          return action === AlertRuleAction.Delete ? [true, true] : [false, false];
++        });
+       });
+ 
+       render(<RulesTable rules={[grafanaRule]} />);
+@@ -123,11 +165,15 @@ describe('RulesTable RBAC', () => {
+       };
+ 
+       beforeEach(() => {
+-        mocks.useRulerRuleAbility.mockImplementation(() => {
+-          return [true, true];
++        // Mock all hooks needed for the creating/deleting state tests
++        mocks.useRulerRuleAbility.mockImplementation(() => [true, true]);
++        mocks.useAlertRuleAbility.mockImplementation(() => [true, true]);
++        // Mock plural hooks for AlertRuleMenu
++        mocks.useRulerRuleAbilities.mockImplementation((_rule, _groupIdentifier, actions) => {
++          return actions.map(() => [true, true]);
+         });
+-        mocks.useAlertRuleAbility.mockImplementation(() => {
+-          return [true, true];
++        mocks.useGrafanaPromRuleAbilities.mockImplementation((_rule, actions) => {
++          return actions.map(() => [true, true]);
+         });
+       });
+ 
+@@ -164,6 +210,12 @@ describe('RulesTable RBAC', () => {
+       mocks.useAlertRuleAbility.mockImplementation((_rule, action) => {
+         return action === AlertRuleAction.Update ? [true, false] : [true, true];
+       });
++      // Cloud rules only need useRulerRuleAbilities mock (useGrafanaPromRuleAbilities gets skipToken)
++      mocks.useRulerRuleAbilities.mockImplementation((_rule, _groupIdentifier, actions) => {
++        return actions.map((action) => {
++          return action === AlertRuleAction.Update ? [true, false] : [true, true];
++        });
++      });
+ 
+       render(<RulesTable rules={[cloudRule]} />);
+ 
+@@ -177,6 +229,12 @@ describe('RulesTable RBAC', () => {
+       mocks.useAlertRuleAbility.mockImplementation((_rule, action) => {
+         return action === AlertRuleAction.Delete ? [true, false] : [true, true];
+       });
++      // Cloud rules only need useRulerRuleAbilities mock (useGrafanaPromRuleAbilities gets skipToken)
++      mocks.useRulerRuleAbilities.mockImplementation((_rule, _groupIdentifier, actions) => {
++        return actions.map((action) => {
++          return action === AlertRuleAction.Delete ? [true, false] : [true, true];
++        });
++      });
+ 
+       render(<RulesTable rules={[cloudRule]} />);
+ 
+@@ -191,6 +249,12 @@ describe('RulesTable RBAC', () => {
+       mocks.useAlertRuleAbility.mockImplementation((_rule, action) => {
+         return action === AlertRuleAction.Update ? [true, true] : [false, false];
+       });
++      // Cloud rules only need useRulerRuleAbilities mock (useGrafanaPromRuleAbilities gets skipToken)
++      mocks.useRulerRuleAbilities.mockImplementation((_rule, _groupIdentifier, actions) => {
++        return actions.map((action) => {
++          return action === AlertRuleAction.Update ? [true, true] : [false, false];
++        });
++      });
+ 
+       render(<RulesTable rules={[cloudRule]} />);
+ 
+@@ -204,6 +268,12 @@ describe('RulesTable RBAC', () => {
+       mocks.useAlertRuleAbility.mockImplementation((_rule, action) => {
+         return action === AlertRuleAction.Delete ? [true, true] : [false, false];
+       });
++      // Cloud rules only need useRulerRuleAbilities mock (useGrafanaPromRuleAbilities gets skipToken)
++      mocks.useRulerRuleAbilities.mockImplementation((_rule, _groupIdentifier, actions) => {
++        return actions.map((action) => {
++          return action === AlertRuleAction.Delete ? [true, true] : [false, false];
++        });
++      });
+ 
+       render(<RulesTable rules={[cloudRule]} />);
+ 
+
+From a05db6f944e23b6c91b1cc0c2f3cbed4e395cef6 Mon Sep 17 00:00:00 2001
+From: Konrad Lalik <konradlalik@gmail.com>
+Date: Fri, 4 Jul 2025 09:44:10 +0200
+Subject: [PATCH 09/11] Add showLocation to GrafanaRuleListItem, improve
+ useAbilities, address PR feedback
+
+---
+ .../alerting/unified/hooks/useAbilities.ts    | 27 ++++++++++++++-----
+ .../alerting/unified/rule-list/FilterView.tsx |  1 +
+ .../unified/rule-list/GrafanaGroupLoader.tsx  |  2 +-
+ .../unified/rule-list/GrafanaRuleListItem.tsx | 12 +++++++--
+ .../components/RuleActionsButtons.V2.tsx      |  2 ++
+ 5 files changed, 34 insertions(+), 10 deletions(-)
+
+diff --git a/public/app/features/alerting/unified/hooks/useAbilities.ts b/public/app/features/alerting/unified/hooks/useAbilities.ts
+index be7953d64b512..91fbe9cc6034d 100644
+--- a/public/app/features/alerting/unified/hooks/useAbilities.ts
++++ b/public/app/features/alerting/unified/hooks/useAbilities.ts
+@@ -21,7 +21,13 @@ import { useAlertmanager } from '../state/AlertmanagerContext';
+ import { getInstancesPermissions, getNotificationsPermissions, getRulesPermissions } from '../utils/access-control';
+ import { getGroupOriginName, groupIdentifier } from '../utils/groupIdentifier';
+ import { isAdmin } from '../utils/misc';
+-import { isPluginProvidedRule, isProvisionedPromRule, prometheusRuleType, rulerRuleType } from '../utils/rules';
++import {
++  isPluginProvidedRule,
++  isProvisionedPromRule,
++  isProvisionedRule,
++  prometheusRuleType,
++  rulerRuleType,
++} from '../utils/rules';
+ 
+ import { useIsRuleEditable } from './useIsRuleEditable';
+ 
+@@ -233,7 +239,7 @@ export function useAllRulerRuleAbilities(
+   const canSilence = useCanSilence(rule);
+ 
+   const abilities = useMemo<Abilities<AlertRuleAction>>(() => {
+-    const isProvisioned = rulerRuleType.grafana.rule(rule) && Boolean(rule.grafana_alert.provenance);
++    const isProvisioned = rule ? isProvisionedRule(rule) : false;
+     // TODO: Add support for federated rules
+     // const isFederated = isFederatedRuleGroup();
+     const isFederated = false;
+@@ -287,9 +293,10 @@ export function useAllGrafanaPromRuleAbilities(rule: GrafanaPromRuleDTO | undefi
+   const canSilenceInFolder = useCanSilenceInFolder(rule?.folderUid);
+ 
+   const abilities = useMemo<Abilities<AlertRuleAction>>(() => {
+-    // For GrafanaPromRuleDTO, check provisioned status using the provenance property
+-    const isProvisioned = rule && isProvisionedPromRule(rule);
+-    // TODO: Add support for federated rules when available for GrafanaPromRuleDTO
++    const isProvisioned = rule ? isProvisionedPromRule(rule) : false;
++
++    // Note: Grafana managed rules can't be federated - this is strictly a Mimir feature
++    // See: https://grafana.com/docs/mimir/latest/references/architecture/components/ruler/#federated-rule-groups
+     const isFederated = false;
+     // All GrafanaPromRuleDTO rules are Grafana-managed by definition
+     const isAlertingRule = prometheusRuleType.grafana.alertingRule(rule);
+@@ -329,11 +336,17 @@ export function useAllGrafanaPromRuleAbilities(rule: GrafanaPromRuleDTO | undefi
+   return abilities;
+ }
+ 
++interface IsGrafanaPromRuleEditableResult {
++  isEditable: boolean;
++  isRemovable: boolean;
++  loading: boolean;
++}
++
+ /**
+  * Hook for checking if a GrafanaPromRuleDTO is editable
+  * Adapted version of useIsRuleEditable for GrafanaPromRuleDTO
+  */
+-function useIsGrafanaPromRuleEditable(rule?: GrafanaPromRuleDTO) {
++function useIsGrafanaPromRuleEditable(rule?: GrafanaPromRuleDTO): IsGrafanaPromRuleEditableResult {
+   const folderUID = rule?.folderUid;
+   const { folder, loading } = useFolder(folderUID);
+ 
+@@ -364,7 +377,7 @@ function useIsGrafanaPromRuleEditable(rule?: GrafanaPromRuleDTO) {
+   }, [rule, folderUID, folder, loading]);
+ }
+ 
+-export const skipToken = Symbol('abiltiy-skip-token');
++export const skipToken = Symbol('ability-skip-token');
+ type SkipToken = typeof skipToken;
+ 
+ /**
+diff --git a/public/app/features/alerting/unified/rule-list/FilterView.tsx b/public/app/features/alerting/unified/rule-list/FilterView.tsx
+index 762d6a9889153..08a8ecbce4306 100644
+--- a/public/app/features/alerting/unified/rule-list/FilterView.tsx
++++ b/public/app/features/alerting/unified/rule-list/FilterView.tsx
+@@ -158,6 +158,7 @@ function FilterViewResults({ filterState }: FilterViewProps) {
+                   rule={rule}
+                   groupIdentifier={groupIdentifier}
+                   namespaceName={ruleWithOrigin.namespaceName}
++                  showLocation={true}
+                 />
+               );
+             case 'datasource':
+diff --git a/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx b/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx
+index 04ea1076ff05f..2dee977835d65 100644
+--- a/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx
++++ b/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx
+@@ -8,7 +8,6 @@ import { RULE_LIST_POLL_INTERVAL_MS } from '../utils/constants';
+ import { GrafanaRuleListItem } from './GrafanaRuleListItem';
+ import { AlertRuleListItemSkeleton } from './components/AlertRuleListItemLoader';
+ 
+-// const { useGetGrafanaRulerGroupQuery } = alertRuleApi;
+ const { useGetGrafanaGroupsQuery } = prometheusApi;
+ 
+ export interface GrafanaGroupLoaderProps {
+@@ -74,6 +73,7 @@ export function GrafanaGroupLoader({
+             groupIdentifier={groupIdentifier}
+             namespaceName={namespaceName}
+             // we don't show the location again for rules, it's redundant because they are shown in a folder > group hierarchy
++            showLocation={false}
+           />
+         );
+       })}
+diff --git a/public/app/features/alerting/unified/rule-list/GrafanaRuleListItem.tsx b/public/app/features/alerting/unified/rule-list/GrafanaRuleListItem.tsx
+index 56c081d70c533..3113c991e0928 100644
+--- a/public/app/features/alerting/unified/rule-list/GrafanaRuleListItem.tsx
++++ b/public/app/features/alerting/unified/rule-list/GrafanaRuleListItem.tsx
+@@ -20,9 +20,16 @@ interface GrafanaRuleListItemProps {
+   groupIdentifier: GrafanaRuleGroupIdentifier;
+   namespaceName: string;
+   operation?: RuleOperation;
++  showLocation?: boolean;
+ }
+ 
+-export function GrafanaRuleListItem({ rule, groupIdentifier, namespaceName, operation }: GrafanaRuleListItemProps) {
++export function GrafanaRuleListItem({
++  rule,
++  groupIdentifier,
++  namespaceName,
++  operation,
++  showLocation = true,
++}: GrafanaRuleListItemProps) {
+   const { name, uid, labels, provenance } = rule;
+ 
+   const commonProps: RuleListItemCommonProps = {
+@@ -51,12 +58,13 @@ export function GrafanaRuleListItem({ rule, groupIdentifier, namespaceName, oper
+         state={promAlertingRule?.state}
+         instancesCount={instancesCount}
+         operation={operation}
++        showLocation={showLocation}
+       />
+     );
+   }
+ 
+   if (prometheusRuleType.grafana.recordingRule(rule)) {
+-    return <RecordingRuleListItem {...commonProps} />;
++    return <RecordingRuleListItem {...commonProps} showLocation={showLocation} />;
+   }
+ 
+   return <UnknownRuleListItem ruleName={name} groupIdentifier={groupIdentifier} ruleDefinition={rule} />;
+diff --git a/public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx b/public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx
+index 58161d6e92268..37e56db40589d 100644
+--- a/public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx
++++ b/public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx
+@@ -145,5 +145,7 @@ function getEditableIdentifier(
+ 
+   logWarning('Unable to construct an editable rule identifier');
+ 
++  // Returning undefined is safer than throwing here as it allows the component to gracefully handle
++  // the error by returning null instead of crashing the entire component tree
+   return undefined;
+ }
+
+From 292f782f9f52dc8a6a2b21d69510686062d1b0ed Mon Sep 17 00:00:00 2001
+From: Konrad Lalik <konradlalik@gmail.com>
+Date: Fri, 4 Jul 2025 12:18:38 +0200
+Subject: [PATCH 10/11] Enhance GrafanaGroupLoader tests: Add permission checks
+ and More button functionality
+
+- Introduced user permission grants for alerting actions in tests.
+- Added tests for rendering the More button with action menu options.
+- Verified that each rule has its own action buttons and handles permissions correctly.
+- Ensured the edit button is not rendered when user lacks edit permissions.
+- Confirmed the correct menu actions are displayed when the More button is clicked.
+---
+ .../rule-list/GrafanaGroupLoader.test.tsx     | 155 +++++++++++++++++-
+ 1 file changed, 154 insertions(+), 1 deletion(-)
+
+diff --git a/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.test.tsx b/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.test.tsx
+index d3fbd2e7f7a0c..68913940e8e9e 100644
+--- a/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.test.tsx
++++ b/public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.test.tsx
+@@ -2,6 +2,7 @@ import { render } from 'test/test-utils';
+ import { byRole, byTitle } from 'testing-library-selector';
+ 
+ import { setPluginComponentsHook, setPluginLinksHook } from '@grafana/runtime';
++import { AccessControlAction } from 'app/types';
+ import { GrafanaRuleGroupIdentifier } from 'app/types/unified-alerting';
+ import {
+   GrafanaPromRuleDTO,
+@@ -13,8 +14,9 @@ import {
+ } from 'app/types/unified-alerting-dto';
+ 
+ import { setupMswServer } from '../mockApi';
++import { grantUserPermissions } from '../mocks';
+ import { grafanaRulerGroup, grafanaRulerNamespace } from '../mocks/grafanaRulerApi';
+-import { setGrafanaPromRules } from '../mocks/server/configure';
++import { setFolderAccessControl, setGrafanaPromRules } from '../mocks/server/configure';
+ import { rulerRuleType } from '../utils/rules';
+ import { intervalToSeconds } from '../utils/time';
+ 
+@@ -31,9 +33,35 @@ const ui = {
+   ruleLink: (ruleName: string) => byRole('link', { name: ruleName }),
+   editButton: () => byRole('link', { name: 'Edit' }),
+   moreButton: () => byRole('button', { name: 'More' }),
++  // Menu items that appear when More button is clicked
++  menuItems: {
++    silence: () => byRole('menuitem', { name: /silence/i }),
++    duplicate: () => byRole('menuitem', { name: /duplicate/i }),
++    copyLink: () => byRole('menuitem', { name: /copy link/i }),
++    export: () => byRole('menuitem', { name: /export/i }),
++    delete: () => byRole('menuitem', { name: /delete/i }),
++  },
+ };
+ 
+ describe('GrafanaGroupLoader', () => {
++  beforeEach(() => {
++    grantUserPermissions([
++      AccessControlAction.AlertingRuleUpdate,
++      AccessControlAction.AlertingRuleDelete,
++      AccessControlAction.AlertingSilenceCreate,
++      AccessControlAction.AlertingRuleCreate,
++      AccessControlAction.AlertingRuleRead,
++    ]);
++    // Grant necessary permissions for editing rules
++    setFolderAccessControl({
++      [AccessControlAction.AlertingRuleUpdate]: true,
++      [AccessControlAction.AlertingRuleDelete]: true,
++      [AccessControlAction.AlertingSilenceCreate]: true,
++      [AccessControlAction.AlertingRuleCreate]: true, // For duplicate action
++      [AccessControlAction.AlertingRuleRead]: true, // For export action
++    });
++  });
++
+   it('should render rule with url when ruler and prom rule exist', async () => {
+     setGrafanaPromRules([rulerGroupToPromGroup(grafanaRulerGroup)]);
+ 
+@@ -53,6 +81,131 @@ describe('GrafanaGroupLoader', () => {
+       expect.stringContaining(`/alerting/grafana/${rule1.grafana_alert.uid}/view`)
+     );
+   });
++
++  it('should render More button with action menu options', async () => {
++    setGrafanaPromRules([rulerGroupToPromGroup(grafanaRulerGroup)]);
++
++    const groupIdentifier = getGroupIdentifier(grafanaRulerGroup);
++
++    render(<GrafanaGroupLoader groupIdentifier={groupIdentifier} namespaceName={grafanaRulerNamespace.name} />);
++
++    const [rule1] = grafanaRulerGroup.rules;
++    const ruleListItem = await ui.ruleItem(rule1.grafana_alert.title).find();
++
++    // Check that More button is present
++    const moreButton = ui.moreButton().get(ruleListItem);
++    expect(moreButton).toBeInTheDocument();
++
++    // Verify More button accessibility
++    expect(moreButton).toHaveAttribute('aria-label', 'More');
++    expect(moreButton).toHaveTextContent('More');
++  });
++
++  it('should render multiple rules with their own action buttons', async () => {
++    // Create a group with multiple rules
++    const multiRuleGroup = {
++      ...grafanaRulerGroup,
++      rules: [
++        grafanaRulerGroup.rules[0],
++        {
++          ...grafanaRulerGroup.rules[0],
++          grafana_alert: {
++            ...grafanaRulerGroup.rules[0].grafana_alert,
++            uid: 'second-rule-uid',
++            title: 'Second Rule',
++          },
++        },
++      ],
++    };
++
++    setGrafanaPromRules([rulerGroupToPromGroup(multiRuleGroup)]);
++
++    const groupIdentifier = getGroupIdentifier(multiRuleGroup);
++
++    render(<GrafanaGroupLoader groupIdentifier={groupIdentifier} namespaceName={grafanaRulerNamespace.name} />);
++
++    // Check first rule
++    const [rule1, rule2] = multiRuleGroup.rules;
++    const ruleListItem1 = await ui.ruleItem(rule1.grafana_alert.title).find();
++    const ruleListItem2 = await ui.ruleItem(rule2.grafana_alert.title).find();
++
++    // Each rule should have its own More button
++    expect(ui.moreButton().get(ruleListItem1)).toBeInTheDocument();
++    expect(ui.moreButton().get(ruleListItem2)).toBeInTheDocument();
++
++    // Check that edit buttons are present and have correct URLs
++    const editButton1 = ui.editButton().get(ruleListItem1);
++    const editButton2 = ui.editButton().get(ruleListItem2);
++
++    expect(editButton1).toBeInTheDocument();
++    expect(editButton2).toBeInTheDocument();
++
++    // Check that edit buttons have correct URLs (the actual format is simpler)
++    expect(editButton1).toHaveAttribute('href', expect.stringContaining(`/alerting/${rule1.grafana_alert.uid}/edit`));
++    expect(editButton2).toHaveAttribute('href', expect.stringContaining(`/alerting/${rule2.grafana_alert.uid}/edit`));
++  });
++
++  it('should not render edit button when user lacks edit permissions', async () => {
++    // Override permissions to deny editing
++    setFolderAccessControl({
++      [AccessControlAction.AlertingRuleUpdate]: false,
++      [AccessControlAction.AlertingRuleDelete]: false,
++    });
++
++    setGrafanaPromRules([rulerGroupToPromGroup(grafanaRulerGroup)]);
++
++    const groupIdentifier = getGroupIdentifier(grafanaRulerGroup);
++
++    render(<GrafanaGroupLoader groupIdentifier={groupIdentifier} namespaceName={grafanaRulerNamespace.name} />);
++
++    const [rule1] = grafanaRulerGroup.rules;
++    const ruleListItem = await ui.ruleItem(rule1.grafana_alert.title).find();
++
++    // Edit button should not be present
++    expect(ui.editButton().query(ruleListItem)).not.toBeInTheDocument();
++
++    // More button should still be present (for other actions like viewing)
++    expect(ui.moreButton().get(ruleListItem)).toBeInTheDocument();
++  });
++
++  it('should render correct menu actions when More button is clicked', async () => {
++    setGrafanaPromRules([rulerGroupToPromGroup(grafanaRulerGroup)]);
++
++    const groupIdentifier = getGroupIdentifier(grafanaRulerGroup);
++
++    const { user } = render(
++      <GrafanaGroupLoader groupIdentifier={groupIdentifier} namespaceName={grafanaRulerNamespace.name} />
++    );
++
++    const [rule1] = grafanaRulerGroup.rules;
++    const ruleListItem = await ui.ruleItem(rule1.grafana_alert.title).find();
++
++    // Find and click the More button
++    const moreButton = ui.moreButton().get(ruleListItem);
++    await user.click(moreButton);
++
++    // Check that the dropdown menu appears
++    const menu = byRole('menu').get();
++    expect(menu).toBeInTheDocument();
++
++    // With proper permissions, all 4 menu actions should be available:
++
++    // 1. Silence notifications - available for alerting rules (AlertingSilenceCreate permission)
++    expect(ui.menuItems.silence().get()).toBeInTheDocument();
++
++    // 2. Copy link - always available
++    expect(ui.menuItems.copyLink().get()).toBeInTheDocument();
++
++    // 3. Duplicate - should be available with create permissions (AlertingRuleCreate permission)
++    expect(ui.menuItems.duplicate().get()).toBeInTheDocument();
++
++    // 4. Export - should be available for Grafana alerting rules (AlertingRuleRead permission)
++    expect(ui.menuItems.export().get()).toBeInTheDocument();
++
++    // Verify that the menu contains all 4 expected menu items
++    const menuItems = byRole('menuitem').getAll();
++    expect(menuItems.length).toBe(4);
++  });
+ });
+ 
+ function rulerGroupToPromGroup(group: RulerRuleGroupDTO<RulerGrafanaRuleDTO>): GrafanaPromRuleGroupDTO {
+
+From 8df850371034b73dc4dd9908cc30fa09f12a1f97 Mon Sep 17 00:00:00 2001
+From: Konrad Lalik <konradlalik@gmail.com>
+Date: Fri, 4 Jul 2025 13:46:56 +0200
+Subject: [PATCH 11/11] Update translations
+
+---
+ public/locales/en-US/grafana.json | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/public/locales/en-US/grafana.json b/public/locales/en-US/grafana.json
+index 8c65d4ed09f3e..c3ca4db60f652 100644
+--- a/public/locales/en-US/grafana.json
++++ b/public/locales/en-US/grafana.json
+@@ -2399,8 +2399,6 @@
+       "title-inspect-alert-rule": "Inspect Alert rule"
+     },
+     "rule-list": {
+-      "cannot-find-rule-details-for": "Cannot find rule details for UID {{uid}}",
+-      "cannot-load-rule-details-for": "Cannot load rule details for UID {{uid}}",
+       "configure-datasource": "Configure",
+       "draft-new-rule": "Draft a new rule",
+       "ds-error": {

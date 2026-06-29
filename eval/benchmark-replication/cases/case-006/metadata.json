@@ -1,0 +1,15 @@
+{
+  "pr_title": "Advanced date override handling and timezone compatibility improvements",
+  "url": "https://github.com/calcom/cal.com/pull/8330",
+  "file": "cal_dot_com.json",
+  "comments": [
+    {
+      "comment": "Incorrect end time calculation using slotStartTime instead of slotEndTime",
+      "severity": "Medium"
+    },
+    {
+      "comment": "Using === for dayjs object comparison will always return false as it compares object references, not values. Use .isSame() method instead: dayjs(date.start).add(utcOffset, 'minutes').isSame(dayjs(date.end).add(utcOffset, minutes))",
+      "severity": "Medium"
+    }
+  ]
+}

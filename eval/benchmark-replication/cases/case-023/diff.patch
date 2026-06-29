@@ -1,0 +1,913 @@
+From 5ae7f26d9fc62fe2c40897780bd6acab495be365 Mon Sep 17 00:00:00 2001
+From: Giuseppe Guerra <giuseppe.guerra@grafana.com>
+Date: Mon, 9 Oct 2023 14:19:38 +0200
+Subject: [PATCH 1/9] Plugins: Chore: Renamed instrumentation middleware to
+ metrics middleware
+
+---
+ .../clientmiddleware/logger_middleware.go     | 18 ++++++-
+ ...on_middleware.go => metrics_middleware.go} | 53 +++++++------------
+ ...are_test.go => metrics_middleware_test.go} |  2 +-
+ .../pluginsintegration/pluginsintegration.go  |  2 +-
+ 4 files changed, 37 insertions(+), 38 deletions(-)
+ rename pkg/services/pluginsintegration/clientmiddleware/{instrumentation_middleware.go => metrics_middleware.go} (67%)
+ rename pkg/services/pluginsintegration/clientmiddleware/{instrumentation_middleware_test.go => metrics_middleware_test.go} (98%)
+
+diff --git a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+index 716df10bb8e02..2e73dcdad518d 100644
+--- a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
++++ b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+@@ -6,6 +6,7 @@ import (
+ 	"time"
+ 
+ 	"github.com/grafana/grafana-plugin-sdk-go/backend"
++
+ 	"github.com/grafana/grafana/pkg/infra/log"
+ 	"github.com/grafana/grafana/pkg/infra/tracing"
+ 	"github.com/grafana/grafana/pkg/plugins"
+@@ -14,7 +15,7 @@ import (
+ )
+ 
+ // NewLoggerMiddleware creates a new plugins.ClientMiddleware that will
+-// log requests.
++// log requests and add a contextual logger to the request context.
+ func NewLoggerMiddleware(cfg *setting.Cfg, logger plog.Logger) plugins.ClientMiddleware {
+ 	return plugins.ClientMiddlewareFunc(func(next plugins.Client) plugins.Client {
+ 		if !cfg.PluginLogBackendRequests {
+@@ -33,10 +34,25 @@ type LoggerMiddleware struct {
+ 	logger plog.Logger
+ }
+ 
++// instrumentContext adds a contextual logger with plugin and request details to the given context.
++func instrumentContext(ctx context.Context, endpoint string, pCtx backend.PluginContext) context.Context {
++	p := []any{"endpoint", endpoint, "pluginId", pCtx.PluginID}
++	if pCtx.DataSourceInstanceSettings != nil {
++		p = append(p, "dsName", pCtx.DataSourceInstanceSettings.Name)
++		p = append(p, "dsUID", pCtx.DataSourceInstanceSettings.UID)
++	}
++	if pCtx.User != nil {
++		p = append(p, "uname", pCtx.User.Login)
++	}
++	return log.WithContextualAttributes(ctx, p)
++}
++
+ func (m *LoggerMiddleware) logRequest(ctx context.Context, pluginCtx backend.PluginContext, endpoint string, fn func(ctx context.Context) error) error {
+ 	status := statusOK
+ 	start := time.Now()
+ 	timeBeforePluginRequest := log.TimeSinceStart(ctx, start)
++
++	ctx = instrumentContext(ctx, endpoint, pluginCtx)
+ 	err := fn(ctx)
+ 	if err != nil {
+ 		status = statusError
+diff --git a/pkg/services/pluginsintegration/clientmiddleware/instrumentation_middleware.go b/pkg/services/pluginsintegration/clientmiddleware/metrics_middleware.go
+similarity index 67%
+rename from pkg/services/pluginsintegration/clientmiddleware/instrumentation_middleware.go
+rename to pkg/services/pluginsintegration/clientmiddleware/metrics_middleware.go
+index ddbaaeaa3a1d9..fa765b800538d 100644
+--- a/pkg/services/pluginsintegration/clientmiddleware/instrumentation_middleware.go
++++ b/pkg/services/pluginsintegration/clientmiddleware/metrics_middleware.go
+@@ -8,13 +8,12 @@ import (
+ 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+ 	"github.com/prometheus/client_golang/prometheus"
+ 
+-	"github.com/grafana/grafana/pkg/infra/log"
+ 	"github.com/grafana/grafana/pkg/infra/tracing"
+ 	"github.com/grafana/grafana/pkg/plugins"
+ 	"github.com/grafana/grafana/pkg/plugins/manager/registry"
+ )
+ 
+-// pluginMetrics contains the prometheus metrics used by the InstrumentationMiddleware.
++// pluginMetrics contains the prometheus metrics used by the MetricsMiddleware.
+ type pluginMetrics struct {
+ 	pluginRequestCounter         *prometheus.CounterVec
+ 	pluginRequestDuration        *prometheus.HistogramVec
+@@ -22,17 +21,15 @@ type pluginMetrics struct {
+ 	pluginRequestDurationSeconds *prometheus.HistogramVec
+ }
+ 
+-// InstrumentationMiddleware is a middleware that instruments plugin requests.
++// MetricsMiddleware is a middleware that instruments plugin requests.
+ // It tracks requests count, duration and size as prometheus metrics.
+-// It also enriches the [context.Context] with a contextual logger containing plugin and request details.
+-// For those reasons, this middleware should live at the top of the middleware stack.
+-type InstrumentationMiddleware struct {
++type MetricsMiddleware struct {
+ 	pluginMetrics
+ 	pluginRegistry registry.Service
+ 	next           plugins.Client
+ }
+ 
+-func newInstrumentationMiddleware(promRegisterer prometheus.Registerer, pluginRegistry registry.Service) *InstrumentationMiddleware {
++func newMetricsMiddleware(promRegisterer prometheus.Registerer, pluginRegistry registry.Service) *MetricsMiddleware {
+ 	pluginRequestCounter := prometheus.NewCounterVec(prometheus.CounterOpts{
+ 		Namespace: "grafana",
+ 		Name:      "plugin_request_total",
+@@ -64,7 +61,7 @@ func newInstrumentationMiddleware(promRegisterer prometheus.Registerer, pluginRe
+ 		pluginRequestSize,
+ 		pluginRequestDurationSeconds,
+ 	)
+-	return &InstrumentationMiddleware{
++	return &MetricsMiddleware{
+ 		pluginMetrics: pluginMetrics{
+ 			pluginRequestCounter:         pluginRequestCounter,
+ 			pluginRequestDuration:        pluginRequestDuration,
+@@ -75,9 +72,9 @@ func newInstrumentationMiddleware(promRegisterer prometheus.Registerer, pluginRe
+ 	}
+ }
+ 
+-// NewInstrumentationMiddleware returns a new InstrumentationMiddleware.
+-func NewInstrumentationMiddleware(promRegisterer prometheus.Registerer, pluginRegistry registry.Service) plugins.ClientMiddleware {
+-	imw := newInstrumentationMiddleware(promRegisterer, pluginRegistry)
++// NewMetricsMiddleware returns a new MetricsMiddleware.
++func NewMetricsMiddleware(promRegisterer prometheus.Registerer, pluginRegistry registry.Service) plugins.ClientMiddleware {
++	imw := newMetricsMiddleware(promRegisterer, pluginRegistry)
+ 	return plugins.ClientMiddlewareFunc(func(next plugins.Client) plugins.Client {
+ 		imw.next = next
+ 		return imw
+@@ -85,7 +82,7 @@ func NewInstrumentationMiddleware(promRegisterer prometheus.Registerer, pluginRe
+ }
+ 
+ // pluginTarget returns the value for the "target" Prometheus label for the given plugin ID.
+-func (m *InstrumentationMiddleware) pluginTarget(ctx context.Context, pluginID string) (string, error) {
++func (m *MetricsMiddleware) pluginTarget(ctx context.Context, pluginID string) (string, error) {
+ 	p, exists := m.pluginRegistry.Plugin(ctx, pluginID)
+ 	if !exists {
+ 		return "", plugins.ErrPluginNotRegistered
+@@ -93,21 +90,8 @@ func (m *InstrumentationMiddleware) pluginTarget(ctx context.Context, pluginID s
+ 	return string(p.Target()), nil
+ }
+ 
+-// instrumentContext adds a contextual logger with plugin and request details to the given context.
+-func instrumentContext(ctx context.Context, endpoint string, pCtx backend.PluginContext) context.Context {
+-	p := []any{"endpoint", endpoint, "pluginId", pCtx.PluginID}
+-	if pCtx.DataSourceInstanceSettings != nil {
+-		p = append(p, "dsName", pCtx.DataSourceInstanceSettings.Name)
+-		p = append(p, "dsUID", pCtx.DataSourceInstanceSettings.UID)
+-	}
+-	if pCtx.User != nil {
+-		p = append(p, "uname", pCtx.User.Login)
+-	}
+-	return log.WithContextualAttributes(ctx, p)
+-}
+-
+ // instrumentPluginRequestSize tracks the size of the given request in the m.pluginRequestSize metric.
+-func (m *InstrumentationMiddleware) instrumentPluginRequestSize(ctx context.Context, pluginCtx backend.PluginContext, endpoint string, requestSize float64) error {
++func (m *MetricsMiddleware) instrumentPluginRequestSize(ctx context.Context, pluginCtx backend.PluginContext, endpoint string, requestSize float64) error {
+ 	target, err := m.pluginTarget(ctx, pluginCtx.PluginID)
+ 	if err != nil {
+ 		return err
+@@ -117,7 +101,7 @@ func (m *InstrumentationMiddleware) instrumentPluginRequestSize(ctx context.Cont
+ }
+ 
+ // instrumentPluginRequest increments the m.pluginRequestCounter metric and tracks the duration of the given request.
+-func (m *InstrumentationMiddleware) instrumentPluginRequest(ctx context.Context, pluginCtx backend.PluginContext, endpoint string, fn func(context.Context) error) error {
++func (m *MetricsMiddleware) instrumentPluginRequest(ctx context.Context, pluginCtx backend.PluginContext, endpoint string, fn func(context.Context) error) error {
+ 	target, err := m.pluginTarget(ctx, pluginCtx.PluginID)
+ 	if err != nil {
+ 		return err
+@@ -126,7 +110,6 @@ func (m *InstrumentationMiddleware) instrumentPluginRequest(ctx context.Context,
+ 	status := statusOK
+ 	start := time.Now()
+ 
+-	ctx = instrumentContext(ctx, endpoint, pluginCtx)
+ 	err = fn(ctx)
+ 	if err != nil {
+ 		status = statusError
+@@ -158,7 +141,7 @@ func (m *InstrumentationMiddleware) instrumentPluginRequest(ctx context.Context,
+ 	return err
+ }
+ 
+-func (m *InstrumentationMiddleware) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
++func (m *MetricsMiddleware) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+ 	var requestSize float64
+ 	for _, v := range req.Queries {
+ 		requestSize += float64(len(v.JSON))
+@@ -174,7 +157,7 @@ func (m *InstrumentationMiddleware) QueryData(ctx context.Context, req *backend.
+ 	return resp, err
+ }
+ 
+-func (m *InstrumentationMiddleware) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
++func (m *MetricsMiddleware) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
+ 	if err := m.instrumentPluginRequestSize(ctx, req.PluginContext, endpointCallResource, float64(len(req.Body))); err != nil {
+ 		return err
+ 	}
+@@ -183,7 +166,7 @@ func (m *InstrumentationMiddleware) CallResource(ctx context.Context, req *backe
+ 	})
+ }
+ 
+-func (m *InstrumentationMiddleware) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
++func (m *MetricsMiddleware) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
+ 	var result *backend.CheckHealthResult
+ 	err := m.instrumentPluginRequest(ctx, req.PluginContext, endpointCheckHealth, func(ctx context.Context) (innerErr error) {
+ 		result, innerErr = m.next.CheckHealth(ctx, req)
+@@ -192,7 +175,7 @@ func (m *InstrumentationMiddleware) CheckHealth(ctx context.Context, req *backen
+ 	return result, err
+ }
+ 
+-func (m *InstrumentationMiddleware) CollectMetrics(ctx context.Context, req *backend.CollectMetricsRequest) (*backend.CollectMetricsResult, error) {
++func (m *MetricsMiddleware) CollectMetrics(ctx context.Context, req *backend.CollectMetricsRequest) (*backend.CollectMetricsResult, error) {
+ 	var result *backend.CollectMetricsResult
+ 	err := m.instrumentPluginRequest(ctx, req.PluginContext, endpointCollectMetrics, func(ctx context.Context) (innerErr error) {
+ 		result, innerErr = m.next.CollectMetrics(ctx, req)
+@@ -201,14 +184,14 @@ func (m *InstrumentationMiddleware) CollectMetrics(ctx context.Context, req *bac
+ 	return result, err
+ }
+ 
+-func (m *InstrumentationMiddleware) SubscribeStream(ctx context.Context, req *backend.SubscribeStreamRequest) (*backend.SubscribeStreamResponse, error) {
++func (m *MetricsMiddleware) SubscribeStream(ctx context.Context, req *backend.SubscribeStreamRequest) (*backend.SubscribeStreamResponse, error) {
+ 	return m.next.SubscribeStream(ctx, req)
+ }
+ 
+-func (m *InstrumentationMiddleware) PublishStream(ctx context.Context, req *backend.PublishStreamRequest) (*backend.PublishStreamResponse, error) {
++func (m *MetricsMiddleware) PublishStream(ctx context.Context, req *backend.PublishStreamRequest) (*backend.PublishStreamResponse, error) {
+ 	return m.next.PublishStream(ctx, req)
+ }
+ 
+-func (m *InstrumentationMiddleware) RunStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender) error {
++func (m *MetricsMiddleware) RunStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender) error {
+ 	return m.next.RunStream(ctx, req, sender)
+ }
+diff --git a/pkg/services/pluginsintegration/clientmiddleware/instrumentation_middleware_test.go b/pkg/services/pluginsintegration/clientmiddleware/metrics_middleware_test.go
+similarity index 98%
+rename from pkg/services/pluginsintegration/clientmiddleware/instrumentation_middleware_test.go
+rename to pkg/services/pluginsintegration/clientmiddleware/metrics_middleware_test.go
+index 38dfea37df229..f9321fb22e37c 100644
+--- a/pkg/services/pluginsintegration/clientmiddleware/instrumentation_middleware_test.go
++++ b/pkg/services/pluginsintegration/clientmiddleware/metrics_middleware_test.go
+@@ -75,7 +75,7 @@ func TestInstrumentationMiddleware(t *testing.T) {
+ 					JSONData: plugins.JSONData{ID: pluginID, Backend: true},
+ 				}))
+ 
+-				mw := newInstrumentationMiddleware(promRegistry, pluginsRegistry)
++				mw := newMetricsMiddleware(promRegistry, pluginsRegistry)
+ 				cdt := clienttest.NewClientDecoratorTest(t, clienttest.WithMiddlewares(
+ 					plugins.ClientMiddlewareFunc(func(next plugins.Client) plugins.Client {
+ 						mw.next = next
+diff --git a/pkg/services/pluginsintegration/pluginsintegration.go b/pkg/services/pluginsintegration/pluginsintegration.go
+index cc09121be9f08..6c6f134b26255 100644
+--- a/pkg/services/pluginsintegration/pluginsintegration.go
++++ b/pkg/services/pluginsintegration/pluginsintegration.go
+@@ -156,7 +156,7 @@ func CreateMiddlewares(cfg *setting.Cfg, oAuthTokenService oauthtoken.OAuthToken
+ 	skipCookiesNames := []string{cfg.LoginCookieName}
+ 	middlewares := []plugins.ClientMiddleware{
+ 		clientmiddleware.NewTracingMiddleware(tracer),
+-		clientmiddleware.NewInstrumentationMiddleware(promRegisterer, registry),
++		clientmiddleware.NewMetricsMiddleware(promRegisterer, registry),
+ 		clientmiddleware.NewLoggerMiddleware(cfg, log.New("plugin.instrumentation")),
+ 		clientmiddleware.NewTracingHeaderMiddleware(),
+ 		clientmiddleware.NewClearAuthHeadersMiddleware(),
+
+From 4a73782058495ca3ccd46cce4ca19229aee26226 Mon Sep 17 00:00:00 2001
+From: Giuseppe Guerra <giuseppe.guerra@grafana.com>
+Date: Mon, 9 Oct 2023 14:32:07 +0200
+Subject: [PATCH 2/9] Removed repeated logger attributes in middleware and
+ contextual logger
+
+---
+ .../clientmiddleware/logger_middleware.go     | 38 ++++++++-----------
+ 1 file changed, 15 insertions(+), 23 deletions(-)
+
+diff --git a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+index 2e73dcdad518d..9f6f0897cbe83 100644
+--- a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
++++ b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+@@ -34,9 +34,10 @@ type LoggerMiddleware struct {
+ 	logger plog.Logger
+ }
+ 
+-// instrumentContext adds a contextual logger with plugin and request details to the given context.
+-func instrumentContext(ctx context.Context, endpoint string, pCtx backend.PluginContext) context.Context {
+-	p := []any{"endpoint", endpoint, "pluginId", pCtx.PluginID}
++// loggerParams returns the logger params for the provided plugin context.
++// (pluginId, dsName, dsUID, uname).
++func loggerParams(pCtx backend.PluginContext) []any {
++	p := []any{"pluginId", pCtx.PluginID}
+ 	if pCtx.DataSourceInstanceSettings != nil {
+ 		p = append(p, "dsName", pCtx.DataSourceInstanceSettings.Name)
+ 		p = append(p, "dsUID", pCtx.DataSourceInstanceSettings.UID)
+@@ -44,7 +45,12 @@ func instrumentContext(ctx context.Context, endpoint string, pCtx backend.Plugin
+ 	if pCtx.User != nil {
+ 		p = append(p, "uname", pCtx.User.Login)
+ 	}
+-	return log.WithContextualAttributes(ctx, p)
++	return p
++}
++
++// instrumentContext adds a contextual logger with plugin and request details to the given context.
++func instrumentContext(ctx context.Context, endpoint string, pCtx backend.PluginContext) context.Context {
++	return log.WithContextualAttributes(ctx, append([]any{"endpoint", endpoint}, loggerParams(pCtx)...))
+ }
+ 
+ func (m *LoggerMiddleware) logRequest(ctx context.Context, pluginCtx backend.PluginContext, endpoint string, fn func(ctx context.Context) error) error {
+@@ -60,34 +66,20 @@ func (m *LoggerMiddleware) logRequest(ctx context.Context, pluginCtx backend.Plu
+ 			status = statusCancelled
+ 		}
+ 	}
+-
+-	logParams := []any{
++	logParams := loggerParams(pluginCtx)
++	logParams = append(logParams,
++		"endpoint", endpoint,
+ 		"status", status,
+ 		"duration", time.Since(start),
+-		"pluginId", pluginCtx.PluginID,
+-		"endpoint", endpoint,
+ 		"eventName", "grafana-data-egress",
+ 		"time_before_plugin_request", timeBeforePluginRequest,
+-	}
+-
+-	if pluginCtx.User != nil {
+-		logParams = append(logParams, "uname", pluginCtx.User.Login)
+-	}
+-
+-	traceID := tracing.TraceIDFromContext(ctx, false)
+-	if traceID != "" {
++	)
++	if traceID := tracing.TraceIDFromContext(ctx, false); traceID != "" {
+ 		logParams = append(logParams, "traceID", traceID)
+ 	}
+-
+-	if pluginCtx.DataSourceInstanceSettings != nil {
+-		logParams = append(logParams, "dsName", pluginCtx.DataSourceInstanceSettings.Name)
+-		logParams = append(logParams, "dsUID", pluginCtx.DataSourceInstanceSettings.UID)
+-	}
+-
+ 	if status == statusError {
+ 		logParams = append(logParams, "error", err)
+ 	}
+-
+ 	m.logger.Info("Plugin Request Completed", logParams...)
+ 	return err
+ }
+
+From 38472ec7de71aebc1ab615449169b58e7525703a Mon Sep 17 00:00:00 2001
+From: Giuseppe Guerra <giuseppe.guerra@grafana.com>
+Date: Mon, 9 Oct 2023 15:46:07 +0200
+Subject: [PATCH 3/9] renamed loggerParams to logParams
+
+---
+ .../clientmiddleware/logger_middleware.go        | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+index 9f6f0897cbe83..72f7aa5177517 100644
+--- a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
++++ b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+@@ -34,9 +34,9 @@ type LoggerMiddleware struct {
+ 	logger plog.Logger
+ }
+ 
+-// loggerParams returns the logger params for the provided plugin context.
++// logParams returns the logger params for the provided plugin context.
+ // (pluginId, dsName, dsUID, uname).
+-func loggerParams(pCtx backend.PluginContext) []any {
++func logParams(pCtx backend.PluginContext) []any {
+ 	p := []any{"pluginId", pCtx.PluginID}
+ 	if pCtx.DataSourceInstanceSettings != nil {
+ 		p = append(p, "dsName", pCtx.DataSourceInstanceSettings.Name)
+@@ -50,7 +50,7 @@ func loggerParams(pCtx backend.PluginContext) []any {
+ 
+ // instrumentContext adds a contextual logger with plugin and request details to the given context.
+ func instrumentContext(ctx context.Context, endpoint string, pCtx backend.PluginContext) context.Context {
+-	return log.WithContextualAttributes(ctx, append([]any{"endpoint", endpoint}, loggerParams(pCtx)...))
++	return log.WithContextualAttributes(ctx, append([]any{"endpoint", endpoint}, logParams(pCtx)...))
+ }
+ 
+ func (m *LoggerMiddleware) logRequest(ctx context.Context, pluginCtx backend.PluginContext, endpoint string, fn func(ctx context.Context) error) error {
+@@ -66,8 +66,8 @@ func (m *LoggerMiddleware) logRequest(ctx context.Context, pluginCtx backend.Plu
+ 			status = statusCancelled
+ 		}
+ 	}
+-	logParams := loggerParams(pluginCtx)
+-	logParams = append(logParams,
++	params := logParams(pluginCtx)
++	params = append(params,
+ 		"endpoint", endpoint,
+ 		"status", status,
+ 		"duration", time.Since(start),
+@@ -75,12 +75,12 @@ func (m *LoggerMiddleware) logRequest(ctx context.Context, pluginCtx backend.Plu
+ 		"time_before_plugin_request", timeBeforePluginRequest,
+ 	)
+ 	if traceID := tracing.TraceIDFromContext(ctx, false); traceID != "" {
+-		logParams = append(logParams, "traceID", traceID)
++		params = append(params, "traceID", traceID)
+ 	}
+ 	if status == statusError {
+-		logParams = append(logParams, "error", err)
++		params = append(params, "error", err)
+ 	}
+-	m.logger.Info("Plugin Request Completed", logParams...)
++	m.logger.Info("Plugin Request Completed", params...)
+ 	return err
+ }
+ 
+
+From 2b011071beaffd3ad4ea1355cb42b059ce2135e0 Mon Sep 17 00:00:00 2001
+From: Giuseppe Guerra <giuseppe.guerra@grafana.com>
+Date: Mon, 9 Oct 2023 15:46:39 +0200
+Subject: [PATCH 4/9] PR review suggestion
+
+---
+ .../clientmiddleware/logger_middleware.go     | 38 +++++++++----------
+ 1 file changed, 19 insertions(+), 19 deletions(-)
+
+diff --git a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+index 72f7aa5177517..1903c204b5e14 100644
+--- a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
++++ b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+@@ -34,25 +34,6 @@ type LoggerMiddleware struct {
+ 	logger plog.Logger
+ }
+ 
+-// logParams returns the logger params for the provided plugin context.
+-// (pluginId, dsName, dsUID, uname).
+-func logParams(pCtx backend.PluginContext) []any {
+-	p := []any{"pluginId", pCtx.PluginID}
+-	if pCtx.DataSourceInstanceSettings != nil {
+-		p = append(p, "dsName", pCtx.DataSourceInstanceSettings.Name)
+-		p = append(p, "dsUID", pCtx.DataSourceInstanceSettings.UID)
+-	}
+-	if pCtx.User != nil {
+-		p = append(p, "uname", pCtx.User.Login)
+-	}
+-	return p
+-}
+-
+-// instrumentContext adds a contextual logger with plugin and request details to the given context.
+-func instrumentContext(ctx context.Context, endpoint string, pCtx backend.PluginContext) context.Context {
+-	return log.WithContextualAttributes(ctx, append([]any{"endpoint", endpoint}, logParams(pCtx)...))
+-}
+-
+ func (m *LoggerMiddleware) logRequest(ctx context.Context, pluginCtx backend.PluginContext, endpoint string, fn func(ctx context.Context) error) error {
+ 	status := statusOK
+ 	start := time.Now()
+@@ -84,6 +65,25 @@ func (m *LoggerMiddleware) logRequest(ctx context.Context, pluginCtx backend.Plu
+ 	return err
+ }
+ 
++// logParams returns the logger params for the provided plugin context.
++// (pluginId, dsName, dsUID, uname).
++func logParams(pCtx backend.PluginContext) []any {
++	p := []any{"pluginId", pCtx.PluginID}
++	if pCtx.DataSourceInstanceSettings != nil {
++		p = append(p, "dsName", pCtx.DataSourceInstanceSettings.Name)
++		p = append(p, "dsUID", pCtx.DataSourceInstanceSettings.UID)
++	}
++	if pCtx.User != nil {
++		p = append(p, "uname", pCtx.User.Login)
++	}
++	return p
++}
++
++// instrumentContext adds a contextual logger with plugin and request details to the given context.
++func instrumentContext(ctx context.Context, endpoint string, pCtx backend.PluginContext) context.Context {
++	return log.WithContextualAttributes(ctx, append([]any{"endpoint", endpoint}, logParams(pCtx)...))
++}
++
+ func (m *LoggerMiddleware) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+ 	if req == nil {
+ 		return m.next.QueryData(ctx, req)
+
+From 605af9af8e0671fb7053361de2017b4dd1dd610d Mon Sep 17 00:00:00 2001
+From: Giuseppe Guerra <giuseppe.guerra@grafana.com>
+Date: Tue, 10 Oct 2023 18:59:05 +0200
+Subject: [PATCH 5/9] Add contextual logger middleware
+
+---
+ pkg/plugins/log/fake.go                       |  6 ++
+ pkg/plugins/log/ifaces.go                     | 37 +++++-----
+ pkg/plugins/log/logger.go                     |  9 +++
+ .../contextual_logger_middleware.go           | 69 +++++++++++++++++++
+ .../clientmiddleware/logger_middleware.go     | 28 ++------
+ .../pluginsintegration/pluginsintegration.go  |  1 +
+ 6 files changed, 110 insertions(+), 40 deletions(-)
+ create mode 100644 pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go
+
+diff --git a/pkg/plugins/log/fake.go b/pkg/plugins/log/fake.go
+index 41af06d21e832..2a4f0163ac2af 100644
+--- a/pkg/plugins/log/fake.go
++++ b/pkg/plugins/log/fake.go
+@@ -1,5 +1,7 @@
+ package log
+ 
++import "context"
++
+ var _ Logger = (*TestLogger)(nil)
+ 
+ type TestLogger struct {
+@@ -41,6 +43,10 @@ func (f *TestLogger) Error(msg string, ctx ...any) {
+ 	f.ErrorLogs.Ctx = ctx
+ }
+ 
++func (f *TestLogger) FromContext(_ context.Context) Logger {
++	return NewTestLogger()
++}
++
+ type Logs struct {
+ 	Calls   int
+ 	Message string
+diff --git a/pkg/plugins/log/ifaces.go b/pkg/plugins/log/ifaces.go
+index 2d3033194d31d..14e603b97e460 100644
+--- a/pkg/plugins/log/ifaces.go
++++ b/pkg/plugins/log/ifaces.go
+@@ -1,35 +1,40 @@
+ package log
+ 
++import "context"
++
+ // Logger is the default logger
+ type Logger interface {
+ 	// New returns a new contextual Logger that has this logger's context plus the given context.
+-	New(ctx ...interface{}) Logger
++	New(ctx ...any) Logger
+ 
+ 	// Debug logs a message with debug level and key/value pairs, if any.
+-	Debug(msg string, ctx ...interface{})
++	Debug(msg string, ctx ...any)
+ 
+ 	// Info logs a message with info level and key/value pairs, if any.
+-	Info(msg string, ctx ...interface{})
++	Info(msg string, ctx ...any)
+ 
+ 	// Warn logs a message with warning level and key/value pairs, if any.
+-	Warn(msg string, ctx ...interface{})
++	Warn(msg string, ctx ...any)
+ 
+ 	// Error logs a message with error level and key/value pairs, if any.
+-	Error(msg string, ctx ...interface{})
++	Error(msg string, ctx ...any)
++
++	// FromContext returns a new contextual Logger that has this logger's context plus the given context.
++	FromContext(ctx context.Context) Logger
+ }
+ 
+ // PrettyLogger is used primarily to facilitate logging/user feedback for both
+ // the grafana-cli and the grafana backend when managing plugin installs
+ type PrettyLogger interface {
+-	Successf(format string, args ...interface{})
+-	Failuref(format string, args ...interface{})
+-
+-	Info(args ...interface{})
+-	Infof(format string, args ...interface{})
+-	Debug(args ...interface{})
+-	Debugf(format string, args ...interface{})
+-	Warn(args ...interface{})
+-	Warnf(format string, args ...interface{})
+-	Error(args ...interface{})
+-	Errorf(format string, args ...interface{})
++	Successf(format string, args ...any)
++	Failuref(format string, args ...any)
++
++	Info(args ...any)
++	Infof(format string, args ...any)
++	Debug(args ...any)
++	Debugf(format string, args ...any)
++	Warn(args ...any)
++	Warnf(format string, args ...any)
++	Error(args ...any)
++	Errorf(format string, args ...any)
+ }
+diff --git a/pkg/plugins/log/logger.go b/pkg/plugins/log/logger.go
+index d0fbd855303ae..0df1b0ee2eb36 100644
+--- a/pkg/plugins/log/logger.go
++++ b/pkg/plugins/log/logger.go
+@@ -1,6 +1,8 @@
+ package log
+ 
+ import (
++	"context"
++
+ 	"github.com/grafana/grafana/pkg/infra/log"
+ )
+ 
+@@ -42,3 +44,10 @@ func (d *grafanaInfraLogWrapper) Warn(msg string, ctx ...any) {
+ func (d *grafanaInfraLogWrapper) Error(msg string, ctx ...any) {
+ 	d.l.Error(msg, ctx...)
+ }
++
++func (d *grafanaInfraLogWrapper) FromContext(ctx context.Context) Logger {
++	concreteInfraLogger := d.l.FromContext(ctx).(*log.ConcreteLogger)
++	return &grafanaInfraLogWrapper{
++		l: concreteInfraLogger,
++	}
++}
+diff --git a/pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go b/pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go
+new file mode 100644
+index 0000000000000..cf97590294bdd
+--- /dev/null
++++ b/pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go
+@@ -0,0 +1,69 @@
++package clientmiddleware
++
++import (
++	"context"
++
++	"github.com/grafana/grafana-plugin-sdk-go/backend"
++
++	"github.com/grafana/grafana/pkg/infra/log"
++	"github.com/grafana/grafana/pkg/plugins"
++)
++
++// NewContextualLoggerMiddleware creates a new plugins.ClientMiddleware that adds
++// a contextual logger to the request context.
++func NewContextualLoggerMiddleware() plugins.ClientMiddleware {
++	return plugins.ClientMiddlewareFunc(func(next plugins.Client) plugins.Client {
++		return &ContextualLoggerMiddleware{
++			next: next,
++		}
++	})
++}
++
++type ContextualLoggerMiddleware struct {
++	next plugins.Client
++}
++
++// instrumentContext adds a contextual logger with plugin and request details to the given context.
++func instrumentContext(ctx context.Context, endpoint string, pCtx backend.PluginContext) context.Context {
++	p := []any{"endpoint", endpoint, "pluginId", pCtx.PluginID}
++	if pCtx.DataSourceInstanceSettings != nil {
++		p = append(p, "dsName", pCtx.DataSourceInstanceSettings.Name)
++		p = append(p, "dsUID", pCtx.DataSourceInstanceSettings.UID)
++	}
++	if pCtx.User != nil {
++		p = append(p, "uname", pCtx.User.Login)
++	}
++	return log.WithContextualAttributes(ctx, p)
++}
++
++func (m *ContextualLoggerMiddleware) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
++	ctx = instrumentContext(ctx, endpointQueryData, req.PluginContext)
++	return m.next.QueryData(ctx, req)
++}
++
++func (m *ContextualLoggerMiddleware) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
++	ctx = instrumentContext(ctx, endpointCallResource, req.PluginContext)
++	return m.next.CallResource(ctx, req, sender)
++}
++
++func (m *ContextualLoggerMiddleware) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
++	ctx = instrumentContext(ctx, endpointCheckHealth, req.PluginContext)
++	return m.next.CheckHealth(ctx, req)
++}
++
++func (m *ContextualLoggerMiddleware) CollectMetrics(ctx context.Context, req *backend.CollectMetricsRequest) (*backend.CollectMetricsResult, error) {
++	ctx = instrumentContext(ctx, endpointCollectMetrics, req.PluginContext)
++	return m.next.CollectMetrics(ctx, req)
++}
++
++func (m *ContextualLoggerMiddleware) SubscribeStream(ctx context.Context, req *backend.SubscribeStreamRequest) (*backend.SubscribeStreamResponse, error) {
++	return m.next.SubscribeStream(ctx, req)
++}
++
++func (m *ContextualLoggerMiddleware) PublishStream(ctx context.Context, req *backend.PublishStreamRequest) (*backend.PublishStreamResponse, error) {
++	return m.next.PublishStream(ctx, req)
++}
++
++func (m *ContextualLoggerMiddleware) RunStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender) error {
++	return m.next.RunStream(ctx, req, sender)
++}
+diff --git a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+index 1903c204b5e14..de34d37570b7b 100644
+--- a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
++++ b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+@@ -39,7 +39,6 @@ func (m *LoggerMiddleware) logRequest(ctx context.Context, pluginCtx backend.Plu
+ 	start := time.Now()
+ 	timeBeforePluginRequest := log.TimeSinceStart(ctx, start)
+ 
+-	ctx = instrumentContext(ctx, endpoint, pluginCtx)
+ 	err := fn(ctx)
+ 	if err != nil {
+ 		status = statusError
+@@ -47,43 +46,24 @@ func (m *LoggerMiddleware) logRequest(ctx context.Context, pluginCtx backend.Plu
+ 			status = statusCancelled
+ 		}
+ 	}
+-	params := logParams(pluginCtx)
+-	params = append(params,
++
++	params := []any{
+ 		"endpoint", endpoint,
+ 		"status", status,
+ 		"duration", time.Since(start),
+ 		"eventName", "grafana-data-egress",
+ 		"time_before_plugin_request", timeBeforePluginRequest,
+-	)
++	}
+ 	if traceID := tracing.TraceIDFromContext(ctx, false); traceID != "" {
+ 		params = append(params, "traceID", traceID)
+ 	}
+ 	if status == statusError {
+ 		params = append(params, "error", err)
+ 	}
+-	m.logger.Info("Plugin Request Completed", params...)
++	m.logger.FromContext(ctx).Info("Plugin Request Completed", params...)
+ 	return err
+ }
+ 
+-// logParams returns the logger params for the provided plugin context.
+-// (pluginId, dsName, dsUID, uname).
+-func logParams(pCtx backend.PluginContext) []any {
+-	p := []any{"pluginId", pCtx.PluginID}
+-	if pCtx.DataSourceInstanceSettings != nil {
+-		p = append(p, "dsName", pCtx.DataSourceInstanceSettings.Name)
+-		p = append(p, "dsUID", pCtx.DataSourceInstanceSettings.UID)
+-	}
+-	if pCtx.User != nil {
+-		p = append(p, "uname", pCtx.User.Login)
+-	}
+-	return p
+-}
+-
+-// instrumentContext adds a contextual logger with plugin and request details to the given context.
+-func instrumentContext(ctx context.Context, endpoint string, pCtx backend.PluginContext) context.Context {
+-	return log.WithContextualAttributes(ctx, append([]any{"endpoint", endpoint}, logParams(pCtx)...))
+-}
+-
+ func (m *LoggerMiddleware) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+ 	if req == nil {
+ 		return m.next.QueryData(ctx, req)
+diff --git a/pkg/services/pluginsintegration/pluginsintegration.go b/pkg/services/pluginsintegration/pluginsintegration.go
+index 6c6f134b26255..7114142b66bcf 100644
+--- a/pkg/services/pluginsintegration/pluginsintegration.go
++++ b/pkg/services/pluginsintegration/pluginsintegration.go
+@@ -157,6 +157,7 @@ func CreateMiddlewares(cfg *setting.Cfg, oAuthTokenService oauthtoken.OAuthToken
+ 	middlewares := []plugins.ClientMiddleware{
+ 		clientmiddleware.NewTracingMiddleware(tracer),
+ 		clientmiddleware.NewMetricsMiddleware(promRegisterer, registry),
++		clientmiddleware.NewContextualLoggerMiddleware(),
+ 		clientmiddleware.NewLoggerMiddleware(cfg, log.New("plugin.instrumentation")),
+ 		clientmiddleware.NewTracingHeaderMiddleware(),
+ 		clientmiddleware.NewClearAuthHeadersMiddleware(),
+
+From 1fd8897281493463e64578b66a93016ad1cbb03d Mon Sep 17 00:00:00 2001
+From: Giuseppe Guerra <giuseppe.guerra@grafana.com>
+Date: Wed, 11 Oct 2023 11:05:56 +0200
+Subject: [PATCH 6/9] Removed unused params from logRequest
+
+---
+ .../clientmiddleware/logger_middleware.go             | 11 +++++------
+ 1 file changed, 5 insertions(+), 6 deletions(-)
+
+diff --git a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+index de34d37570b7b..f42ddc41c0d21 100644
+--- a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
++++ b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+@@ -34,7 +34,7 @@ type LoggerMiddleware struct {
+ 	logger plog.Logger
+ }
+ 
+-func (m *LoggerMiddleware) logRequest(ctx context.Context, pluginCtx backend.PluginContext, endpoint string, fn func(ctx context.Context) error) error {
++func (m *LoggerMiddleware) logRequest(ctx context.Context, fn func(ctx context.Context) error) error {
+ 	status := statusOK
+ 	start := time.Now()
+ 	timeBeforePluginRequest := log.TimeSinceStart(ctx, start)
+@@ -48,7 +48,6 @@ func (m *LoggerMiddleware) logRequest(ctx context.Context, pluginCtx backend.Plu
+ 	}
+ 
+ 	params := []any{
+-		"endpoint", endpoint,
+ 		"status", status,
+ 		"duration", time.Since(start),
+ 		"eventName", "grafana-data-egress",
+@@ -70,7 +69,7 @@ func (m *LoggerMiddleware) QueryData(ctx context.Context, req *backend.QueryData
+ 	}
+ 
+ 	var resp *backend.QueryDataResponse
+-	err := m.logRequest(ctx, req.PluginContext, endpointQueryData, func(ctx context.Context) (innerErr error) {
++	err := m.logRequest(ctx, func(ctx context.Context) (innerErr error) {
+ 		resp, innerErr = m.next.QueryData(ctx, req)
+ 		return innerErr
+ 	})
+@@ -83,7 +82,7 @@ func (m *LoggerMiddleware) CallResource(ctx context.Context, req *backend.CallRe
+ 		return m.next.CallResource(ctx, req, sender)
+ 	}
+ 
+-	err := m.logRequest(ctx, req.PluginContext, endpointCallResource, func(ctx context.Context) (innerErr error) {
++	err := m.logRequest(ctx, func(ctx context.Context) (innerErr error) {
+ 		innerErr = m.next.CallResource(ctx, req, sender)
+ 		return innerErr
+ 	})
+@@ -97,7 +96,7 @@ func (m *LoggerMiddleware) CheckHealth(ctx context.Context, req *backend.CheckHe
+ 	}
+ 
+ 	var resp *backend.CheckHealthResult
+-	err := m.logRequest(ctx, req.PluginContext, endpointCheckHealth, func(ctx context.Context) (innerErr error) {
++	err := m.logRequest(ctx, func(ctx context.Context) (innerErr error) {
+ 		resp, innerErr = m.next.CheckHealth(ctx, req)
+ 		return innerErr
+ 	})
+@@ -111,7 +110,7 @@ func (m *LoggerMiddleware) CollectMetrics(ctx context.Context, req *backend.Coll
+ 	}
+ 
+ 	var resp *backend.CollectMetricsResult
+-	err := m.logRequest(ctx, req.PluginContext, endpointCollectMetrics, func(ctx context.Context) (innerErr error) {
++	err := m.logRequest(ctx, func(ctx context.Context) (innerErr error) {
+ 		resp, innerErr = m.next.CollectMetrics(ctx, req)
+ 		return innerErr
+ 	})
+
+From a2ce4b838e1ea2842e1a2f9578b306b4e90ec3a3 Mon Sep 17 00:00:00 2001
+From: Giuseppe Guerra <giuseppe.guerra@grafana.com>
+Date: Wed, 11 Oct 2023 11:08:20 +0200
+Subject: [PATCH 7/9] Removed unwanted changes
+
+---
+ .../clientmiddleware/logger_middleware.go              | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+index f42ddc41c0d21..40362530c1b07 100644
+--- a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
++++ b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+@@ -15,7 +15,7 @@ import (
+ )
+ 
+ // NewLoggerMiddleware creates a new plugins.ClientMiddleware that will
+-// log requests and add a contextual logger to the request context.
++// log requests.
+ func NewLoggerMiddleware(cfg *setting.Cfg, logger plog.Logger) plugins.ClientMiddleware {
+ 	return plugins.ClientMiddlewareFunc(func(next plugins.Client) plugins.Client {
+ 		if !cfg.PluginLogBackendRequests {
+@@ -47,19 +47,19 @@ func (m *LoggerMiddleware) logRequest(ctx context.Context, fn func(ctx context.C
+ 		}
+ 	}
+ 
+-	params := []any{
++	logParams := []any{
+ 		"status", status,
+ 		"duration", time.Since(start),
+ 		"eventName", "grafana-data-egress",
+ 		"time_before_plugin_request", timeBeforePluginRequest,
+ 	}
+ 	if traceID := tracing.TraceIDFromContext(ctx, false); traceID != "" {
+-		params = append(params, "traceID", traceID)
++		logParams = append(logParams, "traceID", traceID)
+ 	}
+ 	if status == statusError {
+-		params = append(params, "error", err)
++		logParams = append(logParams, "error", err)
+ 	}
+-	m.logger.FromContext(ctx).Info("Plugin Request Completed", params...)
++	m.logger.FromContext(ctx).Info("Plugin Request Completed", logParams...)
+ 	return err
+ }
+ 
+
+From c0150b6b255acffb3c746b97929781df1ce0bbf4 Mon Sep 17 00:00:00 2001
+From: Giuseppe Guerra <giuseppe.guerra@grafana.com>
+Date: Wed, 11 Oct 2023 11:09:45 +0200
+Subject: [PATCH 8/9] Safer FromContext method
+
+---
+ pkg/plugins/log/logger.go | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/pkg/plugins/log/logger.go b/pkg/plugins/log/logger.go
+index 0df1b0ee2eb36..58ac225cf64b1 100644
+--- a/pkg/plugins/log/logger.go
++++ b/pkg/plugins/log/logger.go
+@@ -46,7 +46,10 @@ func (d *grafanaInfraLogWrapper) Error(msg string, ctx ...any) {
+ }
+ 
+ func (d *grafanaInfraLogWrapper) FromContext(ctx context.Context) Logger {
+-	concreteInfraLogger := d.l.FromContext(ctx).(*log.ConcreteLogger)
++	concreteInfraLogger, ok := d.l.FromContext(ctx).(*log.ConcreteLogger)
++	if !ok {
++		return d.New()
++	}
+ 	return &grafanaInfraLogWrapper{
+ 		l: concreteInfraLogger,
+ 	}
+
+From 82427fe54e29d86911235e9adabb499328fe74d6 Mon Sep 17 00:00:00 2001
+From: Giuseppe Guerra <giuseppe.guerra@grafana.com>
+Date: Wed, 11 Oct 2023 12:00:15 +0200
+Subject: [PATCH 9/9] Removed traceID from logParams
+
+---
+ .../pluginsintegration/clientmiddleware/logger_middleware.go  | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+index 40362530c1b07..8230997e23686 100644
+--- a/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
++++ b/pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go
+@@ -8,7 +8,6 @@ import (
+ 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+ 
+ 	"github.com/grafana/grafana/pkg/infra/log"
+-	"github.com/grafana/grafana/pkg/infra/tracing"
+ 	"github.com/grafana/grafana/pkg/plugins"
+ 	plog "github.com/grafana/grafana/pkg/plugins/log"
+ 	"github.com/grafana/grafana/pkg/setting"
+@@ -53,9 +52,6 @@ func (m *LoggerMiddleware) logRequest(ctx context.Context, fn func(ctx context.C
+ 		"eventName", "grafana-data-egress",
+ 		"time_before_plugin_request", timeBeforePluginRequest,
+ 	}
+-	if traceID := tracing.TraceIDFromContext(ctx, false); traceID != "" {
+-		logParams = append(logParams, "traceID", traceID)
+-	}
+ 	if status == statusError {
+ 		logParams = append(logParams, "error", err)
+ 	}

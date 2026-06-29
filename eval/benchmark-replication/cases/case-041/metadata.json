@@ -1,0 +1,19 @@
+{
+  "pr_title": "Optimize spans buffer insertion with eviction during insert",
+  "url": "https://github.com/getsentry/sentry/pull/92393",
+  "file": "sentry.json",
+  "comments": [
+    {
+      "comment": "OptimizedCursorPaginator negative-offset branch slices QuerySet with a negative start index",
+      "severity": "Critical"
+    },
+    {
+      "comment": "BasePaginator negative-offset branch slices QuerySet with a negative start index",
+      "severity": "High"
+    },
+    {
+      "comment": "OptimizedCursorPaginator.get_item_key uses floor/ceil on a datetime key (order_by='-datetime'), causing TypeError.",
+      "severity": "High"
+    }
+  ]
+}

@@ -1,0 +1,529 @@
+From 6ccd33f7c4238d88de63ca25b550865d1dd3ea69 Mon Sep 17 00:00:00 2001
+From: jguer <me@jguer.space>
+Date: Fri, 8 Dec 2023 11:51:21 +0100
+Subject: [PATCH 1/5] Anonymous: Add device limiter
+
+---
+ packages/grafana-data/src/types/config.ts     |  1 +
+ packages/grafana-runtime/src/config.ts        |  1 +
+ pkg/api/dtos/frontend_settings.go             |  1 +
+ pkg/api/frontendsettings.go                   |  1 +
+ .../anonymous/anonimpl/anonstore/database.go  | 57 +++++++++++++++++--
+ .../anonimpl/anonstore/database_test.go       | 25 +++++++-
+ pkg/services/anonymous/anonimpl/client.go     | 19 +------
+ pkg/services/anonymous/anonimpl/impl.go       |  8 ++-
+ pkg/services/anonymous/anonimpl/impl_test.go  |  8 +--
+ pkg/setting/setting.go                        | 11 ++--
+ 10 files changed, 98 insertions(+), 34 deletions(-)
+
+diff --git a/packages/grafana-data/src/types/config.ts b/packages/grafana-data/src/types/config.ts
+index 5703028f2cbbe..418141b10eafa 100644
+--- a/packages/grafana-data/src/types/config.ts
++++ b/packages/grafana-data/src/types/config.ts
+@@ -197,6 +197,7 @@ export interface GrafanaConfig {
+   theme: GrafanaTheme;
+   theme2: GrafanaTheme2;
+   anonymousEnabled: boolean;
++  anonymousUserLimit: number | undefined;
+   featureToggles: FeatureToggles;
+   licenseInfo: LicenseInfo;
+   http2Enabled: boolean;
+diff --git a/packages/grafana-runtime/src/config.ts b/packages/grafana-runtime/src/config.ts
+index 2709d5cf9a60d..3029c59c969be 100644
+--- a/packages/grafana-runtime/src/config.ts
++++ b/packages/grafana-runtime/src/config.ts
+@@ -94,6 +94,7 @@ export class GrafanaBootConfig implements GrafanaConfig {
+   theme2: GrafanaTheme2;
+   featureToggles: FeatureToggles = {};
+   anonymousEnabled = false;
++  anonymousUserLimit = undefined;
+   licenseInfo: LicenseInfo = {} as LicenseInfo;
+   rendererAvailable = false;
+   rendererVersion = '';
+diff --git a/pkg/api/dtos/frontend_settings.go b/pkg/api/dtos/frontend_settings.go
+index 166dae6216043..ad2d2576f4781 100644
+--- a/pkg/api/dtos/frontend_settings.go
++++ b/pkg/api/dtos/frontend_settings.go
+@@ -192,6 +192,7 @@ type FrontendSettingsDTO struct {
+ 
+ 	FeatureToggles                   map[string]bool                `json:"featureToggles"`
+ 	AnonymousEnabled                 bool                           `json:"anonymousEnabled"`
++	AnonymousUserLimit               int64                          `json:"anonymousUserLimit"`
+ 	RendererAvailable                bool                           `json:"rendererAvailable"`
+ 	RendererVersion                  string                         `json:"rendererVersion"`
+ 	SecretsManagerPluginEnabled      bool                           `json:"secretsManagerPluginEnabled"`
+diff --git a/pkg/api/frontendsettings.go b/pkg/api/frontendsettings.go
+index 215714b6f83a6..5c3582d6b02ee 100644
+--- a/pkg/api/frontendsettings.go
++++ b/pkg/api/frontendsettings.go
+@@ -195,6 +195,7 @@ func (hs *HTTPServer) getFrontendSettings(c *contextmodel.ReqContext) (*dtos.Fro
+ 
+ 		FeatureToggles:                   hs.Features.GetEnabled(c.Req.Context()),
+ 		AnonymousEnabled:                 hs.Cfg.AnonymousEnabled,
++		AnonymousUserLimit:               hs.Cfg.AnonymousDeviceLimit,
+ 		RendererAvailable:                hs.RenderService.IsAvailable(c.Req.Context()),
+ 		RendererVersion:                  hs.RenderService.Version(),
+ 		SecretsManagerPluginEnabled:      secretsManagerPluginEnabled,
+diff --git a/pkg/services/anonymous/anonimpl/anonstore/database.go b/pkg/services/anonymous/anonimpl/anonstore/database.go
+index 6531348662a44..5d23be0a43d20 100644
+--- a/pkg/services/anonymous/anonimpl/anonstore/database.go
++++ b/pkg/services/anonymous/anonimpl/anonstore/database.go
+@@ -13,10 +13,14 @@ import (
+ )
+ 
+ const cacheKeyPrefix = "anon-device"
++const thirtyDays = 30 * 24 * time.Hour
++
++var ErrDeviceLimitReached = fmt.Errorf("device limit reached")
+ 
+ type AnonDBStore struct {
+-	sqlStore db.DB
+-	log      log.Logger
++	sqlStore    db.DB
++	log         log.Logger
++	deviceLimit int64
+ }
+ 
+ type Device struct {
+@@ -45,8 +49,8 @@ type AnonStore interface {
+ 	DeleteDevicesOlderThan(ctx context.Context, olderThan time.Time) error
+ }
+ 
+-func ProvideAnonDBStore(sqlStore db.DB) *AnonDBStore {
+-	return &AnonDBStore{sqlStore: sqlStore, log: log.New("anonstore")}
++func ProvideAnonDBStore(sqlStore db.DB, deviceLimit int64) *AnonDBStore {
++	return &AnonDBStore{sqlStore: sqlStore, log: log.New("anonstore"), deviceLimit: deviceLimit}
+ }
+ 
+ func (s *AnonDBStore) ListDevices(ctx context.Context, from *time.Time, to *time.Time) ([]*Device, error) {
+@@ -65,9 +69,54 @@ func (s *AnonDBStore) ListDevices(ctx context.Context, from *time.Time, to *time
+ 	return devices, err
+ }
+ 
++// updateDevice updates a device if it exists and has been updated between the given times.
++func (s *AnonDBStore) updateDevice(ctx context.Context, device *Device) error {
++	const query = `UPDATE anon_device SET
++client_ip = ?,
++user_agent = ?,
++updated_at = ?
++WHERE device_id = ? AND updated_at BETWEEN ? AND ?`
++
++	args := []interface{}{device.ClientIP, device.UserAgent, device.UpdatedAt.UTC(), device.DeviceID,
++		device.UpdatedAt.UTC().Add(-thirtyDays), device.UpdatedAt.UTC().Add(time.Minute),
++	}
++	err := s.sqlStore.WithDbSession(ctx, func(dbSession *sqlstore.DBSession) error {
++		args = append([]interface{}{query}, args...)
++		result, err := dbSession.Exec(args...)
++		if err != nil {
++			return err
++		}
++
++		rowsAffected, err := result.RowsAffected()
++		if err != nil {
++			return err
++		}
++
++		if rowsAffected == 0 {
++			return ErrDeviceLimitReached
++		}
++
++		return nil
++	})
++
++	return err
++}
++
+ func (s *AnonDBStore) CreateOrUpdateDevice(ctx context.Context, device *Device) error {
+ 	var query string
+ 
++	// if device limit is reached, only update devices
++	if s.deviceLimit > 0 {
++		count, err := s.CountDevices(ctx, time.Now().UTC().Add(-thirtyDays), time.Now().UTC().Add(time.Minute))
++		if err != nil {
++			return err
++		}
++
++		if count >= s.deviceLimit {
++			return s.updateDevice(ctx, device)
++		}
++	}
++
+ 	args := []any{device.DeviceID, device.ClientIP, device.UserAgent,
+ 		device.CreatedAt.UTC(), device.UpdatedAt.UTC()}
+ 	switch s.sqlStore.GetDBType() {
+diff --git a/pkg/services/anonymous/anonimpl/anonstore/database_test.go b/pkg/services/anonymous/anonimpl/anonstore/database_test.go
+index b94dd82d286c3..0da29d5f6b701 100644
+--- a/pkg/services/anonymous/anonimpl/anonstore/database_test.go
++++ b/pkg/services/anonymous/anonimpl/anonstore/database_test.go
+@@ -13,7 +13,7 @@ import (
+ 
+ func TestIntegrationAnonStore_DeleteDevicesOlderThan(t *testing.T) {
+ 	store := db.InitTestDB(t)
+-	anonDBStore := ProvideAnonDBStore(store)
++	anonDBStore := ProvideAnonDBStore(store, 0)
+ 	const keepFor = time.Hour * 24 * 61
+ 
+ 	anonDevice := &Device{
+@@ -48,9 +48,30 @@ func TestIntegrationAnonStore_DeleteDevicesOlderThan(t *testing.T) {
+ 	assert.Equal(t, "keep", devices[0].DeviceID)
+ }
+ 
++func TestIntegrationBeyondDeviceLimit(t *testing.T) {
++	store := db.InitTestDB(t)
++	anonDBStore := ProvideAnonDBStore(store, 1)
++
++	anonDevice := &Device{
++		DeviceID:  "32mdo31deeqwes",
++		ClientIP:  "10.30.30.2",
++		UserAgent: "test",
++		UpdatedAt: time.Now().Add(-time.Hour),
++	}
++
++	err := anonDBStore.CreateOrUpdateDevice(context.Background(), anonDevice)
++	require.NoError(t, err)
++
++	anonDevice.DeviceID = "keep"
++	anonDevice.UpdatedAt = time.Now().Add(-time.Hour)
++
++	err = anonDBStore.CreateOrUpdateDevice(context.Background(), anonDevice)
++	require.ErrorIs(t, err, ErrDeviceLimitReached)
++}
++
+ func TestIntegrationAnonStore_DeleteDevice(t *testing.T) {
+ 	store := db.InitTestDB(t)
+-	anonDBStore := ProvideAnonDBStore(store)
++	anonDBStore := ProvideAnonDBStore(store, 0)
+ 	const keepFor = time.Hour * 24 * 61
+ 
+ 	anonDevice := &Device{
+diff --git a/pkg/services/anonymous/anonimpl/client.go b/pkg/services/anonymous/anonimpl/client.go
+index 363345e6cb978..d5aeceb7f3774 100644
+--- a/pkg/services/anonymous/anonimpl/client.go
++++ b/pkg/services/anonymous/anonimpl/client.go
+@@ -4,7 +4,6 @@ import (
+ 	"context"
+ 	"net/http"
+ 	"strings"
+-	"time"
+ 
+ 	"github.com/grafana/grafana/pkg/infra/log"
+ 	"github.com/grafana/grafana/pkg/services/anonymous"
+@@ -15,8 +14,6 @@ import (
+ 
+ var _ authn.ContextAwareClient = new(Anonymous)
+ 
+-const timeoutTag = 2 * time.Minute
+-
+ type Anonymous struct {
+ 	cfg               *setting.Cfg
+ 	log               log.Logger
+@@ -42,19 +39,9 @@ func (a *Anonymous) Authenticate(ctx context.Context, r *authn.Request) (*authn.
+ 		httpReqCopy.RemoteAddr = r.HTTPRequest.RemoteAddr
+ 	}
+ 
+-	go func() {
+-		defer func() {
+-			if err := recover(); err != nil {
+-				a.log.Warn("Tag anon session panic", "err", err)
+-			}
+-		}()
+-
+-		newCtx, cancel := context.WithTimeout(context.Background(), timeoutTag)
+-		defer cancel()
+-		if err := a.anonDeviceService.TagDevice(newCtx, httpReqCopy, anonymous.AnonDeviceUI); err != nil {
+-			a.log.Warn("Failed to tag anonymous session", "error", err)
+-		}
+-	}()
++	if err := a.anonDeviceService.TagDevice(ctx, httpReqCopy, anonymous.AnonDeviceUI); err != nil {
++		a.log.Warn("Failed to tag anonymous session", "error", err)
++	}
+ 
+ 	return &authn.Identity{
+ 		ID:           authn.AnonymousNamespaceID,
+diff --git a/pkg/services/anonymous/anonimpl/impl.go b/pkg/services/anonymous/anonimpl/impl.go
+index 4a98805412755..c85463708f28a 100644
+--- a/pkg/services/anonymous/anonimpl/impl.go
++++ b/pkg/services/anonymous/anonimpl/impl.go
+@@ -6,6 +6,7 @@ import (
+ 	"time"
+ 
+ 	"github.com/grafana/grafana/pkg/api/routing"
++	"github.com/grafana/grafana/pkg/infra/db"
+ 	"github.com/grafana/grafana/pkg/infra/localcache"
+ 	"github.com/grafana/grafana/pkg/infra/log"
+ 	"github.com/grafana/grafana/pkg/infra/network"
+@@ -33,13 +34,13 @@ type AnonDeviceService struct {
+ }
+ 
+ func ProvideAnonymousDeviceService(usageStats usagestats.Service, authBroker authn.Service,
+-	anonStore anonstore.AnonStore, cfg *setting.Cfg, orgService org.Service,
++	sqlStore db.DB, cfg *setting.Cfg, orgService org.Service,
+ 	serverLockService *serverlock.ServerLockService, accesscontrol accesscontrol.AccessControl, routeRegister routing.RouteRegister,
+ ) *AnonDeviceService {
+ 	a := &AnonDeviceService{
+ 		log:        log.New("anonymous-session-service"),
+ 		localCache: localcache.New(29*time.Minute, 15*time.Minute),
+-		anonStore:  anonStore,
++		anonStore:  anonstore.ProvideAnonDBStore(sqlStore, cfg.AnonymousDeviceLimit),
+ 		serverLock: serverLockService,
+ 	}
+ 
+@@ -57,7 +58,7 @@ func ProvideAnonymousDeviceService(usageStats usagestats.Service, authBroker aut
+ 		authBroker.RegisterPostLoginHook(a.untagDevice, 100)
+ 	}
+ 
+-	anonAPI := api.NewAnonDeviceServiceAPI(cfg, anonStore, accesscontrol, routeRegister)
++	anonAPI := api.NewAnonDeviceServiceAPI(cfg, a.anonStore, accesscontrol, routeRegister)
+ 	anonAPI.RegisterAPIEndpoints()
+ 
+ 	return a
+@@ -143,6 +144,7 @@ func (a *AnonDeviceService) TagDevice(ctx context.Context, httpReq *http.Request
+ 	err = a.tagDeviceUI(ctx, httpReq, taggedDevice)
+ 	if err != nil {
+ 		a.log.Debug("Failed to tag device for UI", "error", err)
++		return err
+ 	}
+ 
+ 	return nil
+diff --git a/pkg/services/anonymous/anonimpl/impl_test.go b/pkg/services/anonymous/anonimpl/impl_test.go
+index 1a1ca2a89e7a6..295654f93bc84 100644
+--- a/pkg/services/anonymous/anonimpl/impl_test.go
++++ b/pkg/services/anonymous/anonimpl/impl_test.go
+@@ -113,16 +113,15 @@ func TestIntegrationDeviceService_tag(t *testing.T) {
+ 	for _, tc := range testCases {
+ 		t.Run(tc.name, func(t *testing.T) {
+ 			store := db.InitTestDB(t)
+-			anonDBStore := anonstore.ProvideAnonDBStore(store)
+ 			anonService := ProvideAnonymousDeviceService(&usagestats.UsageStatsMock{},
+-				&authntest.FakeService{}, anonDBStore, setting.NewCfg(), orgtest.NewOrgServiceFake(), nil, actest.FakeAccessControl{}, &routing.RouteRegisterImpl{})
++				&authntest.FakeService{}, store, setting.NewCfg(), orgtest.NewOrgServiceFake(), nil, actest.FakeAccessControl{}, &routing.RouteRegisterImpl{})
+ 
+ 			for _, req := range tc.req {
+ 				err := anonService.TagDevice(context.Background(), req.httpReq, req.kind)
+ 				require.NoError(t, err)
+ 			}
+ 
+-			devices, err := anonDBStore.ListDevices(context.Background(), nil, nil)
++			devices, err := anonService.anonStore.ListDevices(context.Background(), nil, nil)
+ 			require.NoError(t, err)
+ 			require.Len(t, devices, int(tc.expectedAnonUICount))
+ 			if tc.expectedDevice != nil {
+@@ -149,9 +148,8 @@ func TestIntegrationDeviceService_tag(t *testing.T) {
+ // Ensure that the local cache prevents request from being tagged
+ func TestIntegrationAnonDeviceService_localCacheSafety(t *testing.T) {
+ 	store := db.InitTestDB(t)
+-	anonDBStore := anonstore.ProvideAnonDBStore(store)
+ 	anonService := ProvideAnonymousDeviceService(&usagestats.UsageStatsMock{},
+-		&authntest.FakeService{}, anonDBStore, setting.NewCfg(), orgtest.NewOrgServiceFake(), nil, actest.FakeAccessControl{}, &routing.RouteRegisterImpl{})
++		&authntest.FakeService{}, store, setting.NewCfg(), orgtest.NewOrgServiceFake(), nil, actest.FakeAccessControl{}, &routing.RouteRegisterImpl{})
+ 
+ 	req := &http.Request{
+ 		Header: http.Header{
+diff --git a/pkg/setting/setting.go b/pkg/setting/setting.go
+index 45d9e2ae60825..d34049fed58d0 100644
+--- a/pkg/setting/setting.go
++++ b/pkg/setting/setting.go
+@@ -371,6 +371,7 @@ type Cfg struct {
+ 	AnonymousOrgName     string
+ 	AnonymousOrgRole     string
+ 	AnonymousHideVersion bool
++	AnonymousDeviceLimit int64
+ 
+ 	DateFormats DateFormats
+ 
+@@ -1645,10 +1646,12 @@ func readAuthSettings(iniFile *ini.File, cfg *Cfg) (err error) {
+ 	readAuthGithubSettings(cfg)
+ 
+ 	// anonymous access
+-	cfg.AnonymousEnabled = iniFile.Section("auth.anonymous").Key("enabled").MustBool(false)
+-	cfg.AnonymousOrgName = valueAsString(iniFile.Section("auth.anonymous"), "org_name", "")
+-	cfg.AnonymousOrgRole = valueAsString(iniFile.Section("auth.anonymous"), "org_role", "")
+-	cfg.AnonymousHideVersion = iniFile.Section("auth.anonymous").Key("hide_version").MustBool(false)
++	anonSection := iniFile.Section("auth.anonymous")
++	cfg.AnonymousEnabled = anonSection.Key("enabled").MustBool(false)
++	cfg.AnonymousOrgName = valueAsString(anonSection, "org_name", "")
++	cfg.AnonymousOrgRole = valueAsString(anonSection, "org_role", "")
++	cfg.AnonymousHideVersion = anonSection.Key("hide_version").MustBool(false)
++	cfg.AnonymousDeviceLimit = anonSection.Key("device_limit").MustInt64(0)
+ 
+ 	// basic auth
+ 	authBasic := iniFile.Section("auth.basic")
+
+From 566e0a8f24ce25fc770cf426900162c863a53666 Mon Sep 17 00:00:00 2001
+From: jguer <me@jguer.space>
+Date: Fri, 8 Dec 2023 11:52:52 +0100
+Subject: [PATCH 2/5] break auth if limit reached
+
+---
+ pkg/services/anonymous/anonimpl/client.go | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/pkg/services/anonymous/anonimpl/client.go b/pkg/services/anonymous/anonimpl/client.go
+index d5aeceb7f3774..a74c9367cddd2 100644
+--- a/pkg/services/anonymous/anonimpl/client.go
++++ b/pkg/services/anonymous/anonimpl/client.go
+@@ -2,11 +2,13 @@ package anonimpl
+ 
+ import (
+ 	"context"
++	"errors"
+ 	"net/http"
+ 	"strings"
+ 
+ 	"github.com/grafana/grafana/pkg/infra/log"
+ 	"github.com/grafana/grafana/pkg/services/anonymous"
++	"github.com/grafana/grafana/pkg/services/anonymous/anonimpl/anonstore"
+ 	"github.com/grafana/grafana/pkg/services/authn"
+ 	"github.com/grafana/grafana/pkg/services/org"
+ 	"github.com/grafana/grafana/pkg/setting"
+@@ -40,6 +42,10 @@ func (a *Anonymous) Authenticate(ctx context.Context, r *authn.Request) (*authn.
+ 	}
+ 
+ 	if err := a.anonDeviceService.TagDevice(ctx, httpReqCopy, anonymous.AnonDeviceUI); err != nil {
++		if errors.Is(err, anonstore.ErrDeviceLimitReached) {
++			return nil, err
++		}
++
+ 		a.log.Warn("Failed to tag anonymous session", "error", err)
+ 	}
+ 
+
+From eb44d75dc76d7c18c1e750c16af1087320654531 Mon Sep 17 00:00:00 2001
+From: Eric Leijonmarck <eric.leijonmarck@gmail.com>
+Date: Tue, 12 Dec 2023 11:28:58 +0100
+Subject: [PATCH 3/5] fix typo
+
+---
+ pkg/api/dtos/frontend_settings.go | 2 +-
+ pkg/api/frontendsettings.go       | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/pkg/api/dtos/frontend_settings.go b/pkg/api/dtos/frontend_settings.go
+index ad2d2576f4781..84dd91c622b4f 100644
+--- a/pkg/api/dtos/frontend_settings.go
++++ b/pkg/api/dtos/frontend_settings.go
+@@ -192,7 +192,7 @@ type FrontendSettingsDTO struct {
+ 
+ 	FeatureToggles                   map[string]bool                `json:"featureToggles"`
+ 	AnonymousEnabled                 bool                           `json:"anonymousEnabled"`
+-	AnonymousUserLimit               int64                          `json:"anonymousUserLimit"`
++	AnonymousDeviceLimit             int64                          `json:"anonymousDeviceLimit"`
+ 	RendererAvailable                bool                           `json:"rendererAvailable"`
+ 	RendererVersion                  string                         `json:"rendererVersion"`
+ 	SecretsManagerPluginEnabled      bool                           `json:"secretsManagerPluginEnabled"`
+diff --git a/pkg/api/frontendsettings.go b/pkg/api/frontendsettings.go
+index 5c3582d6b02ee..1092efe028b06 100644
+--- a/pkg/api/frontendsettings.go
++++ b/pkg/api/frontendsettings.go
+@@ -195,7 +195,7 @@ func (hs *HTTPServer) getFrontendSettings(c *contextmodel.ReqContext) (*dtos.Fro
+ 
+ 		FeatureToggles:                   hs.Features.GetEnabled(c.Req.Context()),
+ 		AnonymousEnabled:                 hs.Cfg.AnonymousEnabled,
+-		AnonymousUserLimit:               hs.Cfg.AnonymousDeviceLimit,
++		AnonymousDeviceLimit:             hs.Cfg.AnonymousDeviceLimit,
+ 		RendererAvailable:                hs.RenderService.IsAvailable(c.Req.Context()),
+ 		RendererVersion:                  hs.RenderService.Version(),
+ 		SecretsManagerPluginEnabled:      secretsManagerPluginEnabled,
+
+From 7af474db0beb5a6ac14e4e1bc03e2253a0ad1617 Mon Sep 17 00:00:00 2001
+From: Eric Leijonmarck <eric.leijonmarck@gmail.com>
+Date: Tue, 12 Dec 2023 11:40:23 +0100
+Subject: [PATCH 4/5] refactored const to make it clearer with expiration
+
+---
+ pkg/services/anonymous/anonimpl/anonstore/database.go | 6 +++---
+ pkg/services/anonymous/anonimpl/api/api.go            | 6 ++----
+ 2 files changed, 5 insertions(+), 7 deletions(-)
+
+diff --git a/pkg/services/anonymous/anonimpl/anonstore/database.go b/pkg/services/anonymous/anonimpl/anonstore/database.go
+index 5d23be0a43d20..8c5ed04db2734 100644
+--- a/pkg/services/anonymous/anonimpl/anonstore/database.go
++++ b/pkg/services/anonymous/anonimpl/anonstore/database.go
+@@ -13,7 +13,7 @@ import (
+ )
+ 
+ const cacheKeyPrefix = "anon-device"
+-const thirtyDays = 30 * 24 * time.Hour
++const anonymousDeviceExpiration = 30 * 24 * time.Hour
+ 
+ var ErrDeviceLimitReached = fmt.Errorf("device limit reached")
+ 
+@@ -78,7 +78,7 @@ updated_at = ?
+ WHERE device_id = ? AND updated_at BETWEEN ? AND ?`
+ 
+ 	args := []interface{}{device.ClientIP, device.UserAgent, device.UpdatedAt.UTC(), device.DeviceID,
+-		device.UpdatedAt.UTC().Add(-thirtyDays), device.UpdatedAt.UTC().Add(time.Minute),
++		device.UpdatedAt.UTC().Add(-anonymousDeviceExpiration), device.UpdatedAt.UTC().Add(time.Minute),
+ 	}
+ 	err := s.sqlStore.WithDbSession(ctx, func(dbSession *sqlstore.DBSession) error {
+ 		args = append([]interface{}{query}, args...)
+@@ -107,7 +107,7 @@ func (s *AnonDBStore) CreateOrUpdateDevice(ctx context.Context, device *Device)
+ 
+ 	// if device limit is reached, only update devices
+ 	if s.deviceLimit > 0 {
+-		count, err := s.CountDevices(ctx, time.Now().UTC().Add(-thirtyDays), time.Now().UTC().Add(time.Minute))
++		count, err := s.CountDevices(ctx, time.Now().UTC().Add(-anonymousDeviceExpiration), time.Now().UTC().Add(time.Minute))
+ 		if err != nil {
+ 			return err
+ 		}
+diff --git a/pkg/services/anonymous/anonimpl/api/api.go b/pkg/services/anonymous/anonimpl/api/api.go
+index 85d9c7318e046..defdf28d17aa0 100644
+--- a/pkg/services/anonymous/anonimpl/api/api.go
++++ b/pkg/services/anonymous/anonimpl/api/api.go
+@@ -15,9 +15,7 @@ import (
+ 	"github.com/grafana/grafana/pkg/util"
+ )
+ 
+-const (
+-	thirtyDays = 30 * 24 * time.Hour
+-)
++const anonymousDeviceExpiration = 30 * 24 * time.Hour
+ 
+ type deviceDTO struct {
+ 	anonstore.Device
+@@ -70,7 +68,7 @@ func (api *AnonDeviceServiceAPI) RegisterAPIEndpoints() {
+ //	404: notFoundError
+ //	500: internalServerError
+ func (api *AnonDeviceServiceAPI) ListDevices(c *contextmodel.ReqContext) response.Response {
+-	fromTime := time.Now().Add(-thirtyDays)
++	fromTime := time.Now().Add(-anonymousDeviceExpiration)
+ 	toTime := time.Now()
+ 
+ 	devices, err := api.store.ListDevices(c.Req.Context(), &fromTime, &toTime)
+
+From bbd8c507cdf56f6b884373809e0b24abd4a2353d Mon Sep 17 00:00:00 2001
+From: Eric Leijonmarck <eric.leijonmarck@gmail.com>
+Date: Tue, 12 Dec 2023 11:45:51 +0100
+Subject: [PATCH 5/5] anon device limit for config
+
+---
+ packages/grafana-data/src/types/config.ts | 2 +-
+ packages/grafana-runtime/src/config.ts    | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/packages/grafana-data/src/types/config.ts b/packages/grafana-data/src/types/config.ts
+index 418141b10eafa..e1c8c8eaa4080 100644
+--- a/packages/grafana-data/src/types/config.ts
++++ b/packages/grafana-data/src/types/config.ts
+@@ -197,7 +197,7 @@ export interface GrafanaConfig {
+   theme: GrafanaTheme;
+   theme2: GrafanaTheme2;
+   anonymousEnabled: boolean;
+-  anonymousUserLimit: number | undefined;
++  anonymousDeviceLimit: number | undefined;
+   featureToggles: FeatureToggles;
+   licenseInfo: LicenseInfo;
+   http2Enabled: boolean;
+diff --git a/packages/grafana-runtime/src/config.ts b/packages/grafana-runtime/src/config.ts
+index 3029c59c969be..deedcfeee5989 100644
+--- a/packages/grafana-runtime/src/config.ts
++++ b/packages/grafana-runtime/src/config.ts
+@@ -94,7 +94,7 @@ export class GrafanaBootConfig implements GrafanaConfig {
+   theme2: GrafanaTheme2;
+   featureToggles: FeatureToggles = {};
+   anonymousEnabled = false;
+-  anonymousUserLimit = undefined;
++  anonymousDeviceLimit = undefined;
+   licenseInfo: LicenseInfo = {} as LicenseInfo;
+   rendererAvailable = false;
+   rendererVersion = '';
