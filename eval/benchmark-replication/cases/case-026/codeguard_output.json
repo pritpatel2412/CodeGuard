@@ -1,0 +1,37 @@
+{
+  "summary": "This PR implements and tests a new dual-write mode (Mode 3), which writes to both a new and legacy storage backend, with reads directed to the new storage.",
+  "risk_level": "medium",
+  "thought_process": "I analyzed the 11 patches sequentially, focusing on the implementation of `DualWriterMode3`. The core logic involves writing to a primary storage and then asynchronously to a legacy storage in a fire-and-forget manner. While reviewing the implementation of `Create`, `Get`, `List`, `Delete`, `Update`, and `DeleteCollection`, I identified several bugs related to metrics and logging. Specifically, there are copy-paste errors where incorrect metric functions (`recordLegacyDuration` vs. `recordStorageDuration`) are called in error paths and for legacy operations. I also found a bug where an incorrect variable is used for a metric label, and another where a logger with detailed context is not correctly passed into the request context. These issues persist through all the patches and will negatively impact observability and debugging for this new mode.",
+  "comments": [
+    {
+      "path": "pkg/apiserver/rest/dualwriter_mode3.go",
+      "line": 46,
+      "type": "bug",
+      "comment": "In the error path for `d.Storage.Create`, `d.recordLegacyDuration` is called. This should be `d.recordStorageDuration` to correctly attribute the error and latency to the primary storage operation."
+    },
+    {
+      "path": "pkg/apiserver/rest/dualwriter_mode3.go",
+      "line": 96,
+      "type": "bug",
+      "comment": "The context is updated with `klog.NewContext(ctx, d.Log)`. This uses the base logger from the struct, discarding the method-specific logger `log` created on the previous line which contains valuable context like `name` and `kind`. It should be `ctx = klog.NewContext(ctx, log)`."
+    },
+    {
+      "path": "pkg/apiserver/rest/dualwriter_mode3.go",
+      "line": 105,
+      "type": "bug",
+      "comment": "The metric `d.recordStorageDuration` is called with `name` as the `kind` parameter on the success path. This will pollute the `kind` label in Prometheus with object names. It should use `options.Kind` instead."
+    },
+    {
+      "path": "pkg/apiserver/rest/dualwriter_mode3.go",
+      "line": 132,
+      "type": "bug",
+      "comment": "In the error path for `d.Storage.Update`, `d.recordLegacyDuration` is called. This should be `d.recordStorageDuration` to correctly attribute the error and latency to the primary storage operation."
+    },
+    {
+      "path": "pkg/apiserver/rest/dualwriter_mode3.go",
+      "line": 165,
+      "type": "bug",
+      "comment": "Inside the goroutine for the legacy `DeleteCollection` operation, `d.recordStorageDuration` is called. This should be `d.recordLegacyDuration` to correctly record metrics for the legacy storage system."
+    }
+  ]
+}

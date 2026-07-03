@@ -1,0 +1,13 @@
+{
+  "summary": "Adds a `rolling-updates` feature flag and associated CLI commands for update compatibility.",
+  "risk_level": "high",
+  "thought_process": "The pull request introduces a feature flag for rolling updates. It consists of multiple patches. I've analyzed them as a whole. The changes to the CLI tools seem reasonable; they correctly check for the feature flag and exit with a specific status code and error message if it's not enabled. However, I found a critical regression in the Keycloak Operator logic. An initial patch added a check in `UpgradeLogicFactory.java` to ensure the `rolling-updates` feature is enabled when an update strategy is specified. A later patch, titled \"feedback\", removed this check from the operator code entirely, while refining it for the CLI tools. This removal is problematic for two reasons. First, it makes the operator's behavior inconsistent and allows a configuration that should be invalid. Second, and more critically, the `switch` statement that handles the update strategy is not exhaustive. It's missing a case for the `ROLLING` strategy. If a user specifies `strategy: ROLLING` in the Keycloak CR, the operator will encounter an unhandled case in the switch, which will likely cause an `IncompatibleClassChangeError` at runtime, crashing the operator reconcile loop. An operator crash is a high-severity issue. Therefore, the risk level is high.",
+  "comments": [
+    {
+      "path": "operator/src/main/java/org/keycloak/operator/upgrade/UpgradeLogicFactory.java",
+      "line": 26,
+      "type": "bug",
+      "comment": "This method has two critical issues after the changes.\n1. The check to ensure the `rolling-updates` preview feature is enabled was removed. If a user specifies any `update.strategy`, the operator should validate that the feature is enabled in the Keycloak CR. Without this check, the operator's behavior is inconsistent with the CLI tools. Please restore the check and ensure the operator fails reconciliation with a clear error in the CR status if the feature is not enabled.\n2. The `switch` statement on `UpdateStrategy` is not exhaustive and is missing a case for the `ROLLING` strategy. This will cause the operator to throw an `IncompatibleClassChangeError` and crash its reconciliation loop if a user specifies `strategy: ROLLING`. The `switch` must handle all possible `UpdateStrategy` values, even if it's to throw a more specific `UnsupportedOperationException` for strategies that are not yet implemented."
+    }
+  ]
+}

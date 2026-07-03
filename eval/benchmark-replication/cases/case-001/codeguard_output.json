@@ -1,0 +1,31 @@
+{
+  "summary": "Changes app store modules to be dynamically imported, improving performance by lazy-loading them.",
+  "risk_level": "medium",
+  "thought_process": "The user wants me to review a PR that switches static imports to dynamic imports for `appStore` modules. This is a performance optimization (lazy loading). The main consequence is that accessing `appStore.someModule` now returns a Promise instead of the module itself. This requires `await`ing it everywhere it's used.\n\nI've checked all the changed files to see if the new async nature of `appStore` is handled correctly.\n\n1.  `packages/app-store/index.ts`: The core change from static to dynamic `import()` is here. This is correct.\n2.  `packages/app-store/_utils/getCalendar.ts`: `getCalendar` is now `async` and correctly `await`s the module from `appStore`. This is correct.\n3.  Most other files (`CalendarManager.ts`, `EventManager.ts`, `videoClient.ts`, etc.) correctly `await` calls to `getCalendar` or `appStore[...]` directly. The refactoring in `videoClient.ts` from `reduce` to a `for...of` loop to accommodate `await` is also correct.\n\nHowever, I found a recurring bug pattern. The developer has introduced `async` callbacks into `Array.prototype.forEach` loops in several places. `forEach` does not wait for async callbacks to complete. This means the operations inside the loop will execute asynchronously in a \"fire-and-forget\" manner. Any promises returned are not awaited, and any exceptions will become unhandled promise rejections, which are likely to be swallowed or crash the process, and will not be caught by surrounding `try...catch` blocks.\n\nI've identified four instances of this bug:\n- `packages/app-store/vital/lib/reschedule.ts`\n- `packages/app-store/wipemycalother/lib/reschedule.ts`\n- `packages/features/bookings/lib/handleCancelBooking.ts`\n- `packages/trpc/server/routers/viewer/bookings.tsx`\n\nInterestingly, in `handleCancelBooking.ts`, the developer correctly refactored one `forEach` to a `for...of` loop but missed another one in the same file, suggesting they are aware of the pattern but were not consistent.\n\nThe correct fix is to replace `forEach` with a `for...of` loop (for sequential execution) or `await Promise.all(array.map(async item => ...))` (for parallel execution). Given these are delete operations, parallel is likely acceptable and more performant.\n\nDue to this critical bug being repeated in multiple places, the risk level is medium.",
+  "comments": [
+    {
+      "path": "packages/app-store/vital/lib/reschedule.ts",
+      "line": 125,
+      "type": "bug",
+      "comment": "`Array.prototype.forEach` does not await the promises returned by its async callback. This will lead to a race condition where the function returns before the delete operations are complete. Any errors during deletion will result in unhandled promise rejections and will not be caught by the `try...catch` block. Use `Promise.all` with `map` for parallel execution, or a `for...of` loop for sequential execution."
+    },
+    {
+      "path": "packages/app-store/wipemycalother/lib/reschedule.ts",
+      "line": 125,
+      "type": "bug",
+      "comment": "`Array.prototype.forEach` does not await async callbacks. This will cause operations to run in the background without proper error handling or completion guarantees. Any exceptions will be swallowed. Use `Promise.all` with `map` or a `for...of` loop instead."
+    },
+    {
+      "path": "packages/features/bookings/lib/handleCancelBooking.ts",
+      "line": 454,
+      "type": "bug",
+      "comment": "`Array.prototype.forEach` is used with an `async` callback here, which means the async operations inside will not be awaited. This can lead to unexpected behavior and unhandled promise rejections. A `for...of` loop should be used instead to ensure the operations are awaited. I see you've correctly used a `for...of` loop for a similar case later in this file, so this one was likely missed."
+    },
+    {
+      "path": "packages/trpc/server/routers/viewer/bookings.tsx",
+      "line": 554,
+      "type": "bug",
+      "comment": "`Array.prototype.forEach` does not await the promises returned by its async callback. This will lead to a race condition where the function returns before the delete operations are complete. Any errors during deletion will result in unhandled promise rejections. Use `Promise.all` with `map` for parallel execution, or a `for...of` loop for sequential execution."
+    }
+  ]
+}

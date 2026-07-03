@@ -1,0 +1,25 @@
+{
+  "summary": "Adds functionality for users to add guests to existing bookings from the booking list, including backend logic, UI components, and email notifications.",
+  "risk_level": "high",
+  "thought_process": "I analyzed the pull request which adds a feature to invite more guests to an existing booking. The changes span the frontend, backend, and email systems.\n\nMy analysis focused on the core backend logic in `addGuests.handler.ts`. I identified three key issues:\n\n1.  **Critical Bug in Calendar Update:** The code initializes the `EventManager` to update the calendar event (e.g., Google Calendar) using the credentials of the user making the request (`ctx.user`). However, the user making the request could be an attendee, while the calendar event belongs to the organizer. An attendee's credentials cannot be used to modify the organizer's event. This will cause the calendar update to fail for any user who is not the organizer, leading to a failed request and data inconsistency (database updated, but calendar is not). This is a high-risk bug.\n\n2.  **Incorrect Authorization Logic:** The authorization check for team members is `isTeamAdmin(...) && isTeamOwner(...)`. This is incorrect; it should be `isTeamAdmin(...) || isTeamOwner(...)` because a user can be an admin without being the owner. The current logic is too restrictive.\n\n3.  **Minor Frontend UX Bug:** The `AddGuestsDialog` initializes with an empty email input. If the user submits the form without filling it, it triggers a validation error. The form should handle this gracefully by filtering out empty strings before validation.\n\nBased on the critical bug that breaks the feature for non-organizer users and causes data inconsistency, I've set the risk level to `high` and detailed the necessary fixes in the comments.",
+  "comments": [
+    {
+      "path": "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts",
+      "line": 154,
+      "type": "bug",
+      "comment": "The `EventManager` is initialized with the credentials of the user making the request (`ctx.user`), not the event organizer. If an attendee or team member adds a guest, this will attempt to update the organizer's calendar event using the attendee's credentials, which will fail due to lack of permissions. This causes the mutation to fail after the database has already been updated, leading to data inconsistency.\n\nTo fix this, the `EventManager` should be initialized with the organizer's user object (`booking.user`) and their corresponding credentials."
+    },
+    {
+      "path": "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts",
+      "line": 59,
+      "type": "bug",
+      "comment": "The authorization check for team members uses a logical AND (`&&`) between `isTeamAdmin` and `isTeamOwner`. This is too restrictive, as a user can be an admin without being an owner. This should be a logical OR (`||`) to correctly authorize any user who is either a team admin or an owner."
+    },
+    {
+      "path": "apps/web/components/dialog/AddGuestsDialog.tsx",
+      "line": 45,
+      "type": "bug",
+      "comment": "The component initializes with a single empty string in the email list (`useState([\"\"])`). If the user clicks \"Add\" without entering an email, the client-side validation fails and shows an error. To improve user experience, you should filter out empty strings from the `multiEmailValue` array before performing validation and calling the mutation. This will prevent errors when submitting a form with an empty input field."
+    }
+  ]
+}

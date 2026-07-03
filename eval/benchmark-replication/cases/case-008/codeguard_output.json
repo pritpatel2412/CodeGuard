@@ -1,0 +1,19 @@
+{
+  "summary": "This PR introduces a retry mechanism for SMS reminders, incrementing a counter on failure and deleting the reminder after exceeding the retry limit.",
+  "risk_level": "high",
+  "thought_process": "The user wants to add a retry mechanism for SMS workflow reminders. The changes include adding a `retryCount` column to the `WorkflowReminder` table and updating the SMS scheduling logic.\n\nThe core logic change is in `scheduleSMSReminders.ts`. There are two main parts:\n1. A `deleteMany` query to clean up old or failed reminders.\n2. A `try/catch` block to handle scheduling failures and increment the `retryCount`.\n\nI've identified a critical bug in the `deleteMany` query. It uses a top-level `OR` condition. One branch of the `OR` is correctly scoped to SMS reminders (`method: WorkflowMethods.SMS` and a past `scheduledDate`). However, the other branch (`retryCount: { gt: 1 }`) has no method scope. This will cause the query to delete *any* type of `WorkflowReminder` (e.g., EMAIL) that has a `retryCount` greater than 1. This is unintended data deletion and a high-risk bug. The fix is to scope the entire `deleteMany` operation to SMS reminders by moving `method: WorkflowMethods.SMS` outside and above the `OR` condition.\n\nAdditionally, I noticed a maintainability issue. The code to increment the `retryCount` via `prisma.workflowReminder.update` is duplicated in both an `else` block (for potential non-throwing API failures) and the `catch` block. This redundant code should be refactored into a single helper function to improve maintainability and reduce the chance of future inconsistencies.",
+  "comments": [
+    {
+      "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+      "line": 32,
+      "type": "bug",
+      "comment": "The `deleteMany` query logic is incorrect and will cause unintended data loss. The `OR` condition allows for the deletion of *any* workflow reminder (not just SMS) if its `retryCount` is greater than 1. This could inadvertently delete email reminders or other types if they ever implement a retry mechanism.\n\nThe query should be scoped entirely to SMS reminders. Please move the `method: WorkflowMethods.SMS` condition outside of the `OR` block to apply it to both conditions.\n\nSuggested fix:\n```typescript\nawait prisma.workflowReminder.deleteMany({\n  where: {\n    method: WorkflowMethods.SMS, // Apply to all conditions for SMS\n    OR: [\n      {\n        scheduledDate: {\n          lte: dayjs().toISOString(),\n        },\n      },\n      {\n        retryCount: {\n          gt: 1,\n        },\n      },\n    ],\n  },\n});\n```"
+    },
+    {
+      "path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+      "line": 181,
+      "type": "maintainability",
+      "comment": "The logic to increment the `retryCount` is duplicated here and in the `catch` block on line 191. This redundancy makes the code harder to maintain. Consider extracting this database update into a separate helper function to avoid code duplication.\n\nFor example:\n```typescript\nconst incrementRetryCount = (reminderId: number, currentCount: number) => {\n  return prisma.workflowReminder.update({\n    where: { id: reminderId },\n    data: { retryCount: currentCount + 1 },\n  });\n};\n\n// ... then in the else and catch blocks:\nawait incrementRetryCount(reminder.id, reminder.retryCount);\n```"
+    }
+  ]
+}

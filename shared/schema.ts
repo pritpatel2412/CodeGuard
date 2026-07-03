@@ -366,10 +366,15 @@ export type DetailedStats = z.infer<typeof detailedStatsSchema>;
 export const aiReviewResponseSchema = z.object({
   summary: z.string(),
   risk_level: z.enum(["low", "medium", "high"]),
+  file_analysis: z.array(z.object({
+    file_path: z.string(),
+    reasoning: z.string(),
+  })).optional(),
+  thought_process: z.string(),
   comments: z.array(z.object({
     path: z.string(),
     line: z.number(),
-    type: z.enum(["bug", "performance", "security", "readability", "maintainability"]),
+    type: z.string(),
     comment: z.string(),
   })),
 });

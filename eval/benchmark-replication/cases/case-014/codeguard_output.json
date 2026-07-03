@@ -1,0 +1,43 @@
+{
+  "summary": "This pull request introduces a new feature for embedding Discourse comments on external sites, including RSS/ATOM feed polling and content retrieval.",
+  "risk_level": "high",
+  "thought_process": "I analyzed the new embedding feature, focusing on security aspects of handling external URLs and content. I identified several critical vulnerabilities:\n1.  A reflected XSS vulnerability in the embed layout (`embed.html.erb`) due to an unescaped `request.referer` being used as the target origin for `postMessage`. An attacker can craft a malicious referer to execute arbitrary JavaScript.\n2.  A stored XSS vulnerability in the `TopicEmbed` model. The `embed_url` is interpolated directly into HTML for the post body without escaping. Since the post uses a `raw_html` cook method, this allows for arbitrary HTML and script injection.\n3.  A Server-Side Request Forgery (SSRF) and potential Local File Inclusion (LFI) vulnerability in `TopicEmbed.import_remote`. It uses `open-uri`'s `open` on a URL without validating its scheme. While the main controller path has some protection, other call sites like the Disqus importer are vulnerable.\n4.  A second SSRF vulnerability in the `PollFeed` job, also due to `open-uri`'s `open` following redirects from an admin-configured feed URL to potentially malicious internal or `file://` URLs.\n5.  A weak origin check in the client-side `embed.js` for the `message` event listener. It uses `indexOf` which can be bypassed by using a subdomain, e.g., `discourse.com.attacker.com` would match `discourse.com`.\n\nThese vulnerabilities are severe and expose the application to code execution on the client-side and information disclosure or internal network scanning on the server-side.",
+  "comments": [
+    {
+      "path": "app/views/layouts/embed.html.erb",
+      "line": 11,
+      "type": "security",
+      "comment": "The `request.referer` is used directly as the target origin for `postMessage` without being escaped for a JavaScript context. A crafted Referer header can be used to inject arbitrary JavaScript, leading to a reflected Cross-Site Scripting (XSS) vulnerability. The target origin should be properly escaped. Use the `j` or `escape_javascript` helper: `<%= j request.referer %>`."
+    },
+    {
+      "path": "app/models/topic_embed.rb",
+      "line": 11,
+      "type": "security",
+      "comment": "The `url` parameter is interpolated directly into an HTML string for the 'imported from' link. This content is then saved as part of a post with `cook_method: :raw_html`, which bypasses sanitization. A malicious `url` (e.g., from the `embed_url` parameter) can contain arbitrary HTML, including `onclick` handlers or `javascript:` schemes, leading to a stored XSS vulnerability. The URL should be HTML-escaped before being used in the link, for example, by using `CGI.escapeHTML(url)`."
+    },
+    {
+      "path": "app/models/topic_embed.rb",
+      "line": 51,
+      "type": "security",
+      "comment": "The `open(url)` call from `open-uri` is vulnerable to Server-Side Request Forgery (SSRF) and Local File Inclusion (LFI). The `url` is not validated to ensure it uses the HTTP/S protocol. An attacker could provide a URL with a scheme like `file://` to read local files or `|` to execute commands. While the main controller path has some protection, other callers like the Disqus importer do not, leaving this method vulnerable. You should validate the URL scheme before passing it to `open`."
+    },
+    {
+      "path": "app/jobs/scheduled/poll_feed.rb",
+      "line": 29,
+      "type": "security",
+      "comment": "The `open(SiteSetting.feed_polling_url)` call is vulnerable to SSRF. `open-uri` follows redirects by default. If the feed URL (an admin setting) points to a malicious server, it can redirect to internal services or `file://` URLs, allowing an attacker to scan the internal network or read local files. Use a safer HTTP client that can be configured to disable redirects or validate the final destination URL."
+    },
+    {
+      "path": "app/assets/javascripts/embed.js",
+      "line": 20,
+      "type": "security",
+      "comment": "The origin check `discourseUrl.indexOf(e.origin) === -1` is insecure. It can be bypassed by a malicious site on a subdomain. For example, if `discourseUrl` is `http://example.com`, a message from `http://example.com.attacker.com` would be incorrectly trusted. The check should be for an exact origin match, for example: `new URL(discourseUrl).origin !== e.origin` (with consideration for browser compatibility)."
+    },
+    {
+      "path": "app/controllers/embed_controller.rb",
+      "line": 28,
+      "type": "security",
+      "comment": "The security check relies on the `Referer` header to authorize embedding. This header can be easily spoofed by an attacker, allowing them to bypass the `embeddable_host` restriction and embed comments on any website. While this may prevent casual hotlinking, it is not a robust security control."
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "summary": "This PR refactors event creation to support multiple destination calendars, primarily for collective events with multiple hosts.",
+  "risk_level": "high",
+  "thought_process": "The user wants me to review a large pull request that refactors destination calendar handling to support multiple hosts in collective events. The core change is moving `destinationCalendar` from a single object to an array of objects. I've analyzed the 12 patches provided.\n\n**Key Changes & Analysis:**\n1.  **Type Change**: `destinationCalendar` is now `DestinationCalendar[] | null`. This change propagates through many files.\n2.  **Event Creation (`EventManager.ts`)**: The `createAllCalendarEvents` method now correctly iterates over all destination calendars, finds the corresponding credential (even fetching from DB if necessary), and calls `CalendarManager.createEvent` for each. This part of the logic seems correct.\n3.  **Event Update/Cancel (`EventManager.ts`, `handleCancelBooking.ts`)**: Similar logic is applied for updates and cancellations, iterating over all `BookingReference`s of type calendar. This is also correct.\n4.  **Calendar Service Implementations**: This is where the main problem lies. \n    - Initially (Patch 3), calendar services like `GoogleCalendarService`, `LarkCalendarService`, and `Office365CalendarService` were updated to handle the array by just taking the first element: `const [mainHostDestinationCalendar] = event.destinationCalendar ?? []`. This is fundamentally wrong for collective events, as it would cause the event to be created on the first host's calendar multiple times, instead of on each host's respective calendar.\n    - A later patch (Patch 12) fixes this for `GoogleCalendarService` by changing the `createEvent` signature in the `Calendar` interface to accept a `credentialId`. This allows the service to find the *correct* destination calendar from the array. `updateEvent` and `deleteEvent` are also fixed to use the `externalCalendarId` correctly.\n    - **CRITICAL BUG**: This fix was *not* applied to `LarkCalendarService` or `Office365CalendarService`. They still contain the buggy logic from Patch 3, which will break collective bookings for users of those calendar integrations.\n5.  **Data Model Inconsistency (`handleNewBooking.ts`)**: When a booking is created, it's linked to only the first destination calendar in the database (`connect: { id: evt.destinationCalendar[0].id }`). While the system seems to rely on `BookingReference`s for operations (which are created for all calendars), this direct, but incomplete, relation on the `Booking` model is misleading and could lead to bugs in other features that might read `booking.destinationCalendar`.\n6.  **Minor Issues**: I found a duplicated `if` check in `EventManager.ts` which is a minor maintainability issue.\n\n**Conclusion:**\nThe high-level refactoring is going in the right direction, but the implementation is incomplete and will break calendar integrations for non-Google users. This is a high-risk change. The data model inconsistency is also a significant concern for maintainability.",
+  "comments": [
+    {
+      "path": "packages/app-store/larkcalendar/lib/CalendarService.ts",
+      "line": 128,
+      "type": "bug",
+      "comment": "This service, along with `Office365CalendarService`, was not correctly updated to handle multiple destination calendars. It currently only considers the first calendar in the `destinationCalendar` array (`mainHostDestinationCalendar`). This will cause collective events to be created multiple times on the organizer's calendar instead of on each host's respective calendar.\n\nThe `Calendar` interface was updated in a later patch to pass `credentialId` to `createEvent` to solve this exact problem, which was implemented for `GoogleCalendarService`. The same fix must be applied here and in other calendar services. `createEvent` should accept `credentialId` and use it to find the correct destination calendar from the `event.destinationCalendar` array."
+    },
+    {
+      "path": "packages/app-store/office365calendar/lib/CalendarService.ts",
+      "line": 74,
+      "type": "bug",
+      "comment": "This service incorrectly handles multiple destination calendars by only ever using the first one in the array. For collective events, this will result in the event being created on the organizer's calendar for every host, which is incorrect.\n\nTo fix this, the `createEvent` method signature should be updated to accept the `credentialId` (as per the updated `Calendar` interface) and use it to find the corresponding destination calendar from the `event.destinationCalendar` array. This was done for `GoogleCalendarService` but missed here."
+    },
+    {
+      "path": "packages/features/bookings/lib/handleNewBooking.ts",
+      "line": 1871,
+      "type": "bug",
+      "comment": "The booking database record is being associated with only the first destination calendar (`evt.destinationCalendar[0].id`). While `BookingReference`s are correctly created for all calendars, storing this partial and potentially misleading information on the `Booking` model itself is risky. Any code that reads `booking.destinationCalendar` will get an incomplete picture for collective events.\n\nConsider removing this direct relationship from the `Booking` model to avoid confusion and rely solely on `BookingReference`s, or change it to a many-to-many relationship to accurately reflect all associated calendars."
+    },
+    {
+      "path": "packages/core/EventManager.ts",
+      "line": 542,
+      "type": "maintainability",
+      "comment": "There is a duplicated `if (!calendarReference)` check here. The redundant check should be removed."
+    }
+  ]
+}

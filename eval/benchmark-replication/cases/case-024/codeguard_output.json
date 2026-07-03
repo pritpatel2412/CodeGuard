@@ -1,0 +1,13 @@
+{
+  "summary": "This PR refactors Loki query splitting to consistently interpolate template variables before execution using `applyTemplateVariables`.",
+  "risk_level": "medium",
+  "thought_process": "I analyzed the series of patches, noting the evolution of the code. The initial patch introduced a redundant call to interpolate variables in `shardQuerySplitting.ts`. Subsequent patches correctly removed this redundancy. The core of my analysis focused on the updated test in the final patch for `shardQuerySplitting.test.ts`. The test asserts that `applyTemplateVariables` is called 5 times for a single input query. Given the code in `runShardSplitQuery`, this function is called only once before passing the query to `splitQueriesByStreamShard`. The test's expectation implies that `splitQueriesByStreamShard` internally creates new queries and then calls `applyTemplateVariables` on them again. This re-interpolation is a design flaw, leading to performance and maintainability issues. The splitting logic should operate on the already-interpolated values rather than triggering another round of template variable substitution. This is the main issue I identified.",
+  "comments": [
+    {
+      "path": "public/app/plugins/datasource/loki/shardQuerySplitting.test.ts",
+      "line": 112,
+      "type": "maintainability",
+      "comment": "This test expects `applyTemplateVariables` to be called 5 times for a single query. This implies it's called once before splitting in `runShardSplitQuery`, and then multiple times again within `splitQueriesByStreamShard`. Re-interpolating variables within the splitting logic is inefficient and makes the code harder to reason about. The splitting function should operate on the already-interpolated query string, building the new sub-queries directly without requiring further calls to `applyTemplateVariables`. Consider refactoring `splitQueriesByStreamShard` to avoid this re-interpolation."
+    }
+  ]
+}

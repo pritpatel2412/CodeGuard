@@ -1,0 +1,19 @@
+{
+  "summary": "This PR adds a calendar cache status display and management actions, but introduces critical bugs in webhook processing and database migrations.",
+  "risk_level": "high",
+  "thought_process": "The user wants me to review a large pull request comprised of multiple patches. The feature is about adding calendar cache status and actions.\n\nFirst, I analyzed the patches sequentially. The initial implementation added a new tRPC endpoint for cache status, which was later refactored to be part of the `connectedCalendars` endpoint. This is a good architectural change. The UI was also refactored from a per-calendar dropdown to a per-credential dropdown, which is a better user experience.\n\nHowever, I found two critical bugs:\n\n1.  In patch 8, a call to `SelectedCalendarRepository.updateManyByCredentialId(this.credential.id, {})` was added in `googlecalendar/lib/CalendarService.ts`. This was part of an earlier, now-reverted, approach where an `updatedAt` field was supposed to be on the `SelectedCalendar` model. Since `SelectedCalendar` does not have an `@updatedAt` field, Prisma will throw a `PrismaClientValidationError` for an `updateMany` call with an empty data object. This will break Google Calendar webhook processing, which is a high-severity issue.\n\n2.  In patch 1, an `updatedAt` field was added to the `CalendarCache` model in `schema.prisma`. It is defined as `updatedAt DateTime @updatedAt`. This has two problems:\n    a. The database column is `NOT NULL`, but there is no `@default(now())`. The `@updatedAt` attribute only works on updates, not creations. The code that creates `CalendarCache` entries does not set this field, so all `create` operations will fail with a database constraint violation.\n    b. The generated migration `ALTER TABLE \"CalendarCache\" ADD COLUMN \"updatedAt\" TIMESTAMP(3) NOT NULL;` will fail on any instance that has existing data in the `CalendarCache` table, because it's adding a non-nullable column without a default value. This makes the migration unsafe for production environments.\n\nBoth of these are show-stopper bugs that will cause runtime failures and prevent the feature from working correctly, while also breaking existing functionality (webhooks) and deployments (migrations). The risk is therefore high.",
+  "comments": [
+    {
+      "path": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+      "line": 1022,
+      "type": "bug",
+      "comment": "This call to `SelectedCalendarRepository.updateManyByCredentialId` will cause a runtime error. The `SelectedCalendar` model does not have a field with an `@updatedAt` attribute, so Prisma's `updateMany` will throw a `PrismaClientValidationError` when called with an empty data object `{}`. This logic appears to be a leftover from a refactored approach and should be removed to prevent Google Calendar webhook processing from failing."
+    },
+    {
+      "path": "packages/prisma/schema.prisma",
+      "line": 1718,
+      "type": "bug",
+      "comment": "The `updatedAt` field on the `CalendarCache` model is missing a `@default(now())` attribute. Since the corresponding database column is `NOT NULL`, `create` operations for `CalendarCache` will fail because no value is provided for `updatedAt` and there is no database-level default. This will break calendar caching. Additionally, the current migration will fail on databases with existing data. Adding `@default(now())` and regenerating the migration will fix both issues. The field definition should be `updatedAt DateTime @default(now()) @updatedAt`."
+    }
+  ]
+}

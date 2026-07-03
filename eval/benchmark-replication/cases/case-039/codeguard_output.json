@@ -1,0 +1,13 @@
+{
+  "summary": "This pull request implements support for storing and managing recovery key credentials within federated user storage providers, falling back to local storage if the provider doesn't support it.",
+  "risk_level": "medium",
+  "thought_process": "I analyzed the changes across all modified files. The core logic is introduced in `CredentialHelper` for creating credentials and `RecoveryAuthnCodesUtils` for retrieving them, both correctly prioritizing user storage before falling back to local storage. The existing authenticator and required action are updated to use these new utilities. The main part of the change is updating the `BackwardsCompatibilityUserStorage` test provider to handle recovery codes. I examined its implementation of `supportsCredentialType`, `updateCredential`, `getCredentials`, `isConfiguredFor`, and `isValid`. The logic for storing, retrieving, and validating recovery codes seems correct. The new integration test in `BackwardsCompatibilityUserStorageTest` provides good coverage for the happy path: setting up recovery codes via a required action and then logging in with one, asserting that the credential is in the user storage and not the local DB. I considered potential issues like `NoSuchElementException` in `RecoveryAuthnCodeInputLoginBean` but concluded it's safe within the authentication flow. The only minor issue I found is in the error handling within the test storage provider (`BackwardsCompatibilityUserStorage`), where a deserialization failure is silently swallowed. This could lead to confusing behavior where a credential just disappears, so I will add a maintainability comment about it.",
+  "comments": [
+    {
+      "path": "testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorage.java",
+      "line": 226,
+      "type": "maintainability",
+      "comment": "Swallowing the `IOException` here and only logging an error could lead to confusing behavior. If the credential data is corrupted, the recovery codes will silently disappear from the user's perspective (e.g., in the account console), and they won't be able to use them for login. Consider re-throwing a `RuntimeException` to signal a storage-level failure more explicitly. This would result in a server error response instead of silently hiding the credential, making the underlying problem easier to diagnose."
+    }
+  ]
+}

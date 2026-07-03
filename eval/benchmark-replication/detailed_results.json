@@ -1,0 +1,940 @@
+[
+  {
+    "caseId": "case-001",
+    "prTitle": "Async import of the appStore packages",
+    "judgments": [
+      {
+        "golden": "Consider adding try-catch around the await to handle import failures gracefully",
+        "status": "no_match",
+        "reasoning": "The golden comment suggests adding a try-catch block to handle potential import failures. CodeGuard's comments identify a different, unrelated issue concerning the misuse of `async` callbacks within `Array.prototype.forEach`, which can lead to unhandled promise rejections."
+      },
+      {
+        "golden": "The code uses forEach with async callbacks, which causes asynchronous operations (e.g., calendar/video event deletions, payment refunds) to run concurrently without being awaited. This 'fire-and-forget' behavior leads to unhandled promise rejections, race conditions, and incomplete cleanup, as surrounding try-catch blocks cannot properly handle errors from these unawaited promises. Replace forEach with for...of loops or Promise.all() with map() to ensure proper sequential execution and error handling.",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identifies the use of `forEach` with async callbacks, explaining that it leads to unawaited promises, race conditions, and unhandled promise rejections because `try...catch` blocks are ineffective. The suggested solutions (`for...of` or `Promise.all` with `map`) are also identical to the golden comment."
+      }
+    ]
+  },
+  {
+    "caseId": "case-002",
+    "prTitle": "feat: 2fa backup codes",
+    "judgments": [
+      {
+        "golden": "The exported function TwoFactor handles backup codes and is in BackupCode.tsx. Inconsistent naming.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies an inconsistent naming convention where a function related to backup codes is in a file named `BackupCode.tsx`. CodeGuard's comments identify security vulnerabilities (race conditions) and a potential memory leak, none of which relate to the naming issue."
+      },
+      {
+        "golden": "Error message mentions 'backup code login' but this is a disable endpoint, not login",
+        "status": "no_match",
+        "reasoning": "The golden comment points out an incorrect error message string that mentions 'login' on a 'disable' endpoint. CodeGuard's comments identify valid but unrelated issues: two race condition vulnerabilities and a memory leak, completely missing the specific UI/text bug."
+      },
+      {
+        "golden": "Backup code validation is case-sensitive due to the use of indexOf(). This causes validation to fail if a user enters uppercase hex characters, as backup codes should be case-insensitive for a better user experience.",
+        "status": "no_match",
+        "reasoning": "The golden comment describes a case-sensitivity bug in backup code validation. CodeGuard's comments identify unrelated issues, specifically race conditions and a potential memory leak, but fail to mention the case-sensitivity problem."
+      },
+      {
+        "golden": "Because backupCodes are decrypted and mutated in memory before being written back, two concurrent login requests using the same backupCode could both pass this check and update, so a single backup code may effectively be accepted more than once if used concurrently, weakening the intended one-time-use semantics.",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identified the race condition vulnerability where a backup code could be used multiple times concurrently due to a non-atomic read-verify-update operation, which is the exact issue described in the Golden Comment."
+      }
+    ]
+  },
+  {
+    "caseId": "case-003",
+    "prTitle": "fix: handle collective multiple host on destinationCalendar",
+    "judgments": [
+      {
+        "golden": "Potential null reference if mainHostDestinationCalendar is undefined if evt.destinationCalendar is null or an empty array ",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a potential null reference if the destination calendar array is null or empty. CodeGuard's comments identify a different logical bug where only the first calendar in the array is used, but they do not address the null/empty case or the risk of a null reference."
+      },
+      {
+        "golden": "The optional chaining on mainHostDestinationCalendar?.integration is redundant since you already check mainHostDestinationCalendar in the ternary condition.",
+        "status": "no_match",
+        "reasoning": "CodeGuard identified several complex bugs related to calendar event handling and a separate instance of redundant code (a duplicated 'if' check). However, it did not identify the specific redundant optional chaining operator mentioned in the Golden Comment."
+      },
+      {
+        "golden": "Logic error: when externalCalendarId is provided, you're searching for a calendar where externalId === externalCalendarId, but this will always fail since you're looking for a calendar that matches itself. Should likely find by credentialId or use different logic.",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identifies that the calendar services are failing to handle multiple destination calendars and proposes the exact same fix as the Golden Comment: using the `credentialId` to find the correct calendar. While the Golden Comment describes a specific flawed comparison, CodeGuard identifies the broader bug and the correct solution, which is a clear semantic match."
+      },
+      {
+        "golden": "Logic inversion in organization creation: The slug property is now conditionally set when IS_TEAM_BILLING_ENABLED is true, instead of when it's false as originally intended. This change, combined with requestedSlug still being set when IS_TEAM_BILLING_ENABLED is true, results in both properties being set when billing is enabled, and neither when disabled",
+        "status": "no_match",
+        "reasoning": "The golden comment describes a logic inversion bug related to a billing feature flag (`IS_TEAM_BILLING_ENABLED`) during organization creation. CodeGuard's comments identify unrelated issues concerning the handling of multiple destination calendars in various calendar and booking services."
+      },
+      {
+        "golden": "The Calendar interface now requires createEvent(event, credentialId), but some implementations (e.g., Lark/Office365) still declare createEvent(event) only—this breaks the interface contract (also applies to other locations in the PR).",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identified that the `Lark` and `Office365` calendar services were not updated to match the new `Calendar` interface, which now requires `createEvent` to accept a `credentialId`. This directly corresponds to the issue described in the Golden Comment."
+      }
+    ]
+  },
+  {
+    "caseId": "case-004",
+    "prTitle": "feat: convert InsightsBookingService to use Prisma.sql raw queries",
+    "judgments": [
+      {
+        "golden": "In getBaseConditions(), the else if (filterConditions) and final else branches are unreachable. This is because getAuthorizationConditions() always returns a non-null Prisma.Sql object, making authConditions always truthy, which means only the first two if/else if conditions are ever evaluated.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies unreachable code branches due to a logical flaw where a condition is always truthy. CodeGuard's comment points out that tests for caching functionality were removed, which is a completely distinct and unrelated issue."
+      },
+      {
+        "golden": "Fetching userIdsFromOrg only when teamsFromOrg.length > 0 can exclude org-level members for orgs without child teams; consider deriving from teamIds (which includes orgId) or removing the guard so org-only orgs still include member user bookings.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies a logic bug where users from organizations without teams are incorrectly excluded. CodeGuard's comment points out the removal of tests for caching functionality, which is a completely different and unrelated issue."
+      }
+    ]
+  },
+  {
+    "caseId": "case-005",
+    "prTitle": "Comprehensive workflow reminder management for booking lifecycle events",
+    "judgments": [
+      {
+        "golden": "Asynchronous functions deleteScheduledEmailReminder and deleteScheduledSMSReminder are called without await inside forEach loops. This occurs during booking rescheduling/cancellation, and workflow/workflow step deletion/updates. Consequently, scheduled workflow reminders may not be reliably cancelled, potentially leaving them active.",
+        "status": "match",
+        "reasoning": "CodeGuard's second comment correctly identifies the core issue described in the Golden Comment: asynchronous functions are being called inside a `forEach` loop without being awaited, leading to a fire-and-forget situation with unhandled promises."
+      },
+      {
+        "golden": "When immediateDelete is true, the deleteScheduledEmailReminder function cancels the SendGrid email but fails to delete the corresponding WorkflowReminder record from the database. This creates orphaned database entries and is inconsistent with the immediateDelete: false path, which marks the record as cancelled. The SendGrid DELETE API call is also omitted in this path.",
+        "status": "match",
+        "reasoning": "The first comment from CodeGuard accurately identifies the core issue described in the Golden Comment. It correctly points out that when `immediateDelete` is true, the function fails to delete the `WorkflowReminder` record from the database, leading to orphaned entries."
+      }
+    ]
+  },
+  {
+    "caseId": "case-006",
+    "prTitle": "Advanced date override handling and timezone compatibility improvements",
+    "judgments": [
+      {
+        "golden": "Incorrect end time calculation using slotStartTime instead of slotEndTime",
+        "status": "match",
+        "reasoning": "CodeGuard's second comment explicitly identifies a copy-paste error where the end time calculation incorrectly uses `slotStartTime` instead of the slot's actual end time, which is a direct semantic match to the Golden Comment."
+      },
+      {
+        "golden": "Using === for dayjs object comparison will always return false as it compares object references, not values. Use .isSame() method instead: dayjs(date.start).add(utcOffset, 'minutes').isSame(dayjs(date.end).add(utcOffset, minutes))",
+        "status": "match",
+        "reasoning": "The first comment from CodeGuard explicitly identifies that `dayjs(...) === dayjs(...)` compares object instances and will always be `false`, which is the core issue described in the Golden Comment. It also correctly suggests using the `.isSame()` method as the solution."
+      }
+    ]
+  },
+  {
+    "caseId": "case-007",
+    "prTitle": "OAuth credential sync and app integration enhancements",
+    "judgments": [
+      {
+        "golden": "The parseRefreshTokenResponse function incorrectly sets refresh_token to the hardcoded string 'refresh_token' when it's missing from the OAuth refresh token response. This invalidates the token, breaking subsequent token refreshes and causing authentication failures.",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identified that injecting the placeholder string 'refresh_token' when one isn't returned by the provider is dangerous, as it will corrupt the credential and cause subsequent refresh attempts to fail, which directly matches the Golden Comment."
+      },
+      {
+        "golden": "Invalid Zod schema syntax. Computed property keys like [z.string().toString()] are not valid in Zod object schemas and will cause runtime errors. ",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identified that the Zod schema was invalid due to the `[z.string().toString()]` syntax. It accurately explained that this creates a conflict with other defined properties, which is the direct consequence of the invalid syntax mentioned in the Golden Comment."
+      },
+      {
+        "golden": "parseRefreshTokenResponse returns a Zod safeParse result ({ success, data, error }), not the credential key object. Persisting that as key stores the wrapper instead of the token payload; we should store the parsed data or use schema parse.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies that the code is incorrectly persisting the entire Zod `safeParse` result object instead of the actual token data. None of CodeGuard's comments address this specific issue regarding the misuse of the function's return value."
+      },
+      {
+        "golden": "When APP_CREDENTIAL_SHARING_ENABLED and CALCOM_CREDENTIAL_SYNC_ENDPOINT are set, the refreshFunction helper returns the fetch Response, but several callers (for example GoogleCalendarService.refreshAccessToken expecting res.data, and HubspotCalendarService.refreshAccessToken expecting a HubspotToken) assume it returns the integration-specific token object. That mismatch will cause runtime errors in the sync-enabled path unless the return type or those call sites are adjusted.",
+        "status": "no_match",
+        "reasoning": "CodeGuard identified several unrelated potential bugs concerning error handling, schema validation, and environment variables. It failed to identify the core issue from the Golden Comment, which is a return type mismatch where a helper function returns a raw `Response` object instead of the parsed token object expected by its callers."
+      },
+      {
+        "golden": "When the sync endpoint path is used, res is a fetch Response and has no .data; res?.data will be undefined and token.access_token will throw at runtime. This relies on a consistent return shape from refreshOAuthTokens, which isn’t guaranteed currently.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a runtime error from incorrectly accessing `.data` on a raw fetch `Response` object. None of CodeGuard's comments identify this specific issue, instead focusing on unrelated problems like schema validation, error handling, and environment variable generation."
+      }
+    ]
+  },
+  {
+    "caseId": "case-008",
+    "prTitle": "SMS workflow reminder retry count tracking",
+    "judgments": [
+      {
+        "golden": "Using retryCount: reminder.retryCount + 1 reads a possibly stale value and can lose increments under concurrency; consider an atomic increment via Prisma (increment: 1) to avoid race conditions (also applies to the similar update in the catch block).",
+        "status": "no_match",
+        "reasoning": "CodeGuard failed to identify the race condition bug. While it commented on the code that increments the retry count, it only flagged it as a code duplication issue and missed the critical concurrency problem of using a non-atomic update."
+      },
+      {
+        "golden": "The deletion logic in scheduleSMSReminders.ts incorrectly deletes non-SMS workflow reminders (e.g., Email, WhatsApp) that have retryCount > 1. This occurs because the retryCount condition within the OR clause for deletion lacks a method: WorkflowMethods.SMS filter, causing it to apply to all reminder types instead of only SMS reminders, which is the intended scope of this function.",
+        "status": "match",
+        "reasoning": "CodeGuard's first comment precisely identifies the bug described in the Golden Comment, explaining that the deletion logic incorrectly affects non-SMS reminders because the `retryCount` condition is not properly scoped to only SMS workflows within the `OR` clause."
+      }
+    ]
+  },
+  {
+    "caseId": "case-009",
+    "prTitle": "Add guest management functionality to existing bookings",
+    "judgments": [
+      {
+        "golden": "Case sensitivity bypass in email blacklist",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a case sensitivity bypass in an email blacklist. None of the AI-generated comments address this specific issue; instead, they focus on incorrect user credentials, faulty authorization logic, and client-side validation of empty fields."
+      },
+      {
+        "golden": "The logic for checking team admin/owner permissions is incorrect. This condition uses AND (&&) which requires both isTeamAdmin AND isTeamOwner to be true, but it should use OR (||) since a user needs to be either an admin OR an owner to have permission.",
+        "status": "match",
+        "reasoning": "The second comment from CodeGuard perfectly identifies the core issue described in the Golden Comment, which is the incorrect use of a logical AND (&&) instead of a logical OR (||) for checking team admin and owner permissions."
+      },
+      {
+        "golden": "This calls the email sender with the original guests, so existing attendees included in the input will be treated as new when sending notifications, leading to incorrect emails.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies a bug where email notifications are sent incorrectly because existing attendees are treated as new guests. CodeGuard's comments identify valid but unrelated issues concerning user permissions, authorization logic, and client-side validation, failing to address the core notification problem."
+      },
+      {
+        "golden": "uniqueGuests filters out existing attendees and blacklisted emails but does not deduplicate duplicates within the input; createMany can insert duplicate attendee rows if the client submits repeated emails.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a server-side bug where duplicate emails in the input are not deduplicated, leading to duplicate database entries. CodeGuard's comments discuss unrelated issues regarding user permissions, authorization logic, and client-side handling of empty strings, but do not mention the core issue of duplicate input handling."
+      },
+      {
+        "golden": "Starting with an array containing an empty string may cause validation issues. Consider starting with an empty array [] and handling the empty state in the MultiEmail component instead.",
+        "status": "match",
+        "reasoning": "CodeGuard's third comment correctly identifies that the component initializes its state with an array containing an empty string (`useState([\"\"])`), which is the exact issue described in the Golden Comment. Both comments point out that this leads to validation failures on submission."
+      }
+    ]
+  },
+  {
+    "caseId": "case-010",
+    "prTitle": "feat: add calendar cache status and actions (#22532)",
+    "judgments": [
+      {
+        "golden": "The updateManyByCredentialId call uses an empty data object, which prevents Prisma's @updatedAt decorator from updating the updatedAt timestamp. This results in inaccurate cache status tracking, as the timestamp isn't updated when the cache is refreshed. To fix this, explicitly set the updatedAt field.",
+        "status": "no_match",
+        "reasoning": "CodeGuard identifies the `updateMany` call with an empty data object but completely misdiagnoses the problem. The golden comment correctly states the issue is that Prisma's `@updatedAt` doesn't trigger, leading to a stale timestamp, whereas CodeGuard incorrectly claims the call will cause a runtime error for a different reason."
+      },
+      {
+        "golden": "logic: macOS-specific sed syntax with empty string after -i flag will fail on Linux systems",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a cross-platform compatibility issue with `sed` syntax between macOS and Linux. The AI's comments are completely unrelated, focusing on Prisma ORM schema and runtime errors in TypeScript code."
+      }
+    ]
+  },
+  {
+    "caseId": "case-011",
+    "prTitle": "FEATURE: automatically downsize large images",
+    "judgments": [
+      {
+        "golden": "The downsize method is defined twice. The second definition, which expects a single dimensions string parameter, overrides the first, which expected separate max_width and max_height parameters. This makes the original method unreachable and breaks existing code that calls it with separate width and height arguments.",
+        "status": "match",
+        "reasoning": "CodeGuard's maintainability comment correctly identifies the core issue: the signature of the `downsize` method has changed from accepting `max_width` and `max_height` to a `dimensions` string, flagging it as a breaking change that could affect existing call sites. This is semantically identical to the golden comment's description of the method being overridden and breaking existing code."
+      },
+      {
+        "golden": "Hardcoding maxSizeKB = 10 * 1024 ignores Discourse.SiteSettings['max_' + type + '_size_kb'], so the client-side limit can diverge from server-side and per-type settings (also applies to the 413 handler below).",
+        "status": "match",
+        "reasoning": "CodeGuard's first comment correctly identifies that the hardcoded `maxSizeKB` value ignores the dynamic `Discourse.SiteSettings['max_' + type + '_size_kb']`, which is the exact issue described in the Golden Comment. The second comment also correctly flags the same hardcoding issue in the 413 error handler, which was also mentioned in the Golden Comment."
+      },
+      {
+        "golden": "Passing 80% as the dimensions can fail for animated GIFs when allow_animated_thumbnails is true, since the animated path uses gifsicle --resize-fit which expects WxH geometry, not a percentage; downsizing would then silently fail.",
+        "status": "no_match",
+        "reasoning": "CodeGuard's comments discuss file size limits, resizing performance, and API signature changes. None of the comments identify the core issue from the golden comment, which is that the `gifsicle` command for animated GIFs fails when given a percentage dimension instead of a WxH geometry."
+      }
+    ]
+  },
+  {
+    "caseId": "case-012",
+    "prTitle": "FEATURE: per-topic unsubscribe option in emails",
+    "judgments": [
+      {
+        "golden": "logic: Potential nil pointer exception - if no TopicUser record exists, tu will be nil and calling methods on it will crash",
+        "status": "match",
+        "reasoning": "The second bug comment from CodeGuard explicitly identifies the exact issue described in the Golden Comment: the `tu` object can be `nil` if no `TopicUser` record exists, which will cause a `NoMethodError` (a nil pointer exception) on a subsequent method call."
+      },
+      {
+        "golden": "Typo in property name: 'stopNotificiationsText' should be 'stopNotificationsText' (missing 'n' in 'Notifications')",
+        "status": "match",
+        "reasoning": "CodeGuard successfully identified the exact typo in the property name 'stopNotificiationsText', which is the core issue described in the Golden Comment."
+      }
+    ]
+  },
+  {
+    "caseId": "case-013",
+    "prTitle": "Add comprehensive email validation for blocked users",
+    "judgments": [
+      {
+        "golden": "BlockedEmail.should_block_email? method has side effects during a read operation - it updates statistics even when just checking if an email should be blocked. This could cause race conditions in concurrent environments and makes the method name misleading.",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identified the race condition caused by the non-atomic update within the method, which is the core technical bug described in the Golden Comment. It accurately explained the read-modify-write issue and proposed a valid atomic fix."
+      },
+      {
+        "golden": "Regex pattern @(#{domains}) only matches domain suffixes, not full domains. evil.example.com would match whitelist entry example.com.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a flawed regular expression for domain matching, while the AI's comment points out an unrelated race condition in a database counter update."
+      }
+    ]
+  },
+  {
+    "caseId": "case-014",
+    "prTitle": "Enhance embed URL handling and validation system",
+    "judgments": [
+      {
+        "golden": "SSRF vulnerability using open(url) without validation",
+        "status": "match",
+        "reasoning": "CodeGuard's comment for `app/models/topic_embed.rb:51` explicitly identifies the Server-Side Request Forgery (SSRF) vulnerability resulting from an unvalidated `url` being passed to `open()`, which directly corresponds to the issue described in the Golden Comment."
+      },
+      {
+        "golden": "The current origin validation using indexOf is insufficient and can be bypassed. An attacker could use a malicious domain like evil-discourseUrl.com to pass this check.",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identified that the origin check using `indexOf` is insecure and can be bypassed by a malicious domain, which directly corresponds to the issue described in the golden comment."
+      },
+      {
+        "golden": "postMessage targetOrigin should be the origin (scheme+host+port), not the full referrer URL; using the full URL will cause the message to be dropped and prevent resizing.",
+        "status": "no_match",
+        "reasoning": "CodeGuard identified a potential XSS vulnerability related to using `request.referer` in `postMessage`, but it missed the core functional issue described in the Golden Comment. The Golden Comment's issue is that the full URL is used for `targetOrigin` instead of just the origin, causing the message to be dropped, which is a different problem than the one CodeGuard found."
+      },
+      {
+        "golden": "The code sets X-Frame-Options: ALLOWALL which completely disables clickjacking protection. The referer validation can be bypassed (referer headers are easily spoofed), and the fallback to empty string for nil referer masks validation failures.",
+        "status": "match",
+        "reasoning": "CodeGuard's final comment correctly identifies that the security check relies on the `Referer` header, which can be easily spoofed to bypass embedding restrictions. This directly corresponds to a core vulnerability mentioned in the Golden Comment."
+      },
+      {
+        "golden": "The TopicEmbed.import method is susceptible to a NoMethodError if the contents parameter is nil when attempting to append a string, and an XSS vulnerability due to unescaped url interpolation in the generated HTML.",
+        "status": "match",
+        "reasoning": "CodeGuard's comment for `app/models/topic_embed.rb:11` correctly identifies the stored XSS vulnerability caused by interpolating an unescaped URL directly into an HTML string, which is one of the two core issues described in the golden comment."
+      },
+      {
+        "golden": "The ERB block closes with end if, which is invalid Ruby/ERB and will raise at render; it should just be end to close the if block.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies a Ruby/ERB syntax error where an `if` block is incorrectly closed with `end if`. The AI tool's comments all focus on security vulnerabilities like XSS and SSRF and do not mention the syntax bug."
+      }
+    ]
+  },
+  {
+    "caseId": "case-015",
+    "prTitle": "Optimize header layout performance with flexbox mixins",
+    "judgments": [
+      {
+        "golden": "Mixing float: left with flexbox causes layout issues. Further this PR removes the float-based right alignment for .d-header .panel, which may cause the login panel in the non-Ember/noscript header (where .panel is nested inside .row and not a flex item) to stack under the title instead of remaining right-aligned.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a layout bug caused by mixing `float` and `flexbox` properties. The AI's comments are unrelated, focusing on incorrect and missing vendor prefixes within a Sass mixin."
+      },
+      {
+        "golden": "-ms-align-items never existed in any version of IE/Edge; the correct legacy property is -ms-flex-align.",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identifies that `-ms-align-items` is not a valid CSS property and that the correct property for IE is `-ms-flex-align`, which is a direct match to the issue described in the Golden Comment."
+      }
+    ]
+  },
+  {
+    "caseId": "case-016",
+    "prTitle": "UX: show complete URL path if website domain is same as instance domain",
+    "judgments": [
+      {
+        "golden": "The include_website_name method is missing the required ? suffix. Rails serializers expect include_ methods to end with ? for conditional attribute inclusion, a convention followed by other methods in this serializer. Without it, the website_name attribute may not be conditionally included as intended. Additionally, the '.' << website_host string concatenation should be replaced with '.' + website_host or '.#{website_host}' to avoid mutating string literals, which can lead to issues.",
+        "status": "no_match",
+        "reasoning": "CodeGuard's comments focus on exception handling and performance, completely missing the two issues described in the Golden Comment: the missing '?' suffix required by the Rails serializer convention and the unsafe string literal mutation."
+      }
+    ]
+  },
+  {
+    "caseId": "case-017",
+    "prTitle": "scale-color $lightness must use $secondary for dark themes",
+    "judgments": [
+      {
+        "golden": "In .topic-meta-data h5 a, the original code had color: scale-color($primary, $lightness: 30%) but was changed to dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%)). The lightness for the light theme changed from 30% to 70%, which is a dramatic inversion",
+        "status": "match",
+        "reasoning": "The first comment from CodeGuard perfectly identifies the issue described in the Golden Comment, specifically noting that the lightness for the light theme was incorrectly changed from 30% to 70%, which is a 'dramatic inversion'."
+      },
+      {
+        "golden": "This change for desktop/user.css changes $primary from 30% to 50% for the light theme; most other changes preserve the original $primary value and move the complement to $secondary for dark. Consider reviewing this (also applies to a similar .name change in the mobile variant).",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identified the core issue described in the Golden Comment, specifically pointing out that the lightness value for the light theme in `desktop/user.scss` and `mobile/user.scss` was unintentionally changed from 30% to 50%."
+      },
+      {
+        "golden": "In topic-post.css the original code used $lightness: 70% but the replacement uses $lightness: 30% for the light theme. This makes the text significantly darker than intended.",
+        "status": "no_match",
+        "reasoning": "CodeGuard's comment for `topic-post.scss` describes the opposite change (30% to 70%) from what the Golden Comment states (70% to 30%). While CodeGuard found similar issues in other files, it failed to correctly identify the specific bug described in the Golden Comment for the correct file."
+      }
+    ]
+  },
+  {
+    "caseId": "case-018",
+    "prTitle": "FIX: proper handling of group memberships",
+    "judgments": [
+      {
+        "golden": " The findMembers() call is now asynchronous and unhandled. The controller may not have member data immediately available, creating a race condition.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a race condition caused by an unhandled asynchronous call. CodeGuard's comments identify two unrelated issues with pagination logic and UI, but fail to detect the race condition."
+      },
+      {
+        "golden": "In the next action, capping the next offset at user_count can produce an empty page (e.g., total equal to limit results in offset == total, showing 2/2 with no members). This can cause confusing UX on the last page.",
+        "status": "match",
+        "reasoning": "CodeGuard's first comment correctly identifies the root cause of the issue described in the Golden Comment: an incorrect `totalPages` calculation when the user count is an exact multiple of the page limit, which results in an extra, empty page."
+      },
+      {
+        "golden": "HTTP method mismatch in .remove_member - test uses PUT but remove_member action expects DELETE",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies an HTTP method mismatch (PUT vs. DELETE) for the `remove_member` action. The AI's comments are unrelated, focusing on pagination calculation errors and missing UI controls."
+      }
+    ]
+  },
+  {
+    "caseId": "case-019",
+    "prTitle": "FEATURE: Localization fallbacks (server-side)",
+    "judgments": [
+      {
+        "golden": "Thread-safety issue with lazy @loaded_locales",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identified the thread-safety issue, describing it as a race condition in a multi-threaded environment involving the `@loaded_locales` variable, which directly corresponds to the golden comment."
+      },
+      {
+        "golden": "Consider normalizing the input locale (e.g., to a symbol) when checking/loading here to avoid double-loading if the same locale is passed as a String vs Symbol (also applies to other locations in the PR).",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a bug related to lack of input normalization (String vs. Symbol for locale), leading to double-loading. The AI's comment identifies a completely different potential bug: a race condition in a multi-threaded environment."
+      }
+    ]
+  },
+  {
+    "caseId": "case-020",
+    "prTitle": "FEATURE: Can edit category/host relationships for embedding",
+    "judgments": [
+      {
+        "golden": "NoMethodError before_validation in EmbeddableHost",
+        "status": "no_match",
+        "reasoning": "CodeGuard identified several valid issues, including a different `NoMethodError` in the controller, but it failed to detect the specific `NoMethodError` occurring in the `before_validation` callback of the `EmbeddableHost` model as described in the golden comment."
+      },
+      {
+        "golden": "The update and destroy methods in Admin::EmbeddableHostsController do not validate the existence of the EmbeddableHost record retrieved by ID. If EmbeddableHost.where(id: params[:id]).first returns nil (i.e., the host does not exist), attempting to call methods on the nil object (e.g., save_host or destroy) will result in a NoMethodError.",
+        "status": "match",
+        "reasoning": "CodeGuard's second comment perfectly identifies the issue described in the Golden Comment. It correctly points out that using `where(id: ...).first` in the `Admin::EmbeddableHostsController` can return `nil` if the record doesn't exist, which will cause a `NoMethodError` in both the `update` and `destroy` actions."
+      },
+      {
+        "golden": "record_for_host compares lower(host) = ? but does not normalize the parameter’s case, so mixed‑case referer hosts may fail to match even though comparison intends to be case‑insensitive.",
+        "status": "match",
+        "reasoning": "CodeGuard's third comment accurately identifies the case-sensitivity bug where the database column is lowercased for comparison but the input parameter is not, which is the exact issue described in the Golden Comment."
+      },
+      {
+        "golden": "Because this migration inserts embeddable_hosts rows with raw SQL, any existing embeddable_hosts values that include http:// or /https:// or path segments won’t go through the EmbeddableHost model’s normalization, so the new host lookup (which compares only the bare host) may fail for migrated data. Consider ensuring that migrated hosts are normalized to the same format as newly created EmbeddableHost records so existing embedding configurations keep working.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies a data normalization bug in a migration where raw SQL is used, bypassing model logic. CodeGuard identifies a potential SQL injection vulnerability in the same line of code but does not mention the data normalization issue, which is the core of the Golden Comment."
+      }
+    ]
+  },
+  {
+    "caseId": "case-021",
+    "prTitle": "Anonymous: Add configurable device limit",
+    "judgments": [
+      {
+        "golden": "Race condition: Multiple concurrent requests could pass the device count check simultaneously and create devices beyond the limit. Consider using a database transaction or lock.",
+        "status": "match",
+        "reasoning": "CodeGuard's first comment correctly identifies the race condition in the device count check, explains how concurrent requests can bypass the limit, and suggests using a database transaction to fix it, which aligns perfectly with the Golden Comment."
+      },
+      {
+        "golden": "Anonymous authentication now fails entirely if anonDeviceService.TagDevice returns ErrDeviceLimitReached. Previously, device tagging was asynchronous and non-blocking. This change prevents anonymous users from authenticating when the device limit is reached.",
+        "status": "match",
+        "reasoning": "CodeGuard's performance comment correctly identifies the core change described in the Golden Comment: the device tagging logic was moved from an asynchronous goroutine to a synchronous, blocking call in the authentication path. This is the root cause of the authentication failure when the device limit is reached."
+      },
+      {
+        "golden": "This call won’t compile: dbSession.Exec(args...) is given a []interface{} where the first element is the query, but Exec’s signature requires a first parameter of type string (not an interface{} splat).",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a compile-time type error where a function expecting a string argument is incorrectly passed an `interface{}` from a slice. CodeGuard's comments identify completely unrelated issues: a race condition, a conditional logic bug, and a performance regression."
+      },
+      {
+        "golden": "Returning ErrDeviceLimitReached when no rows were updated is misleading; the device might not exist.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a misleading error message (`ErrDeviceLimitReached`) being returned when an update fails because the device doesn't exist. CodeGuard's comments identify a race condition, incorrect IP address handling, and a performance regression, but none of them address the specific misleading error message issue."
+      },
+      {
+        "golden": "Time window calculation inconsistency: Using device.UpdatedAt.UTC().Add(-anonymousDeviceExpiration) as the lower bound but device.UpdatedAt as the current time may not match the intended logic. Consider using time.Now().UTC() consistently.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies an inconsistency in time window calculation logic. CodeGuard's comments identify three unrelated issues: a TOCTOU race condition, a bug in setting RemoteAddr, and a performance regression, but none of them address the time calculation problem."
+      }
+    ]
+  },
+  {
+    "caseId": "case-022",
+    "prTitle": "AuthZService: improve authz caching",
+    "judgments": [
+      {
+        "golden": "The Check operation exhibits asymmetric cache trust logic: cached permission grants are trusted and returned immediately, but cached denials from the same permission cache are ignored, leading to a fresh database lookup. This allows stale cached grants to provide access to revoked resources, posing a security risk. ",
+        "status": "no_match",
+        "reasoning": "The Golden Comment describes a security risk where stale cached *grants* allow access after revocation. CodeGuard identifies the opposite problem, a correctness issue where stale cached *denials* prevent access after a user is granted permissions."
+      },
+      {
+        "golden": "The test comment says the cached permissions 'allow access', but the map stores false for dashboards:uid:dash1, so checkPermission will still treat this scope as not allowed.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies a specific logic error within a test case where the test setup (storing `false`) contradicts the test's description ('allow access'). CodeGuard's comments identify potential production bugs related to caching logic and consistency but do not address the incorrect logic within the test itself."
+      }
+    ]
+  },
+  {
+    "caseId": "case-023",
+    "prTitle": "Plugins: Chore: Renamed instrumentation middleware to metrics middleware",
+    "judgments": [
+      {
+        "golden": "The ContextualLoggerMiddleware methods (QueryData, CallResource, CheckHealth, CollectMetrics) panic when a nil request is received. This occurs because they directly access req.PluginContext (via the instrumentContext function) without first checking if req is nil. This is a regression, as previous middleware layers gracefully handled nil requests.",
+        "status": "no_finding",
+        "reasoning": "CodeGuard produced no comments"
+      },
+      {
+        "golden": "The traceID is no longer logged for plugin requests. During a refactoring, the tracing import and the logic to extract and add traceID from the context to log parameters were removed from the LoggerMiddleware. The newly introduced ContextualLoggerMiddleware does not add this information, resulting in missing traceID in plugin request logs and impacting debugging and request tracing capabilities.",
+        "status": "no_finding",
+        "reasoning": "CodeGuard produced no comments"
+      }
+    ]
+  },
+  {
+    "caseId": "case-024",
+    "prTitle": "Advanced Query Processing Architecture",
+    "judgments": [
+      {
+        "golden": "The applyTemplateVariables method is called with request.filters as the third parameter, but this parameter is not used in the corresponding test setup.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies an unused parameter in a test setup for the `applyTemplateVariables` method. The AI's comment focuses on the inefficiency of calling this method multiple times, which is a distinct performance and maintainability issue, not the testing discrepancy mentioned in the Golden Comment."
+      }
+    ]
+  },
+  {
+    "caseId": "case-025",
+    "prTitle": "Notification Rule Processing Engine",
+    "judgments": [
+      {
+        "golden": "The rendered GrafanaRuleListItem is missing the required key prop for React list items. This can cause rendering issues when the list order changes.",
+        "status": "no_finding",
+        "reasoning": "CodeGuard produced no comments"
+      },
+      {
+        "golden": "RuleActionsButtons is invoked with only promRule, but SilenceGrafanaRuleDrawer inside RuleActionsButtons still depends on a Grafana Ruler rule being present, so for Grafana rules coming from list views the 'Silence notifications' menu entry (now driven by Grafana Prom abilities) will toggle showSilenceDrawer without ever rendering the drawer. This means clicking 'Silence notifications' for these rules has no visible effect, even when abilities indicate silencing is allowed.",
+        "status": "no_finding",
+        "reasoning": "CodeGuard produced no comments"
+      }
+    ]
+  },
+  {
+    "caseId": "case-026",
+    "prTitle": "Dual Storage Architecture",
+    "judgments": [
+      {
+        "golden": "The context is being created with d.Log instead of the log variable that was initialized with additional context values (name, kind, method). This means those values won't be propagated to the logging context.",
+        "status": "match",
+        "reasoning": "CodeGuard's comment on line 96 perfectly matches the golden comment, identifying that the context was being updated with the base logger `d.Log` instead of the method-specific `log` variable, which resulted in the loss of contextual values."
+      },
+      {
+        "golden": "Bug: calling recordLegacyDuration when storage operation fails should be recordStorageDuration.",
+        "status": "match",
+        "reasoning": "CodeGuard's comments at lines 46 and 132 precisely identify the bug described in the Golden Comment, which is the incorrect use of `recordLegacyDuration` instead of `recordStorageDuration` in the error path of a storage operation."
+      },
+      {
+        "golden": "Inconsistency: using name instead of options.Kind for metrics recording differs from other methods.",
+        "status": "match",
+        "reasoning": "CodeGuard's comment on line 105 explicitly identifies the core issue described in the Golden Comment, stating that the metric is incorrectly called with `name` as the `kind` parameter and that it should be `options.Kind` instead."
+      }
+    ]
+  },
+  {
+    "caseId": "case-027",
+    "prTitle": "Database Performance Optimizations",
+    "judgments": [
+      {
+        "golden": "The code uses Error log level for what appears to be debugging information. This will pollute error logs in production. Consider using Debug or Info level instead.",
+        "status": "match",
+        "reasoning": "The first comment from CodeGuard correctly identifies that `log.Error` is being used for informational messages, which will pollute error logs. It suggests changing the log level to `log.Debug`, which is a direct semantic match with the Golden Comment."
+      }
+    ]
+  },
+  {
+    "caseId": "case-028",
+    "prTitle": "Frontend Asset Optimization",
+    "judgments": [
+      {
+        "golden": "The GetWebAssets function implements an incomplete double-checked locking pattern for caching web assets. The function first checks if the cache is populated using a read lock (RLock), and if the cache is empty, it acquires a write lock to populate it. However, it fails to re-check whether the cache was populated by another goroutine while waiting to acquire the write lock.",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identified the flawed double-checked locking pattern and explicitly stated the need to re-check if the cache was populated after acquiring the write lock, which is the exact issue described in the Golden Comment."
+      },
+      {
+        "golden": "In addition to the missing double-check, the function has a critical flaw in its error handling: it unconditionally assigns the fetch result to the cache (line 69: entryPointAssetsCache = result) regardless of whether the fetch succeeded or failed. When an error occurs during asset fetching, result is nil, and this nil value overwrites any previously valid cache entry.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment describes two issues: a missing double-check and a more critical error handling flaw where a nil result is cached on failure. CodeGuard only identified the missing double-check, which is a performance/concurrency issue, but completely missed the critical error handling bug."
+      }
+    ]
+  },
+  {
+    "caseId": "case-029",
+    "prTitle": "Advanced SQL Analytics Framework",
+    "judgments": [
+      {
+        "golden": "The enableSqlExpressions function has flawed logic that always returns false, effectively disabling SQL expressions unconditionally:",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identified that the `enableSqlExpressions` function has flawed logic and always returns false, which is the exact issue described in the Golden Comment. It also provided a correct code suggestion to fix the bug."
+      },
+      {
+        "golden": "Several methods such as NewInMemoryDB().RunCommands and db.QueryFramesInto return 'not implemented'.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies several methods that are not implemented, while CodeGuard's comment points out an unrelated issue with incorrect feature flag logic in a different function."
+      }
+    ]
+  },
+  {
+    "caseId": "case-030",
+    "prTitle": "Unified Storage Performance Optimizations",
+    "judgments": [
+      {
+        "golden": "A race condition in BuildIndex allows multiple goroutines to concurrently build the same expensive index for the same key. This is caused by moving the b.cacheMu lock from protecting the entire function to only protecting the final cache assignment. ",
+        "status": "match",
+        "reasoning": "CodeGuard's first comment accurately identifies the race condition in `BuildIndex` caused by moving the lock. It correctly explains that this allows multiple goroutines to concurrently build the same expensive index for the same key, which directly aligns with the Golden Comment."
+      },
+      {
+        "golden": "Calling s.search.TotalDocs() here may race with concurrent index creation: TotalDocs iterates b.cache without synchronization, and the event watcher goroutine started just above could trigger BuildIndex writes concurrently, potentially causing a concurrent map read/write panic.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment describes a race condition between a read operation (TotalDocs) and a write operation (BuildIndex) on a shared map. CodeGuard identifies a different race condition between two concurrent write operations (two BuildIndex calls), which leads to resource leaks rather than a map read/write panic."
+      }
+    ]
+  },
+  {
+    "caseId": "case-031",
+    "prTitle": "Fixing Re-authentication with passkeys",
+    "judgments": [
+      {
+        "golden": "ConditionalPasskeysEnabled() called without UserModel parameter",
+        "status": "no_finding",
+        "reasoning": "CodeGuard produced no comments"
+      },
+      {
+        "golden": "With isConditionalPasskeysEnabled(UserModel user) requiring user != null, authenticate(...) will not call webauthnAuth.fillContextForm(context) on the initial login page where context.getUser() is still null, so conditional passkey UI will not be set up for first-time passkey login. Consider whether this should also be enabled when no user has been selected yet so ID-less passkey authentication on the initial login form continues to work.",
+        "status": "no_finding",
+        "reasoning": "CodeGuard produced no comments"
+      }
+    ]
+  },
+  {
+    "caseId": "case-032",
+    "prTitle": "Add caching support for IdentityProviderStorageProvider.getForLogin operations",
+    "judgments": [
+      {
+        "golden": "Recursive caching call using session instead of delegate",
+        "status": "no_match",
+        "reasoning": "The golden comment describes a recursive caching call bug. CodeGuard's comments identify two unrelated issues: an incorrect alias in a test cleanup and a redundant `isEnabled()` check in a different file."
+      },
+      {
+        "golden": "Cleanup reference uses incorrect alias - should be 'idp-alias-' + i instead of 'alias'.",
+        "status": "match",
+        "reasoning": "CodeGuard's first comment accurately identifies the bug described in the Golden Comment, pointing out that the test cleanup logic incorrectly uses the literal alias 'alias' instead of the dynamically generated one."
+      }
+    ]
+  },
+  {
+    "caseId": "case-033",
+    "prTitle": "Add AuthzClientCryptoProvider for authorization client cryptographic operations",
+    "judgments": [
+      {
+        "golden": "Returns wrong provider (default keystore instead of BouncyCastle)",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a functional bug where the wrong cryptographic provider is returned. The AI's comment points out a completely unrelated maintainability issue regarding redundant code and does not mention the incorrect provider."
+      },
+      {
+        "golden": "Dead code exists where ASN1Encoder instances are created and written to, but their results are immediately discarded. The actual encoding is performed by new ASN1Encoder instances created in the subsequent return statement, rendering the earlier operations useless.",
+        "status": "match",
+        "reasoning": "The AI comment correctly identifies the dead code, explaining that `ASN1Encoder` instances are created and written to, but their results are discarded, which perfectly matches the issue described in the golden comment."
+      }
+    ]
+  },
+  {
+    "caseId": "case-034",
+    "prTitle": "Add rolling-updates feature flag and compatibility framework",
+    "judgments": [
+      {
+        "golden": "Incorrect method call for exit codes. The picocli.exit() method calls System.exit() directly, which is problematic:",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies the problematic use of `picocli.exit()` which calls `System.exit()`. The AI's comments are completely unrelated, focusing on a missing feature flag check and an incomplete switch statement."
+      }
+    ]
+  },
+  {
+    "caseId": "case-035",
+    "prTitle": "Add Client resource type and scopes to authorization schema",
+    "judgments": [
+      {
+        "golden": "Inconsistent feature flag bug causing orphaned permissions. The AdminPermissions event listener, responsible for cleaning up permissions upon role, client, or group removal, is incorrectly guarded by the ADMIN_FINE_GRAINED_AUTHZ (V1) feature flag. This is inconsistent with other methods in the class that use ADMIN_FINE_GRAINED_AUTHZ_V2. Consequently, if ADMIN_FINE_GRAINED_AUTHZ_V2 is enabled but V1 is not, the permission cleanup logic will not execute, leading to orphaned permission data. Cleanup should occur regardless of which fine-grained authorization version is enabled.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a bug related to inconsistent feature flag usage in an event listener, causing orphaned permissions upon deletion. The AI's comment points out a completely different logical flaw in permission checking logic, which could lead to incorrect access denial."
+      },
+      {
+        "golden": "In hasPermission(ClientModel client, String scope), the resource lookup uses findByName(server, client.getId(), server.getId()), but AdminPermissionsSchema.getOrCreateResource creates per-client resources with the owner set to resourceServer.getClientId(), so this lookup will never find those resources and will always fall back to the 'all-clients' resource, effectively ignoring client-specific permissions.",
+        "status": "no_match",
+        "reasoning": "CodeGuard identifies a potential logical flaw in how permissions are combined but misses the core issue from the Golden Comment. The actual bug is that the client-specific resource lookup will always fail due to using the wrong owner ID, which CodeGuard does not mention."
+      },
+      {
+        "golden": "In getClientsWithPermission(String scope), iterating resourceStore.findByType(server, AdminPermissionsSchema.CLIENTS_RESOURCE_TYPE) and returning resource.getName() will only ever consider the type-level 'Clients' resource (per-client resources have no type) and return its name, while AvailableRoleMappingResource#getRoleIdsWithPermissions expects actual client IDs to pass to realm.getClientById, which can lead to incorrect behavior or a null client and subsequent failures.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies a bug in `getClientsWithPermission` where it incorrectly returns the name of a resource type instead of client IDs. The AI comment identifies a completely different logical bug in a different method, `hasPermission`, related to how specific-client permissions and type-level permissions are evaluated."
+      }
+    ]
+  },
+  {
+    "caseId": "case-036",
+    "prTitle": "Add Groups resource type and scopes to authorization schema",
+    "judgments": [
+      {
+        "golden": "Incorrect permission check in canManage() method",
+        "status": "match",
+        "reasoning": "The AI comment correctly identifies the incorrect permission check, explaining that the method grants management permission to users with only 'view' scope when it should require 'manage' scope. This is a detailed and accurate description of the issue summarized in the Golden Comment."
+      },
+      {
+        "golden": "In getGroupIdsWithViewPermission, hasPermission is called with groupResource.getId() and the same groupResource.getId() is added to granted, but hasPermission resolves resources by name (treating the argument as a group id) and the GroupPermissionEvaluator contract says this method returns group IDs that are later used as UserModel.GROUPS and in getUsersCount group filters. This mismatch means per-group VIEW_MEMBERS/MANAGE_MEMBERS permissions may not yield the expected group IDs for filtering and counts, and evaluation may effectively only look at the type-level 'all-groups' resource; consider revisiting whether this should operate on the underlying group ids (resource names) instead so it aligns with the JPA queries and the interface contract.",
+        "status": "no_match",
+        "reasoning": "The AI comment identifies a potential privilege escalation where having 'view' scope incorrectly grants 'manage' permission. The golden comment describes a different, more subtle bug concerning a mismatch between resource IDs and resource names in the permission evaluation logic, which leads to incorrect group filtering."
+      }
+    ]
+  },
+  {
+    "caseId": "case-037",
+    "prTitle": "Add HTML sanitizer for translated message resources",
+    "judgments": [
+      {
+        "golden": "The translation is in Italian instead of Lithuanian. This should be translated to Lithuanian to match the file's locale (messages_lt.properties).",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a translation error where Italian text was used in a Lithuanian properties file. The AI's comments focus on unrelated potential bugs in the HTML sanitization logic and do not mention the incorrect language translation."
+      },
+      {
+        "golden": "The totpStep1 value uses Traditional Chinese terms in the Simplified Chinese file (zh_CN), which is likely incorrect for this locale. Please verify the locale‑appropriate translation.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a localization issue, specifically an incorrect translation using Traditional Chinese terms in a Simplified Chinese file. CodeGuard's comments are completely unrelated, focusing on potential bugs in the HTML sanitization logic concerning case-sensitive regex and flawed string replacement."
+      },
+      {
+        "golden": "The anchor sanitization logic has a potential issue where it consumes English matcher groups without proper validation. If the translated text has more anchor tags than the English text, this could lead to incorrect validation results.",
+        "status": "match",
+        "reasoning": "CodeGuard's second comment correctly identifies the flawed logic in the anchor tag removal process, which is the root cause of the validation issue described in the Golden Comment. The Golden Comment describes a high-level symptom (incorrect validation when anchor counts differ), while CodeGuard pinpoints the specific implementation bug that causes it (modifying a string while iterating over it with a matcher)."
+      },
+      {
+        "golden": "The method name 'santizeAnchors' should be 'sanitizeAnchors' (missing 'i').",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a typo in a method name ('santizeAnchors'). The AI's comments point out potential logic bugs related to regex patterns and string manipulation but completely miss the spelling error."
+      }
+    ]
+  },
+  {
+    "caseId": "case-038",
+    "prTitle": "Implement access token context encoding framework",
+    "judgments": [
+      {
+        "golden": "Wrong parameter in null check (grantType vs. rawTokenId)",
+        "status": "match",
+        "reasoning": "The first comment from CodeGuard correctly identifies the copy-paste error where a null check for `rawTokenId` was incorrectly checking `grantType` instead, which is the exact issue described in the Golden Comment."
+      },
+      {
+        "golden": "In isAccessTokenId, the substring for the grant shortcut and the equality check look inverted: the grant shortcut occupies indices 4–5 (substring(4,6)), and a match should return true (combined with UUID check), not false.",
+        "status": "match",
+        "reasoning": "CodeGuard accurately identified both issues described in the Golden Comment: the incorrect substring indices for the grant shortcut and the inverted logic of the equality check within the `isAccessTokenId` method."
+      },
+      {
+        "golden": "Javadoc mentions \"usually like 3-letters shortcut\" but some implementations use 2-letter shortcuts (\"ac\", \"cc\", \"rt\", \"te\", \"pc\", \"ci\", \"ro\"). Consider updating documentation to reflect actual usage pattern.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies an issue with outdated Javadoc regarding the length of shortcuts. The AI comments point to unrelated implementation bugs: a copy-paste error in a constructor and incorrect logic in a test method."
+      },
+      {
+        "golden": " Catching generic RuntimeException is too broad. The implementation throws IllegalArgumentException specifically - catch that instead for more precise testing.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies an issue with catching a generic `RuntimeException` instead of a more specific one in a test. CodeGuard's comments identify a copy-paste error and incorrect string manipulation logic, which are completely different issues and do not address the exception handling problem."
+      }
+    ]
+  },
+  {
+    "caseId": "case-039",
+    "prTitle": "Implement recovery key support for user storage providers",
+    "judgments": [
+      {
+        "golden": "Unsafe raw List deserialization without type safety. Calling Optional.get() directly on the Optional returned by RecoveryAuthnCodesUtils.getCredential(user) without checking isPresent() can lead to a NoSuchElementException if the Optional is empty.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies an unsafe use of `Optional.get()` which can cause a `NoSuchElementException`, as well as unsafe deserialization. The AI's comment points out a different issue: swallowing an `IOException`, which leads to silent failures instead of propagating the error."
+      },
+      {
+        "golden": "After creating the RecoveryAuthnCodesCredentialModel, consider setting its id from the stored credential (e.g., myUser.recoveryCodes.getId()); otherwise getId() will be null and downstream removal by id (e.g., removeStoredCredentialById in the authenticator flow) may not work.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a bug where a newly created credential model is missing its ID, which will cause downstream removal operations to fail. The AI's comment focuses on a completely different issue: improper exception handling that could hide data corruption, which is unrelated to the missing ID problem."
+      }
+    ]
+  },
+  {
+    "caseId": "case-040",
+    "prTitle": "Fix concurrent group access to prevent NullPointerException",
+    "judgments": [
+      {
+        "golden": "Returning null from getSubGroupsCount() violates the GroupModel contract (Javadoc says it never returns null) and may lead to NPEs in callers that expect a non-null count.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies a method contract violation where `getSubGroupsCount()` returns null, risking NullPointerExceptions. CodeGuard's comment identifies a completely different and unrelated issue: a potential race condition in a test."
+      },
+      {
+        "golden": "The reader thread isn’t waited for; flipping deletedAll to true and asserting immediately can race and miss exceptions added just after the flag change, making this test flaky.",
+        "status": "match",
+        "reasoning": "CodeGuard correctly identified the race condition where the main thread sets a flag and asserts immediately without waiting for the reader thread to finish, which could cause exceptions to be missed and lead to a flaky test."
+      }
+    ]
+  },
+  {
+    "caseId": "case-041",
+    "prTitle": "Optimize spans buffer insertion with eviction during insert",
+    "judgments": [
+      {
+        "golden": "OptimizedCursorPaginator negative-offset branch slices QuerySet with a negative start index",
+        "status": "no_match",
+        "reasoning": "The Golden Comment describes a bug in `OptimizedCursorPaginator` related to negative index slicing of a QuerySet. The AI's comments are entirely unrelated, focusing on missing Redis eviction logic in the `spans/buffer` module and its consequences."
+      },
+      {
+        "golden": "BasePaginator negative-offset branch slices QuerySet with a negative start index",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies a bug in `BasePaginator` related to negative index slicing of a QuerySet. The AI's comments are completely unrelated, focusing on Redis memory management, missing safeguards, and test coverage in the `spans/buffer.py` module."
+      },
+      {
+        "golden": "OptimizedCursorPaginator.get_item_key uses floor/ceil on a datetime key (order_by='-datetime'), causing TypeError.",
+        "status": "no_match",
+        "reasoning": "CodeGuard's comments focus on missing eviction logic in the Redis span buffer and related memory issues. None of the comments address the `TypeError` in `OptimizedCursorPaginator.get_item_key` caused by applying math functions to a datetime object, which is the core issue of the Golden Comment."
+      }
+    ]
+  },
+  {
+    "caseId": "case-042",
+    "prTitle": "feat(upsampling) - Support upsampled error count with performance optimizations",
+    "judgments": [
+      {
+        "golden": "sample_rate = 0.0 is falsy and skipped",
+        "status": "no_match",
+        "reasoning": "The golden comment points out a logical bug where a `sample_rate` of 0.0 is treated as a falsy value and skipped. The AI's comment addresses a different, unrelated issue about using a broad `try...except Exception` block, which is a general maintainability concern."
+      },
+      {
+        "golden": "Using Python’s built-in hash() to build cache keys is non-deterministic across processes (hash randomization), so keys won’t match across workers and invalidate_upsampling_cache may fail to delete them. Use a deterministic serialization of project_ids for the cache key.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a critical bug where using Python's non-deterministic `hash()` for cache keys will fail across processes. CodeGuard's comment points out an unrelated, general maintainability issue regarding a broad `except Exception` block."
+      },
+      {
+        "golden": "The upsampling eligibility check passes the outer dataset instead of the actual dataset used by scoped_dataset. In paths where the query ultimately runs against discover (e.g., dashboard split) while the original dataset is metrics, upsampling may be skipped even when all projects are allowlisted.",
+        "status": "no_match",
+        "reasoning": "The golden comment describes a logic bug where the wrong dataset is passed to an upsampling eligibility check. The AI's comment points out a broad exception clause in a test file, which is an unrelated maintainability issue."
+      }
+    ]
+  },
+  {
+    "caseId": "case-043",
+    "prTitle": "GitHub OAuth Security Enhancement",
+    "judgments": [
+      {
+        "golden": "Null reference if github_authenticated_user state is missing",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a null reference bug caused by a missing user state. The AI's comment points out a completely different issue regarding a misnamed test that now checks for a CSRF failure due to a mismatched state parameter, which is unrelated to the null reference bug."
+      },
+      {
+        "golden": "OAuth state uses pipeline.signature (static) instead of a per-request random value",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a security vulnerability where a static value is used for the OAuth state instead of a random one. The AI's comment only points out a maintainability issue in a test file, noting that the test's name is now inaccurate because it tests for a CSRF failure due to a mismatched state, but it fails to identify the underlying security flaw in the production code."
+      },
+      {
+        "golden": "The code attempts to access integration.metadata[sender][login] without checking for the existence of the sender key. This causes a KeyError for integrations where the sender metadata was not set during creation",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a potential `KeyError` due to accessing `integration.metadata[sender]` without checking for its existence. The AI's comment points out a completely unrelated issue regarding a misnamed test case and dead code within the test suite."
+      }
+    ]
+  },
+  {
+    "caseId": "case-044",
+    "prTitle": "Span Buffer Multiprocess Enhancement with Health Monitoring",
+    "judgments": [
+      {
+        "golden": "Inconsistent metric tagging with 'shard' and 'shards'",
+        "status": "no_match",
+        "reasoning": "The golden comment points out an inconsistency in metric tagging using 'shard' versus 'shards'. CodeGuard's comments discuss unrelated issues: a potential resource leak from a premature loop exit and a fragile data delimiter."
+      },
+      {
+        "golden": "Fixed sleep in tests can be flaky; wait on condition instead",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a flaky test caused by using a fixed sleep instead of waiting for a condition. CodeGuard's comments discuss completely unrelated issues: a potential resource leak from a premature loop exit and a fragile data delimiter."
+      },
+      {
+        "golden": "Because flusher processes are created via multiprocessing.get_context('spawn').Process, they are instances of multiprocessing.context.SpawnProcess, which on POSIX is not a subclass of multiprocessing.Process, so this isinstance check will always be false and hung processes won't be killed here.",
+        "status": "no_match",
+        "reasoning": "CodeGuard did not identify the core issue. The Golden Comment points out a faulty `isinstance` check for process types (`SpawnProcess` vs `multiprocessing.Process`), while CodeGuard's comments focus on a premature loop exit and a fragile data delimiter, which are unrelated issues."
+      },
+      {
+        "golden": "Sleep in test_consumer.py won’t actually wait because time.sleep was monkeypatched above; consider restoring sleep or using a different sync to ensure the flusher has time to process.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a bug in a test where `time.sleep` is monkeypatched, preventing a necessary wait. CodeGuard's comments are unrelated, focusing on a potential resource leak in a loop and a fragile data delimiter, and do not mention the testing issue."
+      },
+      {
+        "golden": "Breaking out of the loop when the deadline has elapsed can skip terminating remaining flusher processes, potentially leaving them running after shutdown; consider ensuring termination is attempted even if the deadline is exceeded.",
+        "status": "match",
+        "reasoning": "CodeGuard's first comment accurately identifies that a premature `break` on timeout will cause the loop to exit, leaving subsequent processes orphaned and unterminated, which is the exact issue described in the Golden Comment."
+      }
+    ]
+  },
+  {
+    "caseId": "case-045",
+    "prTitle": "feat(ecosystem): Implement cross-system issue synchronization",
+    "judgments": [
+      {
+        "golden": "Shared mutable default in dataclass timestamp",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies a bug related to using a shared mutable default value in a dataclass. The AI's comment points out a completely different issue regarding a type hint mismatch where a function returns a set instead of the declared list."
+      },
+      {
+        "golden": "The method name has a typo: test_from_dict_inalid_data should be test_from_dict_invalid_data.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a typo in a method name (`test_from_dict_inalid_data`), whereas the AI comment points out an unrelated type hint violation in a different function (`sync_group_assignee_inbound`). The AI did not find the typo."
+      },
+      {
+        "golden": "Method name says 'empty_array' but tests empty dict - consider renaming to 'test_from_dict_empty_dict' for clarity.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies a misleading test method name, suggesting a rename for clarity. The AI's comment points out an unrelated type-hinting issue in a different function and file."
+      },
+      {
+        "golden": "to_dict() returns a datetime for queued; if this dict is passed in task kwargs (e.g., via apply_async), JSON serialization may fail depending on the serializer, which can cause enqueue errors.",
+        "status": "no_match",
+        "reasoning": "The golden comment describes a JSON serialization error caused by a datetime object. The AI's comment identifies a completely unrelated issue regarding a type hint mismatch where a function returns a set instead of a list."
+      }
+    ]
+  },
+  {
+    "caseId": "case-046",
+    "prTitle": "ref(crons): Reorganize incident creation / issue occurrence logic",
+    "judgments": [
+      {
+        "golden": "The function modifies the config variable to include display values but then returns the original monitor.config instead of the modified version.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment identifies a bug where a modified config variable is discarded and the original is returned, while the Actual Comment from CodeGuard identifies a completely different issue related to creating multiple redundant issue occurrences in a loop."
+      },
+      {
+        "golden": "The code fetches MonitorCheckIn objects by ID when the required data already exists in previous_checkins. This creates an unnecessary database query.",
+        "status": "match",
+        "reasoning": "CodeGuard identifies a logical bug (creating multiple occurrences) in the same loop that the Golden Comment identifies as a performance issue (unnecessary database query). The suggested fix from CodeGuard removes the entire loop, which resolves both the logical bug and the unnecessary database query mentioned in the Golden Comment."
+      }
+    ]
+  },
+  {
+    "caseId": "case-047",
+    "prTitle": "feat(uptime): Add ability to use queues to manage parallelism",
+    "judgments": [
+      {
+        "golden": "The queue.shutdown() method with 'immediate=False' parameter may not exist in the standard Python queue module. This could cause AttributeError at runtime. Verify the correct API or implement a custom shutdown mechanism.",
+        "status": "match",
+        "reasoning": "The first comment from CodeGuard correctly identifies that the standard `queue.Queue` object does not have a `shutdown` method and that calling it will raise an `AttributeError`, which is the exact issue described in the Golden Comment."
+      },
+      {
+        "golden": "The magic number 50 for max_wait is used repeatedly throughout the tests. Consider extracting this as a named constant to improve maintainability.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies the repeated use of a magic number (50) in tests and suggests creating a constant for maintainability. None of the AI-generated comments address this specific issue; instead, they focus on other bugs related to shutdown logic, race conditions, and test inconsistencies."
+      },
+      {
+        "golden": "The test test_thread_queue_parallel_error_handling has a docstring that doesn't match the test implementation.",
+        "status": "no_match",
+        "reasoning": "The Golden Comment points out a mismatch between a test's docstring and its implementation. None of the comments generated by the AI tool address this specific documentation issue; instead, they focus on other bugs and maintainability concerns in the codebase."
+      }
+    ]
+  },
+  {
+    "caseId": "case-048",
+    "prTitle": "feat(workflow_engine): Add in hook for producing occurrences from the stateful detector",
+    "judgments": [
+      {
+        "golden": "MetricAlertDetectorHandler inherits from StatefulDetectorHandler but only contains pass, failing to implement its required abstract methods: counter_names (property), get_dedupe_value(), get_group_key_values(), and build_occurrence_and_event_data(). This will cause a TypeError at runtime when the class is instantiated.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies a `TypeError` because the `MetricAlertDetectorHandler` class fails to implement required abstract methods. CodeGuard's comment identifies a completely different issue, a `ValueError` from an incorrect enum conversion, and does not mention the unimplemented methods."
+      },
+      {
+        "golden": "Docstring says this returns a list of DetectorEvaluationResult, but the method now returns a dict keyed by DetectorGroupKey. Consider updating the docstring to match the new return type.",
+        "status": "no_match",
+        "reasoning": "The golden comment identifies an incorrect docstring where the return type has changed, while the AI comment identifies a potential runtime `ValueError` due to incompatible enum types. These are two distinct and unrelated issues."
+      }
+    ]
+  }
+]

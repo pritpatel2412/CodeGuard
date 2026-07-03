@@ -1,0 +1,13 @@
+{
+  "summary": "This change introduces a mutex to fix a data race on a global cache for web assets, but the double-checked locking pattern is implemented inefficiently.",
+  "risk_level": "medium",
+  "thought_process": "The user is adding a `sync.RWMutex` to protect a global cache variable `entryPointAssetsCache`. The goal is to fix a data race. The new implementation in `GetWebAssets` uses a read-lock to check the cache, and if it's a miss, it acquires a write-lock to populate it. This is a double-checked locking pattern. However, the implementation is flawed. After acquiring the write lock, it does not check the cache again. If multiple goroutines call this function concurrently when the cache is empty, they will all pass the initial read-lock check. Then, they will queue up for the write lock. The first one will populate the cache, but subsequent goroutines will also execute the expensive asset calculation because they don't re-check the cache value after they acquire the lock. This defeats the purpose of caching under concurrent load and is a significant performance issue. The fix is to add another check for `entryPointAssetsCache != nil` immediately after acquiring the write lock.",
+  "comments": [
+    {
+      "path": "pkg/api/webassets/webassets.go",
+      "line": 42,
+      "type": "performance",
+      "comment": "This implementation of double-checked locking is inefficient. When multiple goroutines experience a cache miss, they will all queue for the write lock and each will redundantly re-compute the assets. To prevent this, you must re-check if the cache has been populated after acquiring the write lock.\n\nExample:\n```go\n\tentryPointAssetsCacheMu.Lock()\n\tdefer entryPointAssetsCacheMu.Unlock()\n\n\t// Re-check if another goroutine populated the cache while we were waiting for the lock.\n\tif cfg.Env != setting.Dev && entryPointAssetsCache != nil {\n\t\treturn entryPointAssetsCache, nil\n\t}\n```"
+    }
+  ]
+}

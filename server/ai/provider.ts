@@ -35,6 +35,15 @@ const groqClient = new OpenAI({
   maxRetries: 2,
 });
 
+/**
+ * Gemini client via OpenAI-compatible endpoint.
+ */
+const geminiClient = new OpenAI({
+  baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+  apiKey: process.env.EVAL_GEMINI_API_KEY ?? "",
+  maxRetries: 2,
+});
+
 // ── Task types → Model mapping ────────────────────────────────────────────────
 
 /**
@@ -115,7 +124,10 @@ export const providerStats = {
   groqCalls: 0,
   groqSuccesses: 0,
   groqFailures: 0,
-  lastProvider: "none" as "nim" | "openai" | "groq" | "none",
+  geminiCalls: 0,
+  geminiSuccesses: 0,
+  geminiFailures: 0,
+  lastProvider: "none" as "nim" | "openai" | "groq" | "gemini" | "none",
   lastFailureReason: "" as string,
 };
 
@@ -162,7 +174,7 @@ export interface AICallOptions {
 
 export interface AICallResult {
   content: string;
-  provider: "nim" | "openai" | "groq";
+  provider: "nim" | "openai" | "groq" | "gemini";
   model: string;
   promptTokens: number;
   completionTokens: number;
@@ -189,6 +201,89 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
   const nimKey = process.env.NVIDIA_NIM_API_KEY ?? "";
   const nimAvailable = nimKey.length > 0 && nimKey.startsWith("nvapi-");
   const maxNIMRetries = parseInt(process.env.NVIDIA_NIM_MAX_RETRIES ?? "2");
+
+  // ── Try Gemini ────────────────────────────────────────────────────────────
+  const geminiKey = process.env.EVAL_GEMINI_API_KEY;
+  if (geminiKey) {
+    const geminiModel = "gemini-2.5-pro";
+    console.log(`[AI Provider] Routing '${task}' task to Gemini (${geminiModel})`);
+    
+    try {
+      providerStats.geminiCalls++;
+      
+      // Convert OpenAI messages to Gemini contents
+      let systemInstruction = "";
+      const contents = [];
+      for (const msg of messages) {
+        if (msg.role === "system") {
+          systemInstruction = typeof msg.content === 'string' ? msg.content : "";
+        } else if (msg.role === "user") {
+          contents.push({ role: "user", parts: [{ text: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) }] });
+        } else if (msg.role === "assistant") {
+          contents.push({ role: "model", parts: [{ text: typeof msg.content === 'string' ? msg.content : "" }] });
+        }
+      }
+
+      const body: any = {
+        contents,
+        generationConfig: {
+          maxOutputTokens: 65536,
+          temperature,
+          thinkingConfig: {
+            thinkingBudget: 8192,
+          },
+        },
+        safetySettings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+        ]
+      };
+      
+      if (systemInstruction) {
+        body.systemInstruction = { parts: [{ text: systemInstruction }] };
+      }
+      
+      if (responseFormat?.type === "json_object") {
+        body.generationConfig.responseMimeType = "application/json";
+      }
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Gemini API Error: ${response.status} - ${errText}`);
+      }
+
+      const data = await response.json();
+      
+      const content = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+      if (!content || content.trim() === "") {
+        throw new Error(`Empty content returned. Finish reason: ${data.candidates?.[0]?.finishReason}`);
+      }
+
+      providerStats.geminiSuccesses++;
+      providerStats.lastProvider = "gemini";
+
+      return {
+        content,
+        provider: "gemini",
+        model: geminiModel,
+        promptTokens: data.usageMetadata?.promptTokenCount ?? 0,
+        completionTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+      };
+    } catch (error: any) {
+      providerStats.geminiFailures++;
+      console.warn(`[AI Provider] Gemini failed: ${error.message}. Falling back to Groq/NIM...`);
+    }
+  }
 
   // ── Try Groq ──────────────────────────────────────────────────────────────
   const groqKey = task === "analysis" 

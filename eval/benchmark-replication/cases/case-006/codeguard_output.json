@@ -1,0 +1,31 @@
+{
+  "summary": "This PR introduces advanced date override handling and timezone adjustments, but contains several critical bugs in the timezone conversion logic, working hours validation, and user-specific availability checks for different scheduling types.",
+  "risk_level": "high",
+  "thought_process": "The user wants a review of a 7-patch pull request related to date overrides and timezones in a scheduling system. I will analyze each patch to identify potential issues.\n\n1.  **Patch 1 (`packages/lib/slots.ts`):** The timezone offset calculation for overrides is complex. It uses `override.start.toString()`, which is unreliable as its output is implementation-dependent and based on the server's timezone. The formula to calculate the offset and apply it also seems incorrect. A simpler `dayjs(override.start).tz(timeZone)` would be more direct and correct for finding the local time in the invitee's timezone.\n\n2.  **Patch 1 (`.../viewer/slots.tsx`):** The logic to check if a slot is within a date override has two bugs. First, it compares a date string formatted in a local timezone with one formatted in UTC (`...format(\"YYYY MM DD\") === slotStartTime.format(\"YYYY MM DD\")`), which will fail near midnight. Second, it uses `===` to compare two `dayjs` object instances (`dayjs(...) === dayjs(...)`), which will always be false; `.isSame()` should be used instead.\n\n3.  **Patch 2 (`.../viewer/slots.tsx`):** The check against working hours is flawed. It uses UTC day, hour, and minute (`slotStartTime.day()`, `.hour()`, etc.) to compare against working hours, which are defined in a user's local timezone. This requires converting the slot time to the user's timezone first. There is also a clear typo: `const end = slotStartTime.hour() * 60 + slotStartTime.minute();`, which calculates the slot's end time using its start time.\n\n4.  **Patch 4 & 7 (`.../viewer/slots.ts`):** A subtle but critical bug is introduced in how user-specific availability is handled for round-robin and fixed-host event types. In the `checkIfIsAvailable` call, the user-specific schedule (`...schedule` or `...userSchedule`) is spread *before* the aggregated `...availabilityCheckProps`. This causes the user's specific `dateOverrides` and `workingHours` to be overwritten by the aggregated ones, leading to incorrect availability calculations. The spread order must be reversed.\n\n5.  **Patch 7 (`.../viewer/slots.ts`):** For collective events, the call to `checkIfIsAvailable` is missing the spread of the user-specific `schedule` object entirely, meaning it only uses aggregated availability data, which is incorrect.\n\nGiven the number and severity of these bugs in core scheduling logic, the risk level is high. I will create comments for the most critical and clear-cut issues.",
+  "comments": [
+    {
+      "path": "packages/trpc/server/routers/viewer/slots.ts",
+      "line": 97,
+      "type": "bug",
+      "comment": "The date override check has two issues. First, `dayjs(...) === dayjs(...)` compares object instances and will always be `false`. You should use `.isSame()` for comparing dayjs objects. Second, the date check on the preceding lines (`...format(...) === slotStartTime.format(...)`) compares a date string in the organizer's local timezone with a date string in UTC. This will fail for slots near midnight. All date/time comparisons should be performed on timezone-aware objects or in a consistent timezone like UTC."
+    },
+    {
+      "path": "packages/trpc/server/routers/viewer/slots.ts",
+      "line": 121,
+      "type": "bug",
+      "comment": "The logic for checking if a slot is within working hours has two bugs. First, it uses UTC time parts (`slotStartTime.day()`, `.hour()`, `.minute()`) to compare against working hours, which are defined in the user's local timezone. This will lead to incorrect availability. The `slotStartTime` should first be converted to the `organizerTimeZone`. Second, there's a copy-paste error: `const end = slotStartTime.hour() * 60 + slotStartTime.minute();` calculates the slot's end time using `slotStartTime`. It should be based on the slot's actual end time."
+    },
+    {
+      "path": "packages/trpc/server/routers/viewer/slots.ts",
+      "line": 518,
+      "type": "bug",
+      "comment": "The call to `checkIfIsAvailable` for round-robin scheduling has an incorrect spread order. The `...availabilityCheckProps` is spread after `...userSchedule`, causing the aggregated `dateOverrides` and `workingHours` to overwrite the user-specific ones from the `userSchedule`. This will lead to incorrect availability calculations. The spread order should be reversed to prioritize user-specific availability data. The same issue exists for fixed-host scheduling around line 493."
+    },
+    {
+      "path": "packages/lib/slots.ts",
+      "line": 212,
+      "type": "bug",
+      "comment": "The timezone conversion logic relies on `override.start.toString()`, which produces an implementation-dependent string representation of the date based on the server's local timezone. This can lead to unpredictable behavior and bugs. You should use `override.start.toISOString()` or pass the `Date` object directly to `dayjs`. Furthermore, the entire offset calculation is overly complex and appears to be incorrect. To get the override's start time in the invitee's timezone, you can simply use `dayjs(override.start).tz(timeZone)` and then extract the hour and minute."
+    }
+  ]
+}
