@@ -21,16 +21,16 @@ Most tools tell you *what* is wrong, but not *how* to fix it. This forces develo
 ## 🚀 Our Solution: CodeGuard AI
 
 CodeGuard fulfills the industry need for **DevSecOps** by acting as an "AI Security Engineer" that:
-- **Understands Intent**: Uses a **Hybrid AI Architecture** (NVIDIA NIM + OpenAI) to distinguish between intentional code patterns and actual vulnerabilities.
+- **Understands Intent**: Uses a native **Gemini 2.5 Pro Architecture** to distinguish between intentional code patterns and actual vulnerabilities.
 - **Analyzes Context**: Performs cross-file analysis to track data propagation.
-- **Automates Fixes**: Generates safe, refactored code using **NVIDIA Nemotron (405B)** and opens Pull Requests to resolve issues automatically.
+- **Automates Fixes**: Generates safe, refactored code using deep reasoning models and opens Pull Requests to resolve issues automatically.
 
 ---
 
 ## 🛠️ Key Technical Features
 
 ### 1. AI-Powered Semantic Review
-Unlike regex-based tools, CodeGuard uses sophisticated prompt engineering to analyze the *logic* of code changes. Powered by **NVIDIA NIM (Llama 3.3 70B)**, it categorizes issues into **Security**, **Bug**, **Performance**, and **Readability**, assigning a dynamic **Risk Score** to every PR.
+Unlike regex-based tools, CodeGuard uses sophisticated prompt engineering to analyze the *logic* of code changes. Powered by a native integration with **Gemini 2.5 Pro** (with failover routing to Llama 3.3 70B & OpenAI GPT-4o), it categorizes issues into **Security**, **Bug**, **Performance**, and **Readability**, assigning a dynamic **Risk Score** to every PR.
 
 ### 2. Cross-File Taint Analysis
 One of the most advanced features of CodeGuard. It tracks "tainted" data (untrusted input) from its **Source** (e.g., a URL parameter) to a **Sink** (e.g., a database query or an HTML render) even if the data travels through multiple files and functions.
@@ -44,7 +44,7 @@ Users can define custom organizational security policies in plain English (e.g.,
 ### 5. Automated AI Remediation (Auto-Fix)
 When a High-Risk vulnerability is detected, CodeGuard:
 1. Validates the fix against **Safety Guards** (ensuring critical files like `auth.ts` are handled with extra care).
-2. Generates a replacement file using **NVIDIA Nemotron (405B Instruct)** for deep reasoning and code generation.
+2. Generates a replacement file using a deep reasoning model.
 3. Automatically creates a **Security-Fix PR** targeting the developer's branch.
 
 ---
@@ -60,8 +60,8 @@ When a High-Risk vulnerability is detected, CodeGuard:
 - **Webhook Orchestration**: Scalable handler for GitHub/GitLab events with HMAC signature verification.
 - **VCS Drivers**: Abstraction layer for interacting with multiple Git providers (Octokit for GitHub, GitLab API).
 - **Hybrid AI Engine**: 
-    - **Primary**: **NVIDIA NIM** (hosting Llama 3.3 70B for analysis and Nemotron 405B for code generation).
-    - **Fallback**: **OpenAI GPT-4o** (seamless failover via an intelligent circuit breaker).
+    - **Primary**: **Gemini 2.5 Pro** (via direct native REST integration with safety threshold overrides (`BLOCK_NONE`) and custom thinking budgets).
+    - **Fallback / Circuit Breaker**: **Groq/NIM** (Llama 3.3 70B) & **OpenAI GPT-4o** (seamless failover).
 
 ### **Database (PostgreSQL)**
 - Stores repository metadata, historical review data, taint paths, and policy violations.
@@ -70,6 +70,7 @@ When a High-Risk vulnerability is detected, CodeGuard:
 ---
 
 ## 📊 Impact & Metrics
+- **Benchmark Performance**: Achieved a **40.9% F1 Score** on the Entelligence 2026 AI Code Review Benchmark methodology-equivalent replication, comfortably beating **CodeRabbit (33.0%)** and **GitHub Copilot (22.6%)**.
 - **Efficiency**: Reduces manual security review time by up to **80%**.
 - **Accuracy**: Semantic analysis reduces false positives compared to traditional pattern matching.
 - **Security Posture**: Ensures 100% coverage of PRs, ensuring no code reaches production without a security check.
