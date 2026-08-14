@@ -7,8 +7,10 @@ import { analyzeCodeDiff } from '../server/openai.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 1. DEDICATED KEY
-process.env.GROQ_API_KEY = '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';
+// Ensure GROQ_API_KEY is available from environment
+if (!process.env.GROQ_API_KEY) {
+  console.warn('Warning: GROQ_API_KEY is not set in environment.');
+}
 
 // 2. THREE-STATE RESULT TYPE
 type EvalResultState = 'API_ERROR' | 'FINDINGS' | 'RETRIED_SUCCESS';
