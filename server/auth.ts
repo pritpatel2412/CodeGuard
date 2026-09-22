@@ -143,6 +143,7 @@ export function setupAuth(app: Express) {
         if (err) return next(err);
         req.login(user!, (loginErr) => {
           if (loginErr) return next(loginErr);
+          ensureSessionCsrfToken(req);
           req.session.createdAt = Date.now();
           req.session.lastActivityAt = Date.now();
           res.redirect("/");
@@ -160,20 +161,41 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/logout", (req, res, next) => {
-    req.logout((err) => {
-      if (err) {
-        return next(err);
-      }
-      req.session.destroy((destroyErr) => {
-        if (destroyErr) {
-          return next(destroyErr);
-        }
-        res.clearCookie("codeguard.sid", { path: "/" });
-        return res.status(204).send();
+  const handleLogout = (req: any, res: any) => {
+    const clearAuthCookies = () => {
+      res.clearCookie("codeguard.sid", {
+        path: "/",
+        httpOnly: true,
+        sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+        secure: app.get("env") === "production",
       });
-    });
-  });
+      res.clearCookie("codeguard.sid", { path: "/" });
+      res.clearCookie("codeguard.sid");
+    };
+
+    try {
+      req.user = undefined;
+      if (req.session) {
+        req.session.destroy((err: any) => {
+          if (err) {
+            console.error("[Auth] Session destroy error:", err);
+          }
+          clearAuthCookies();
+          return res.status(200).json({ success: true, message: "Logged out" });
+        });
+      } else {
+        clearAuthCookies();
+        return res.status(200).json({ success: true, message: "Logged out" });
+      }
+    } catch (err) {
+      console.error("[Auth] handleLogout error:", err);
+      clearAuthCookies();
+      return res.status(200).json({ success: true, message: "Logged out" });
+    }
+  };
+
+  app.post("/api/logout", handleLogout);
+  app.get("/api/logout", handleLogout);
 
   app.get("/api/user", (req, res) => {
     if (req.isAuthenticated()) {

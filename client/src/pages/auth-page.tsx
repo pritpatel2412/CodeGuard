@@ -2,47 +2,48 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SiGithub } from "react-icons/si";
 import { Button } from "@/components/ui/button";
+import { ArrowLeft } from "lucide-react";
 import Dither from "@/components/ui/dither";
 
 const TESTIMONIALS = [
     {
-        text: "Your codebase's 24/7 guardian. CodeGuard autonomously scans every Pull Request for OWASP Top 10 vulnerabilities, logic flaws, and secret exposure — then fixes them before they ship.",
+        text: "Your codebase's 24/7 guardian. CodeSift AI autonomously scans every Pull Request for OWASP Top 10 vulnerabilities, logic flaws, and secret exposure — then fixes them before they ship.",
         author: "Aarav Patel, Lead Engineer"
     },
     {
-        text: "Stop reviewing security bugs manually. CodeGuard acts as your Senior AppSec Engineer — detecting vulnerabilities, generating battle-tested fixes, and opening PRs automatically. Ship fast. Ship safe.",
+        text: "Stop reviewing security bugs manually. CodeSift AI acts as your Senior AppSec Engineer — detecting vulnerabilities, generating battle-tested fixes, and opening PRs automatically. Ship fast. Ship safe.",
         author: "Neha Sharma, DevOps Architect"
     },
     {
-        text: "Where elite security meets premium developer experience. CodeGuard combines GPT-4o intelligence with real-time GitHub integration to turn every code review into a fortress — automatically.",
+        text: "Where elite security meets premium developer experience. CodeSift AI combines AI intelligence with real-time GitHub integration to turn every code review into a fortress — automatically.",
         author: "Vikram Singh, Security Researcher"
     },
     {
-        text: "Code ships. Vulnerabilities don't. CodeGuard monitors every PR in real-time, catches what humans miss, and auto-remediates critical issues before they ever touch production.",
+        text: "Code ships. Vulnerabilities don't. CodeSift AI monitors every PR in real-time, catches what humans miss, and auto-remediates critical issues before they ever touch production.",
         author: "Ananya Gupta, VP of Engineering"
     },
     {
-        text: "Built for teams who refuse to compromise. CodeGuard brings autonomous, AI-powered security analysis directly into your workflow.",
+        text: "Built for teams who refuse to compromise. CodeSift AI brings autonomous, AI-powered security analysis directly into your workflow.",
         author: "Rohan Desai, Senior Backend Developer"
     },
     {
-        text: "Most vulnerabilities don't announce themselves. CodeGuard does — catching SQLi, XSS, secret leaks, and logic flaws across every PR before your users ever see them. Autonomous. Relentless. Always on.",
+        text: "Most vulnerabilities don't announce themselves. CodeSift AI does — catching SQLi, XSS, secret leaks, and logic flaws across every PR before your users ever see them. Autonomous. Relentless. Always on.",
         author: "Priya Kumar, AppSec Manager"
     },
     {
-        text: "Every merged PR is a decision. CodeGuard makes sure none of them are the wrong one. Powered by GPT-4o, it reads your entire codebase context, generates architecturally sound fixes, and ships them as a PR — while you sleep.",
+        text: "Every merged PR is a decision. CodeSift AI makes sure none of them are the wrong one. Powered by state-of-the-art AI, it reads your codebase context, generates architecturally sound fixes, and ships them as a PR.",
         author: "Arjun Reddy, Staff Software Engineer"
     },
     {
-        text: "Security isn't a feature. It's a standard. CodeGuard enforces that standard on every commit — scanning, scoring, and self-healing your codebase with the precision of a senior engineer and the speed of a machine.",
+        text: "Security isn't a feature. It's a standard. CodeSift AI enforces that standard on every commit — scanning, scoring, and self-healing your codebase with precision and speed.",
         author: "Neha Joshi, Director of Cloud Security"
     },
     {
-        text: "Your team is shipping fast. Your security review isn't keeping up. CodeGuard closes that gap — autonomously analyzing every Pull Request, flagging what matters, and deploying fixes before vulnerabilities ever reach main.",
+        text: "Your team is shipping fast. Your security review isn't keeping up. CodeSift AI closes that gap — autonomously analyzing every Pull Request, flagging what matters, and deploying fixes before vulnerabilities reach main.",
         author: "Karan Mehta, Principal Engineer"
     },
     {
-        text: "Vulnerabilities are patient. Your reviewers aren't. CodeGuard never blinks — an AI security agent that lives inside your GitHub repositories.",
+        text: "Vulnerabilities are patient. Your reviewers aren't. CodeSift AI never blinks — an AI security agent that lives inside your GitHub repositories.",
         author: "Sneha Iyer, Tech Lead"
     }
 ];
@@ -76,8 +77,8 @@ export default function AuthPage() {
                     />
                 </div>
                 <div className="relative z-10 flex items-center gap-3">
-                    <img src="/logo.png" alt="CodeGuard Logo" className="w-10 h-10 object-contain rounded-xl shadow-lg" />
-                    <span className="text-2xl font-bold tracking-tight text-white">CodeGuard</span>
+                    <img src="/logo.png" alt="CodeSift AI Logo" className="w-10 h-10 object-contain rounded-xl shadow-lg" />
+                    <span className="text-2xl font-bold tracking-tight text-white">CodeSift AI</span>
                 </div>
                 <div className="relative z-10 max-w-lg min-h-[240px]">
                     <AnimatePresence mode="wait">
@@ -103,10 +104,20 @@ export default function AuthPage() {
             {/* Right side - Login Form */}
             <div className="flex-1 flex flex-col justify-center items-center p-8 bg-card">
                 <div className="w-full max-w-[380px] space-y-8">
+                    {/* Back to Home Link */}
+                    <div>
+                        <a
+                            href="/"
+                            className="inline-flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            <ArrowLeft className="w-3.5 h-3.5" /> Back to Home
+                        </a>
+                    </div>
+
                     {/* Mobile Header (Hidden on Desktop) */}
                     <div className="flex lg:hidden items-center justify-center gap-3 mb-12">
-                        <img src="/iii.png" alt="CodeGuard Logo" className="w-10 h-10 object-contain rounded-xl shadow-lg" />
-                        <span className="text-2xl font-bold tracking-tight text-foreground">CodeGuard</span>
+                        <img src="/logo.png" alt="CodeSift AI Logo" className="w-10 h-10 object-contain rounded-xl shadow-lg" />
+                        <span className="text-2xl font-bold tracking-tight text-foreground">CodeSift AI</span>
                     </div>
 
                     <div className="space-y-2 text-center lg:text-left">

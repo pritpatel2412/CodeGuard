@@ -25,6 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TaintGraphViewer } from "@/components/taint-graph-viewer";
 import { TaintPathsList } from "@/components/taint-paths-list";
 import { PolicyViolationsList, type PolicyViolationRecord } from "@/components/PolicyViolationsList";
+import { AISecuritySummary } from "@/components/ai-security-summary";
 import { isSecurityFixTitle, stripEmoji } from "@/lib/text";
 import { safePrUrl } from "@/lib/safe-url";
 import { formatDistanceToNow, format } from "date-fns";
@@ -210,11 +211,19 @@ export default function ReviewDetail() {
         </TabsList>
         
         <TabsContent value="summary" className="space-y-6">
-          {/* Summary */}
+          {/* AI Security Summary Card */}
+          <AISecuritySummary
+            reviewId={review.id}
+            initialRiskLevel={review.riskLevel}
+            initialSummary={review.summary}
+            commentsCount={comments.length}
+          />
+
+          {/* Legacy Summary fallback if different or supplementary */}
           {review.summary && (
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">AI Summary</CardTitle>
+                <CardTitle className="text-base">Review Overview</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-sm leading-relaxed">{safeSummary}</p>

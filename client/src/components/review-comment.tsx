@@ -9,7 +9,9 @@ import {
   FileCode,
   Hash,
   Loader2,
-  ExternalLink
+  ExternalLink,
+  ShieldAlert,
+  Sparkles
 } from "lucide-react";
 
 // Remove static import to prevent cycles
@@ -160,7 +162,35 @@ export function ReviewCommentCard({ comment, platform = "github" }: ReviewCommen
         <p className="text-sm leading-relaxed">{safeCommentText}</p>
 
         {showFixButton && (
-          <div className="pt-2">
+          <div className="pt-2 space-y-3">
+            {/* AI Fix Explanation Section */}
+            <div className="rounded-lg border border-border/70 bg-muted/30 p-3.5 space-y-2.5 text-xs">
+              <div>
+                <div className="flex items-center gap-1.5 font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider text-[11px] mb-1">
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                  Why This Is A Risk
+                </div>
+                <p className="text-muted-foreground leading-relaxed">
+                  {type === "security"
+                    ? `This pattern at line ${comment.line} in ${comment.path} presents a security vulnerability. Untrusted input or exposed credentials can lead to unauthorized access or system exploitation.`
+                    : type === "bug"
+                    ? `This code flaw at line ${comment.line} in ${comment.path} can cause unexpected runtime exceptions, state corruption, or silent failures in production.`
+                    : `This issue at line ${comment.line} introduces technical debt and reliability risks that impact operational stability.`}
+                </p>
+              </div>
+
+              <div className="pt-1 border-t border-border/40">
+                <div className="flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider text-[11px] mb-1">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  How The Fix Works
+                </div>
+                <p className="text-muted-foreground leading-relaxed">
+                  CodeSift AI's engine analyzes the file AST, removes the unsafe pattern, and injects validated secure constructs without altering existing business logic.
+                </p>
+              </div>
+            </div>
+
+            {/* Existing Apply AI Fix Button and Flow */}
             <Dialog open={isDialogOpen} onOpenChange={(open) => {
               setIsDialogOpen(open);
               if (!open) {
@@ -178,6 +208,7 @@ export function ReviewCommentCard({ comment, platform = "github" }: ReviewCommen
                     handleApplyFix(); // Start the background fix process
                   }}
                   disabled={isFixing && !isDialogOpen}
+                  data-testid={`btn-apply-fix-${comment.id}`}
                 >
                   <Wrench className="h-4 w-4" />
                   Apply AI Fix

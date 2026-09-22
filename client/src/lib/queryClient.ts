@@ -1,7 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 import { useErrorStore } from "./error-store";
-import { getCsrfToken } from "./csrf";
+import { getCsrfToken, clearCsrfToken } from "./csrf";
 
 function userSafeErrorMessage(status: number, rawBody: string): string {
   if (status === 403) return "This action was blocked. Try refreshing the page and signing in again.";
@@ -42,19 +42,35 @@ export async function apiRequest(
   if (data) {
     headers["Content-Type"] = "application/json";
   }
-  if (UNSAFE.has(method.toUpperCase()) && url.startsWith("/api") && !url.includes("/webhooks/")) {
+  const isUnsafe = UNSAFE.has(method.toUpperCase()) && url.startsWith("/api") && !url.includes("/webhooks/");
+  if (isUnsafe) {
     const csrf = await getCsrfToken();
     if (csrf) {
       headers["X-CSRF-Token"] = csrf;
     }
   }
 
-  const res = await fetch(url, {
+  let res = await fetch(url, {
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
+
+  // If blocked by CSRF mismatch or stale token (403), auto-refresh CSRF token and retry once
+  if (res.status === 403 && isUnsafe) {
+    clearCsrfToken();
+    const freshCsrf = await getCsrfToken();
+    if (freshCsrf) {
+      headers["X-CSRF-Token"] = freshCsrf;
+      res = await fetch(url, {
+        method,
+        headers,
+        body: data ? JSON.stringify(data) : undefined,
+        credentials: "include",
+      });
+    }
+  }
 
   await throwIfResNotOk(res);
   return res;

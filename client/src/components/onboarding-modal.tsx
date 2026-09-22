@@ -8,8 +8,8 @@ import { motion, AnimatePresence } from "framer-motion";
 const STEPS = [
   {
     id: 1,
-    title: "Welcome to CodeGuard",
-    description: "Your AI-powered guardian for code quality and security. Let's get you set up in seconds.",
+    title: "Welcome to CodeSift AI",
+    description: "Your AI-powered DevSecOps platform for code quality and security. Let's get you set up in seconds.",
     icon: <Rocket className="h-8 w-8" />
   },
   {
@@ -21,7 +21,7 @@ const STEPS = [
   {
     id: 3,
     title: "AI Code Analysis",
-    description: "CodeGuard scans your code for bugs, vulnerabilities, and smells as soon as you open a PR.",
+    description: "CodeSift AI scans your code for bugs, vulnerabilities, and smells as soon as you open a PR.",
     icon: <Cpu className="h-8 w-8" />
   },
   {
@@ -52,9 +52,9 @@ export function OnboardingModal() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="sm:max-w-[440px] p-0 overflow-hidden border-none bg-transparent shadow-none">
-        <DialogTitle className="sr-only">Getting Started with CodeGuard</DialogTitle>
+        <DialogTitle className="sr-only">Getting Started with CodeSift AI</DialogTitle>
         <DialogDescription className="sr-only">
-          A short tutorial on how to use CodeGuard effectively.
+          A short tutorial on how to use CodeSift AI effectively.
         </DialogDescription>
         
         <motion.div 

@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { providerStats, pingNIM } from "../ai/provider.js";
+import { providerStats, pingNIM, pingGroq } from "../ai/provider.js";
 
 const router = Router();
 
@@ -15,13 +15,26 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
 
 /**
  * GET /api/ai/status
- * Returns the current state of both AI providers.
+ * Returns the current state of AI providers.
  * Used by the dashboard's Provider Health widget.
  */
 router.get("/status", requireAuth, async (_req, res) => {
-  const nimPing = await pingNIM();
+  const [nimPing, groqPing] = await Promise.all([pingNIM(), pingGroq()]);
 
   res.json({
+    groq: {
+      configured: !!(process.env.GROQ_API_KEY || process.env.GROQ_API_KEY_AUDIT || process.env.GROQ_API_KEY_FIX),
+      reachable: groqPing.reachable,
+      latencyMs: groqPing.latencyMs,
+      pingError: groqPing.error ?? null,
+      model: process.env.GROQ_MODEL ?? "openai/gpt-oss-120b",
+      calls: providerStats.groqCalls,
+      successes: providerStats.groqSuccesses,
+      failures: providerStats.groqFailures,
+      successRate: providerStats.groqCalls > 0
+        ? Math.round((providerStats.groqSuccesses / providerStats.groqCalls) * 100)
+        : 0,
+    },
     nim: {
       configured: !!(process.env.NVIDIA_NIM_API_KEY?.startsWith("nvapi-")),
       reachable: nimPing.reachable,

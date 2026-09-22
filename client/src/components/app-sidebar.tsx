@@ -33,6 +33,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { PremiumAvatar } from "@/components/ui/premium-avatar";
+import { queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/queryClient";
 import { clearCsrfToken, getCsrfToken } from "@/lib/csrf";
@@ -129,13 +130,51 @@ export function AppSidebar() {
 
   const handleLogout = async () => {
     try {
-      await getCsrfToken();
-      await apiRequest("POST", "/api/logout");
-    } catch {
-      // still clear client state
+      // 1. Fetch fresh CSRF token so POST works on both old and new backend
+      let token = await getCsrfToken().catch(() => null);
+      if (!token) {
+        try {
+          const csrfRes = await fetch("/api/csrf", { credentials: "include" });
+          if (csrfRes.ok) {
+            const data = (await csrfRes.json()) as { csrfToken?: string };
+            token = data.csrfToken ?? null;
+          }
+        } catch {}
+      }
+
+      // 2. Call POST /api/logout with CSRF token and credentials
+      await fetch("/api/logout", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          ...(token ? { "x-csrf-token": token } : {}),
+          "Content-Type": "application/json",
+        },
+      });
+
+      // 3. Send fallback GET /api/logout to ensure session destruction across all handlers
+      await fetch("/api/logout", {
+        method: "GET",
+        credentials: "include",
+      });
+    } catch (err) {
+      console.error("Logout request error:", err);
     } finally {
+      // 4. Invalidate all CSRF and auth cache
       clearCsrfToken();
-      window.location.href = "/auth";
+      queryClient.setQueryData(["/api/user"], null);
+      queryClient.removeQueries({ queryKey: ["/api/user"] });
+      queryClient.clear();
+
+      // 5. Clear client-accessible cookies and local/session storage
+      try {
+        document.cookie = "codeguard.sid=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch {}
+
+      // 6. Hard redirect to landing page so the browser unloads the authenticated view
+      window.location.replace("/landing");
     }
   };
 
@@ -146,14 +185,14 @@ export function AppSidebar() {
           <div className="flex h-9 w-9 items-center justify-center">
             <img
               src="/logo.png"
-              alt="CodeGuard logo"
+              alt="CodeSift AI logo"
               className="h-9 w-9 object-contain rounded-md"
             />
           </div>
 
           <div className="flex flex-col">
-            <span className="text-base font-semibold">CodeGuard</span>
-            <span className="text-xs text-muted-foreground">signal over noise</span>
+            <span className="text-base font-semibold tracking-tight">CodeSift AI</span>
+            <span className="text-xs text-muted-foreground">AI-Powered DevSecOps</span>
           </div>
         </div>
       </SidebarHeader>
@@ -216,34 +255,6 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/changelog"}>
-                  <Link href="/changelog">
-                    <span>Changelog</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/developer"}>
-                  <Link href="/developer">
-                    <span>Developer</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/terms"}>
-                  <Link href="/terms">
-                    <span>Terms & Conditions</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/privacy"}>
-                  <Link href="/privacy">
-                    <span>Privacy Policy</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -275,7 +286,7 @@ export function AppSidebar() {
         </Button>
         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-4">
           <Badge variant="outline" className="text-xs">v1.0.0</Badge>
-          <span>CodeGuard</span>
+          <span>CodeSift AI</span>
         </div>
       </SidebarFooter>
     </Sidebar >

@@ -33,7 +33,7 @@ interface AIStatus {
     successes: number;
     failures: number;
   };
-  activeProvider: "nim" | "openai" | "none";
+  activeProvider: "nim" | "openai" | "groq" | "none";
   lastFailureReason: string | null;
   forceFallback: boolean;
 }
@@ -120,9 +120,13 @@ export default function AIProviderStatus() {
               variant="outline" 
               className={status.activeProvider === 'nim' 
                 ? "bg-green-500/10 text-green-500 border-green-500/20" 
-                : "bg-blue-500/10 text-blue-500 border-blue-500/20"}
+                : status.activeProvider === 'groq'
+                ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                : status.activeProvider === 'openai'
+                ? "bg-blue-500/10 text-blue-500 border-blue-500/20"
+                : "bg-muted text-muted-foreground"}
             >
-              {status.activeProvider === 'nim' ? 'NVIDIA NIM Active' : status.activeProvider === 'openai' ? 'OpenAI Fallback' : 'Idle'}
+              {status.activeProvider === 'nim' ? 'NVIDIA NIM Active' : status.activeProvider === 'groq' ? 'Groq Active (Primary)' : status.activeProvider === 'openai' ? 'OpenAI Fallback' : 'Idle'}
             </Badge>
           )}
           <Button 

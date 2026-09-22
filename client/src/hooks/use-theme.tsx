@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 
-type Theme = "light" | "dark" | "midnight";
+export type Theme = "light" | "dark";
 
 interface ThemeContextType {
   theme: Theme;
@@ -11,14 +11,15 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("light");
+  const [theme, setThemeState] = useState<Theme>("dark");
 
   useEffect(() => {
     const stored = localStorage.getItem("theme") as Theme | null;
-    if (stored) {
+    if (stored && (stored === "light" || stored === "dark")) {
       setThemeState(stored);
       applyTheme(stored);
-    } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+    } else {
+      // Default to dark mode to match the CodeSift AI security palette
       setThemeState("dark");
       applyTheme("dark");
     }
@@ -27,8 +28,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const applyTheme = (t: Theme) => {
     const root = document.documentElement;
     root.classList.remove("light", "dark", "midnight");
-    if (t !== "light") {
-      root.classList.add(t);
+    if (t === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.add("light");
     }
   };
 
@@ -39,14 +42,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   };
 
   const cycleTheme = (event?: React.MouseEvent) => {
-    const nextTheme: Record<Theme, Theme> = {
-      light: "dark",
-      dark: "midnight",
-      midnight: "light",
-    };
-    const next = nextTheme[theme];
+    const next: Theme = theme === "light" ? "dark" : "light";
 
-    // Check if the browser supports View Transitions API
     // @ts-ignore
     if (!document.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches || !event) {
       setTheme(next);
@@ -74,8 +71,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
           ],
         },
         {
-          duration: 500,
-          easing: "cubic-bezier(0.4, 0, 0.2, 1)",
+          duration: 350,
+          easing: "cubic-bezier(0.2, 0, 0, 1)",
           pseudoElement: "::view-transition-new(root)",
         }
       );

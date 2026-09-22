@@ -12,6 +12,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 function isCsrfExemptPath(path: string): boolean {
   if (path.startsWith("/api/webhooks/")) return true;
   if (path === "/api/csrf") return true;
+  if (path === "/api/logout") return true;
   if (path === "/api/visitors/heartbeat") return true;
   return false;
 }

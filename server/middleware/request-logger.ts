@@ -132,7 +132,7 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
     performLog(statusCode)
       .finally(() => {
         // Now actually end the response
-        originalEnd.call(res, chunk, encoding, callback);
+        originalEnd.call(res, chunk, encoding as any, callback);
       });
   };
 

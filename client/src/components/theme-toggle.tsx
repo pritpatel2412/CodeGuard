@@ -1,9 +1,9 @@
-import { Moon, Sun, Sparkles } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/use-theme";
 import { motion, AnimatePresence } from "framer-motion";
 
-export function ThemeToggle() {
+export function ThemeToggle({ className }: { className?: string }) {
   const { theme, cycleTheme } = useTheme();
 
   return (
@@ -11,24 +11,27 @@ export function ThemeToggle() {
       size="icon"
       variant="ghost"
       onClick={(e) => cycleTheme(e)}
-      className="relative h-10 w-10 rounded-full border border-border/40 bg-background/50 hover:bg-accent/50 transition-all duration-300 overflow-hidden"
+      className={`relative h-9 w-9 rounded-md border border-border/60 bg-card/60 hover:bg-accent/60 text-foreground transition-colors overflow-hidden ${className || ""}`}
+      title={`Switch to ${theme === "dark" ? "Light" : "Dark"} mode`}
       data-testid="button-theme-toggle"
     >
-      <AnimatePresence mode="wait">
+      <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={theme}
-          initial={{ y: 20, rotate: -90, opacity: 0 }}
-          animate={{ y: 0, rotate: 0, opacity: 1 }}
-          exit={{ y: -20, rotate: 90, opacity: 0 }}
-          transition={{ duration: 0.3, ease: "easeInOut" }}
+          initial={{ y: 10, opacity: 0, rotate: -30 }}
+          animate={{ y: 0, opacity: 1, rotate: 0 }}
+          exit={{ y: -10, opacity: 0, rotate: 30 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
           className="flex items-center justify-center"
         >
-          {theme === "light" && <Sun className="h-5 w-5" />}
-          {theme === "dark" && <Moon className="h-5 w-5" />}
-          {theme === "midnight" && <Sparkles className="h-5 w-5" />}
+          {theme === "dark" ? (
+            <Sun className="h-4 w-4 text-[#D4FF3F]" />
+          ) : (
+            <Moon className="h-4 w-4 text-foreground" />
+          )}
         </motion.div>
       </AnimatePresence>
-      <span className="sr-only">Cycle Theme</span>
+      <span className="sr-only">Toggle theme</span>
     </Button>
   );
 }

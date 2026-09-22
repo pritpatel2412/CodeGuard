@@ -1,10 +1,12 @@
-# CodeGuard
+# CodeSift AI
 
-Automated security and code-quality review platform for pull/merge requests, with AI analysis, optional AI remediation, custom policy enforcement, and developer-focused triage UI.
+> **AI-Powered Code Security for Modern Teams**
 
-## What CodeGuard Does
+CodeSift AI is an autonomous DevSecOps SaaS platform that helps developers detect security vulnerabilities, code-quality issues, and risky changes in GitHub pull requests, understand the risks, and safely fix them.
 
-CodeGuard connects repositories, receives webhook events, analyzes code changes, stores findings, and surfaces actionable review output in a dashboard.
+## What CodeSift AI Does
+
+CodeSift AI connects repositories, receives webhook events, analyzes code changes, stores findings, and surfaces actionable review output in a dashboard.
 
 Core outcomes:
 

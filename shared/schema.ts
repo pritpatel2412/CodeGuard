@@ -375,6 +375,26 @@ export const aiReviewResponseSchema = z.object({
 });
 
 export type AIReviewResponse = z.infer<typeof aiReviewResponseSchema>;
+ 
+// AI Security Summary Schema
+export const securitySummaryResponseSchema = z.object({
+  riskLevel: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  securityScore: z.number().min(0).max(100),
+  keyRisks: z.array(z.string()),
+  potentialImpact: z.string(),
+  recommendedActions: z.array(z.string()),
+  whyThisMatters: z.string(),
+});
+
+export type SecuritySummaryResponse = z.infer<typeof securitySummaryResponseSchema>;
+
+// AI Fix Explanation Schema
+export const aiFixExplanationSchema = z.object({
+  whyThisIsARisk: z.string(),
+  howTheFixWorks: z.string(),
+});
+
+export type AIFixExplanation = z.infer<typeof aiFixExplanationSchema>;
 
 // Visitor Counter
 export const visitors = pgTable("visitors", {

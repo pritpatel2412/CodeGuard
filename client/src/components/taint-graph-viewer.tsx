@@ -188,7 +188,7 @@ export function TaintGraphViewer({ reviewId }: { reviewId: string }) {
 
   // Theme-aware colors
   const colors = {
-    background: theme === "light" ? "hsl(var(--background))" : theme === "midnight" ? "#000000" : "hsl(var(--background))",
+    background: "hsl(var(--background))",
     grid: theme === "light" ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.05)",
     miniMapNode: theme === "light" ? "#e2e8f0" : "#1e293b",
     miniMapMask: theme === "light" ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.7)",

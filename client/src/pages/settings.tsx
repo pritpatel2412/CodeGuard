@@ -157,7 +157,7 @@ export default function Settings() {
             <Shield className="h-5 w-5" />
             <CardTitle>Review Preferences</CardTitle>
           </div>
-          <CardDescription>Choose what CodeGuard should prioritize during analysis.</CardDescription>
+          <CardDescription>Choose what CodeSift AI should prioritize during analysis.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           {[

@@ -4,7 +4,7 @@ import { storage } from "./storage.js";
 import { insertRepositorySchema, insertReviewSchema, insertReviewCommentSchema, policyViolations, reviews, repositories } from "../shared/schema.js";
 import { getUncachableGitHubClient, getPullRequestDiff, getPullRequestDetails, postReviewComment, postReview, createBranch, updateFile, createPullRequest, getFileContent, setCommitGateStatus, getBranches } from "./github.js";
 import { getMergeRequestDetails, getGitLabFileContent, createGitLabBranch, updateGitLabFile, createMergeRequest, postMergeRequestComment } from "./gitlab.js";
-import { analyzeCodeDiff, generateFix } from "./openai.js";
+import { analyzeCodeDiff, generateFix, generateSecuritySummary, generateFixExplanation } from "./openai.js";
 import { isSensitiveFile } from "./policy/safety-guard.js";
 import { runCrossFileTaintAnalysis } from "./taint/taint-orchestrator.js";
 import { runPolicyEnforcement } from "./policy/policy-orchestrator.js";
@@ -500,6 +500,79 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error(`[API] Error fetching review ${req.params.id}:`, error);
       res.status(500).json({ error: "An internal server error occurred" });
+    }
+  });
+
+  // Generate AI Security Summary for a review
+  app.post("/api/reviews/:id/security-summary", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const review = await storage.getReview(req.params.id);
+      if (!review) {
+        return res.status(404).json({ error: "Review not found" });
+      }
+
+      const repository = await storage.getRepository(review.repositoryId);
+      if (!repository || repository.userId !== req.user!.id) {
+        return res.status(403).json({ error: "Unauthorized access to review" });
+      }
+
+      const comments = await storage.getReviewComments(review.id);
+
+      // Fetch policy violations if any exist
+      let violations: any[] = [];
+      try {
+        violations = await db
+          .select()
+          .from(policyViolations)
+          .where(eq(policyViolations.reviewId, review.id));
+      } catch (err: any) {
+        console.warn("[API] Could not fetch policy violations for summary:", err.message);
+      }
+
+      // Fetch taint paths if any exist
+      let taintPaths: any[] = [];
+      try {
+        taintPaths = await storage.getTaintPaths(review.id);
+      } catch (err: any) {
+        console.warn("[API] Could not fetch taint paths for summary:", err.message);
+      }
+
+      const summary = await generateSecuritySummary({
+        prTitle: review.prTitle,
+        summary: review.summary,
+        riskLevel: review.riskLevel,
+        filesChanged: review.filesChanged,
+        additions: review.additions,
+        deletions: review.deletions,
+        comments: comments.map((c) => ({
+          path: c.path,
+          line: c.line,
+          type: c.type,
+          comment: c.comment,
+          severity: c.severity,
+        })),
+        policyViolations: violations.map((v) => ({
+          ruleId: v.ruleId,
+          ruleName: v.ruleName,
+          severity: v.severity,
+          filePath: v.filePath,
+          explanation: v.explanation,
+        })),
+        taintPaths: taintPaths.map((tp) => ({
+          title: tp.title,
+          vulnerabilityType: tp.vulnerabilityType,
+          severity: tp.severity,
+          sourceFile: tp.sourceFile,
+          sinkFile: tp.sinkFile,
+          sinkExpression: tp.sinkExpression,
+        })),
+      }, repository.id);
+
+      res.json(summary);
+    } catch (error: any) {
+      console.error(`[API] Error generating security summary for review ${req.params.id}:`, error);
+      res.status(500).json({ error: error.message || "Failed to generate security summary" });
     }
   });
 
@@ -1339,6 +1412,58 @@ It analyzes your changes for potential bugs, security risks, performance issues,
       error: "GitLab webhook support coming soon",
       message: "This endpoint is reserved for GitLab merge request webhooks"
     });
+  });
+
+  // Get AI Fix Explanation before applying fix
+  app.get("/api/reviews/:reviewId/comments/:commentId/fix-explanation", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+
+    try {
+      const { reviewId, commentId } = req.params;
+
+      const comment = await storage.getReviewComment(commentId);
+      if (!comment || comment.reviewId !== reviewId) {
+        return res.status(404).json({ error: "Comment not found" });
+      }
+
+      const review = await storage.getReview(reviewId);
+      if (!review) {
+        return res.status(404).json({ error: "Review not found" });
+      }
+
+      const repo = await storage.getRepository(review.repositoryId);
+      if (!repo || repo.userId !== req.user!.id) {
+        return res.status(403).json({ error: "Unauthorized access to repository" });
+      }
+
+      const tokenUser = await storage.getUser(req.user!.id);
+      const accessToken = tokenUser?.accessToken ?? undefined;
+
+      let fileContent = "";
+      try {
+        if (repo.platform === "gitlab") {
+          const mrDetails = await getMergeRequestDetails(repo.owner, repo.name, review.prNumber);
+          fileContent = await getGitLabFileContent(repo.owner, repo.name, comment.path, mrDetails.sha);
+        } else {
+          const prDetails = await getPullRequestDetails(repo.owner, repo.name, review.prNumber, accessToken);
+          fileContent = await getFileContent(repo.owner, repo.name, comment.path, prDetails.head.sha, accessToken);
+        }
+      } catch (fileErr: any) {
+        console.warn(`[Fix Explanation] Could not fetch remote file content: ${fileErr.message}`);
+      }
+
+      const explanation = await generateFixExplanation(
+        fileContent,
+        comment.comment,
+        comment.line,
+        comment.path
+      );
+
+      res.json(explanation);
+    } catch (error: any) {
+      console.error("[Fix Explanation] Error generating fix explanation:", error);
+      res.status(500).json({ error: "Failed to generate fix explanation" });
+    }
   });
 
   // Apply AI Fix

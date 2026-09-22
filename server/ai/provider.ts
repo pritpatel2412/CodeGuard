@@ -27,13 +27,23 @@ const openaiClient = new OpenAI({
 });
 
 /**
- * Groq client for ultra-fast analysis.
+ * Groq client for ultra-fast analysis and primary local development.
  */
-const groqClient = new OpenAI({
-  baseURL: "https://api.groq.com/openai/v1",
-  apiKey: process.env.GROQ_API_KEY ?? "",
-  maxRetries: 2,
-});
+let cachedGroqClient: OpenAI | null = null;
+let cachedGroqKey = "";
+
+export function getGroqClient(key: string): OpenAI {
+  if (cachedGroqClient && cachedGroqKey === key) {
+    return cachedGroqClient;
+  }
+  cachedGroqClient = new OpenAI({
+    baseURL: "https://api.groq.com/openai/v1",
+    apiKey: key,
+    maxRetries: 2,
+  });
+  cachedGroqKey = key;
+  return cachedGroqClient;
+}
 
 // ── Task types → Model mapping ────────────────────────────────────────────────
 
@@ -191,21 +201,14 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
   const maxNIMRetries = parseInt(process.env.NVIDIA_NIM_MAX_RETRIES ?? "2");
 
   // ── Try Groq ──────────────────────────────────────────────────────────────
-  const groqKey = task === "analysis" 
+  const groqKey = (task === "analysis" || task === "enrich")
     ? (process.env.GROQ_API_KEY_AUDIT || process.env.GROQ_API_KEY)
     : (process.env.GROQ_API_KEY_FIX || process.env.GROQ_API_KEY);
 
   if (groqKey) {
-    const groqModel = "llama-3.3-70b-versatile";
+    const groqModel = process.env.GROQ_MODEL ?? "openai/gpt-oss-120b";
     console.log(`[AI Provider] Routing '${task}' task to Groq (${groqModel})`);
-    
-    const currentGroqClient = groqKey === process.env.GROQ_API_KEY 
-      ? groqClient 
-      : new OpenAI({
-          baseURL: "https://api.groq.com/openai/v1",
-          apiKey: groqKey,
-          maxRetries: 2,
-        });
+    const currentGroqClient = getGroqClient(groqKey);
     
     try {
       providerStats.groqCalls++;
@@ -233,9 +236,46 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
         promptTokens: response.usage?.prompt_tokens ?? 0,
         completionTokens: response.usage?.completion_tokens ?? 0,
       };
-    } catch (error: any) {
+    } catch (err: any) {
       providerStats.groqFailures++;
-      console.warn(`[AI Provider] Groq failed: ${error.message}. Falling back to NIM/OpenAI...`);
+      providerStats.lastFailureReason = err?.message ?? "unknown";
+
+      // On model error (unsupported feature / prompt format): retry with JSON-in-prompt
+      if (err?.status === 400 && responseFormat?.type === "json_object") {
+        console.log("[AI Provider] Groq response_format rejected. Retrying with prompt-based JSON enforcement...");
+        try {
+          const messagesCopy = [...messages];
+          if (messagesCopy[0]?.role === "system") {
+            messagesCopy[0] = {
+              ...messagesCopy[0],
+              content: messagesCopy[0].content + "\n\nIMPORTANT: Respond ONLY with valid JSON. No prose, no markdown, no code fences."
+            };
+          }
+          const retryParams: ChatCompletionCreateParamsNonStreaming = {
+            model: groqModel,
+            messages: messagesCopy,
+            max_tokens: maxTokens,
+            temperature,
+          };
+          const retryResponse = await currentGroqClient.chat.completions.create(retryParams, { signal });
+          const retryContent = retryResponse.choices[0]?.message?.content ?? "";
+
+          providerStats.groqSuccesses++;
+          providerStats.lastProvider = "groq";
+
+          return {
+            content: retryContent,
+            provider: "groq",
+            model: groqModel,
+            promptTokens: retryResponse.usage?.prompt_tokens ?? 0,
+            completionTokens: retryResponse.usage?.completion_tokens ?? 0,
+          };
+        } catch (retryErr: any) {
+          console.warn(`[AI Provider] Groq JSON retry failed: ${retryErr.message}`);
+        }
+      }
+
+      console.warn(`[AI Provider] Groq failed: ${err.message}. Falling back to NIM/OpenAI...`);
     }
   }
 
@@ -352,12 +392,22 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
 
     console.warn("[AI Provider] NIM exhausted. Falling back to OpenAI.");
   } else if (!nimAvailable) {
-    console.log("[AI Provider] NVIDIA_NIM_API_KEY not set or invalid. Using OpenAI directly.");
+    if (!groqKey) {
+      console.log("[AI Provider] NVIDIA_NIM_API_KEY not set or invalid. Using OpenAI directly.");
+    }
   } else if (isCircuitOpen()) {
     console.log("[AI Provider] NIM circuit is OPEN. Using OpenAI directly.");
   }
 
   // ── Fallback: OpenAI ───────────────────────────────────────────────────────
+  const openaiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!openaiKey) {
+    const lastErr = providerStats.lastFailureReason ? ` Last error: ${providerStats.lastFailureReason}` : "";
+    throw new Error(
+      `AI request failed: No operational AI provider available. Set GROQ_API_KEY, NVIDIA_NIM_API_KEY, or OPENAI_API_KEY in .env.${lastErr}`
+    );
+  }
+
   try {
     console.log(`[AI Provider] OpenAI fallback — model: ${OPENAI_FALLBACK_MODEL}`);
     providerStats.openaiCalls++;
@@ -392,7 +442,7 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
     providerStats.openaiFailures++;
     providerStats.lastFailureReason = error.message ?? "unknown";
     console.error("[AI Provider] OpenAI fallback also failed:", error.message);
-    throw new Error(`Both AI providers failed. Last error: ${error.message}`);
+    throw new Error(`AI request failed. Last error: ${error.message}`);
   }
 }
 
@@ -400,6 +450,30 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Check if Groq is reachable with a lightweight ping.
+ * Used by the /api/ai/status health endpoint.
+ */
+export async function pingGroq(): Promise<{ reachable: boolean; latencyMs: number; error?: string }> {
+  const start = Date.now();
+  try {
+    const groqKey = process.env.GROQ_API_KEY ?? process.env.GROQ_API_KEY_AUDIT ?? process.env.GROQ_API_KEY_FIX ?? "";
+    if (!groqKey) {
+      return { reachable: false, latencyMs: 0, error: "No Groq API key configured" };
+    }
+    const client = getGroqClient(groqKey);
+    await client.chat.completions.create({
+      model: process.env.GROQ_MODEL ?? "openai/gpt-oss-120b",
+      messages: [{ role: "user", content: "Reply with: OK" }],
+      max_tokens: 5,
+      temperature: 0,
+    });
+    return { reachable: true, latencyMs: Date.now() - start };
+  } catch (err: unknown) {
+    return { reachable: false, latencyMs: Date.now() - start, error: (err as { message?: string }).message };
+  }
 }
 
 /**

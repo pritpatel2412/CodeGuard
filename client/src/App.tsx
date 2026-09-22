@@ -31,11 +31,28 @@ import AdminRequests from "@/pages/admin/requests";
 import AdminSystem from "@/pages/admin/system";
 import AdminAuditLog from "@/pages/admin/audit-log";
 import AdminExport from "@/pages/admin/export";
-import { AuthProvider } from "@/hooks/use-auth";
+import LandingPage from "@/pages/landing-page";
+import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { ProtectedRoute, AdminProtectedRoute } from "@/lib/protected-route";
 import { withLayout } from "@/components/layout";
 import { SocketManager } from "@/components/SocketManager";
+
+function HomeRoute() {
+  const { user, isLoading } = useAuth();
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+  if (!user) {
+    return <LandingPage />;
+  }
+  const DashboardWithLayout = withLayout(Dashboard);
+  return <DashboardWithLayout />;
+}
 
 function App() {
   return (
@@ -48,8 +65,12 @@ function App() {
             <Route path="/auth" component={AuthPage} />
             <Route path="/404" component={NotFound} />
             
+            {/* Public Landing & Home Route */}
+            <Route path="/" component={HomeRoute} />
+            <Route path="/landing" component={LandingPage} />
+
             {/* Protected Routes with Sidebar */}
-            <ProtectedRoute path="/" component={withLayout(Dashboard)} />
+            <ProtectedRoute path="/dashboard" component={withLayout(Dashboard)} />
             <ProtectedRoute path="/reviews" component={withLayout(Reviews)} />
             <ProtectedRoute path="/reviews/:id" component={withLayout(ReviewDetail)} />
             <ProtectedRoute path="/repositories" component={withLayout(Repositories)} />

@@ -1,4 +1,4 @@
-import { type AIReviewResponse, aiReviewResponseSchema, apiUsageLog } from "../shared/schema.js";
+import { type AIReviewResponse, aiReviewResponseSchema, securitySummaryResponseSchema, type SecuritySummaryResponse, aiFixExplanationSchema, type AIFixExplanation, apiUsageLog } from "../shared/schema.js";
 import { callAI } from "./ai/provider.js";
 import { db } from "./db.js";
 const BASE_SYSTEM_PROMPT = `You are a Senior App Sec Engineer. Analyze code diffs and provide a sharp, actionable JSON review.
@@ -123,6 +123,9 @@ Analyze the changes and provide your review in JSON format.`;
     } else if (result.provider === "nim") {
       // rough heuristic: $0.50 per 1M prompt/completion for Llama 3 70B
       costUsd = ((result.promptTokens + result.completionTokens) / 1_000_000) * 0.50;
+    } else if (result.provider === "groq") {
+      // rough heuristic: $0.59 per 1M prompt, $0.79 per 1M completion for Llama 3.3 70B
+      costUsd = (result.promptTokens / 1_000_000) * 0.59 + (result.completionTokens / 1_000_000) * 0.79;
     }
 
     // Log to api_usage_log
@@ -233,4 +236,191 @@ Please provide the fixed full file content.`;
   } catch (error: any) {
     throw new Error(`Failed to generate fix: ${error.message}`);
   }
+}
+
+export interface SecuritySummaryInput {
+  prTitle: string;
+  summary?: string | null;
+  riskLevel?: string | null;
+  filesChanged?: number | null;
+  additions?: number | null;
+  deletions?: number | null;
+  comments: Array<{
+    path: string;
+    line: number;
+    type: string;
+    comment: string;
+    severity?: string;
+  }>;
+  policyViolations?: Array<{
+    ruleId: string;
+    ruleName: string;
+    severity: string;
+    filePath: string;
+    explanation?: string | null;
+  }>;
+  taintPaths?: Array<{
+    title: string;
+    vulnerabilityType: string;
+    severity: string;
+    sourceFile: string;
+    sinkFile: string;
+    sinkExpression: string;
+  }>;
+}
+
+export async function generateSecuritySummary(
+  input: SecuritySummaryInput,
+  repositoryId?: string
+): Promise<SecuritySummaryResponse> {
+  const SECURITY_SUMMARY_SYSTEM_PROMPT = `You are a Principal Application Security Architect for CodeGuard AI.
+Your job is to synthesize an executive, structured AI Security Summary for a Pull/Merge Request based on the detected review findings, policy violations, and cross-file taint vulnerabilities.
+
+Analyze the given context and return ONLY a valid JSON object strictly matching this schema:
+{
+  "riskLevel": "HIGH" | "MEDIUM" | "LOW",
+  "securityScore": <integer between 0 and 100, where 100 means fully secure and 0 means critical danger>,
+  "keyRisks": [
+    "Brief bullet point summarizing major risk 1",
+    "Brief bullet point summarizing major risk 2"
+  ],
+  "potentialImpact": "Concise paragraph detailing what an attacker or system failure could trigger (e.g. data breach, unauthorized privilege escalation, service disruption)",
+  "recommendedActions": [
+    "Specific actionable engineering remediation 1",
+    "Specific actionable engineering remediation 2"
+  ],
+  "whyThisMatters": "Clear, direct justification explaining the business and security consequence of merging or leaving these findings unaddressed."
+}
+
+Rules:
+1. If there are CRITICAL taint paths or HIGH severity policy violations/vulnerabilities, riskLevel must be "HIGH" and securityScore must reflect severe risk (typically below 50).
+2. If there are minor or zero issues, riskLevel should be "LOW" and securityScore high (80-100).
+3. Do not include markdown formatting or backticks in the response. Return pure JSON.`;
+
+  const userPrompt = `
+PR Title: ${input.prTitle}
+Baseline Risk: ${input.riskLevel || "unknown"}
+Diff Stats: ${input.filesChanged ?? 0} files changed (+${input.additions ?? 0} / -${input.deletions ?? 0})
+Initial Summary: ${input.summary || "No initial summary available"}
+
+Detected Review Findings (${input.comments.length}):
+${input.comments.length === 0 ? "None" : JSON.stringify(input.comments.slice(0, 15), null, 2)}
+
+Policy Violations (${input.policyViolations?.length ?? 0}):
+${!input.policyViolations || input.policyViolations.length === 0 ? "None" : JSON.stringify(input.policyViolations.slice(0, 10), null, 2)}
+
+Cross-File Taint Vulnerabilities (${input.taintPaths?.length ?? 0}):
+${!input.taintPaths || input.taintPaths.length === 0 ? "None" : JSON.stringify(input.taintPaths.slice(0, 5), null, 2)}
+`;
+
+  try {
+    const result = await callAI({
+      task: "enrich",
+      messages: [
+        { role: "system", content: SECURITY_SUMMARY_SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      responseFormat: { type: "json_object" },
+      maxTokens: 1500,
+    });
+
+    console.log(`[Security Summary] Served by: ${result.provider} (${result.model})`);
+
+    let cleaned = result.content.trim();
+    if (cleaned.startsWith("```json")) {
+      cleaned = cleaned.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+    } else if (cleaned.startsWith("```")) {
+      cleaned = cleaned.replace(/^```\s*/, "").replace(/\s*```$/, "");
+    }
+
+    const parsed = JSON.parse(cleaned);
+    const validated = securitySummaryResponseSchema.safeParse(parsed);
+
+    if (!validated.success) {
+      console.error("[Security Summary] Validation error:", validated.error);
+      // Fallback heuristic summary
+      return {
+        riskLevel: (input.riskLevel?.toUpperCase() === "HIGH" ? "HIGH" : input.riskLevel?.toUpperCase() === "MEDIUM" ? "MEDIUM" : "LOW") as "LOW" | "MEDIUM" | "HIGH",
+        securityScore: input.riskLevel === "high" ? 40 : input.riskLevel === "medium" ? 70 : 95,
+        keyRisks: input.comments.map(c => `${c.path}:${c.line} - ${c.comment}`).slice(0, 3),
+        potentialImpact: "Potential security vulnerabilities or policy breaches if merged without review.",
+        recommendedActions: ["Review flagged comments and resolve security vulnerabilities."],
+        whyThisMatters: "Proactively mitigating risks in pull requests prevents production incidents."
+      };
+    }
+
+    return validated.data;
+  } catch (error: any) {
+    console.error("[Security Summary] Generation failed:", error.message);
+    return {
+      riskLevel: (input.riskLevel?.toUpperCase() === "HIGH" ? "HIGH" : input.riskLevel?.toUpperCase() === "MEDIUM" ? "MEDIUM" : "LOW") as "LOW" | "MEDIUM" | "HIGH",
+      securityScore: input.riskLevel === "high" ? 35 : input.riskLevel === "medium" ? 70 : 95,
+      keyRisks: input.comments.length > 0 
+        ? input.comments.slice(0, 3).map(c => `${c.path}:${c.line} - ${c.comment}`)
+        : ["No high-confidence security risks identified."],
+      potentialImpact: input.summary || "Pending security assessment.",
+      recommendedActions: ["Inspect code diff and verify input validation across boundaries."],
+      whyThisMatters: "Maintaining high security hygiene safeguards user data and application uptime."
+    };
+  }
+}
+
+export async function generateFixExplanation(
+  fileContent: string,
+  issueDescription: string,
+  issueLine: number,
+  filePath: string
+): Promise<AIFixExplanation> {
+  const EXPLANATION_SYSTEM_PROMPT = `You are a senior application security engineer.
+Explain the security vulnerability found at the specified line and explain how an automated remediation works.
+
+Return ONLY a valid JSON object matching this schema:
+{
+  "whyThisIsARisk": "1 to 3 simple sentences explaining why this finding poses a security risk.",
+  "howTheFixWorks": "1 to 3 simple sentences explaining how the fix remediates the flaw (e.g. parameterization, sanitization, environment variables)."
+}
+
+Do NOT include markdown backticks or extra commentary. Return pure JSON.`;
+
+  const userPrompt = `
+File: ${filePath} (Line ${issueLine})
+Finding Description: ${issueDescription}
+
+Relevant snippet/context:
+${fileContent.split("\n").slice(Math.max(0, issueLine - 10), issueLine + 10).join("\n") || fileContent.slice(0, 500)}
+`;
+
+  try {
+    const result = await callAI({
+      task: "enrich",
+      messages: [
+        { role: "system", content: EXPLANATION_SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      responseFormat: { type: "json_object" },
+      maxTokens: 500,
+    });
+
+    let cleaned = result.content.trim();
+    if (cleaned.startsWith("```json")) {
+      cleaned = cleaned.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+    } else if (cleaned.startsWith("```")) {
+      cleaned = cleaned.replace(/^```\s*/, "").replace(/\s*```$/, "");
+    }
+
+    const parsed = JSON.parse(cleaned);
+    const validated = aiFixExplanationSchema.safeParse(parsed);
+
+    if (validated.success) {
+      return validated.data;
+    }
+  } catch (err: any) {
+    console.warn(`[AI Fix Explanation] AI generation failed: ${err.message}. Using fallback.`);
+  }
+
+  // Safe heuristic fallback based on issue description
+  return {
+    whyThisIsARisk: `This code pattern in ${filePath} at line ${issueLine} introduces vulnerability exposure (${issueDescription}). Untrusted input or insecure configurations can be exploited by attackers.`,
+    howTheFixWorks: `The fix replaces the vulnerable pattern with safe defensive coding practices, such as environment variables, input parameterization, or secure sanitizers, while preserving existing business logic.`
+  };
 }
